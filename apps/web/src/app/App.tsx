@@ -1,11 +1,7 @@
-function App() {
-  return (
-    <main className="flex min-h-screen items-center justify-center">
-      <h1 className="text-4xl font-bold">
-        IntelligenceOS
-      </h1>
-    </main>
-  );
-}
+import { RouterProvider } from "react-router-dom";
 
-export default App;
+import { router } from "./router";
+
+export default function App() {
+  return <RouterProvider router={router} />;
+}
