@@ -1,9 +1,11 @@
 import { Outlet } from "react-router-dom";
 
+import { AppShell } from "../layouts";
+
 export default function RootLayout() {
   return (
-    <main className="min-h-screen bg-background text-foreground">
+    <AppShell>
       <Outlet />
-    </main>
+    </AppShell>
   );
 }
