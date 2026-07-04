@@ -8,3 +8,15 @@ coverage
 .env.production
 .supabase
 .vscode/settings.json
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+supabase/.env.local
+apps/web/.env.local
+
+# Supabase CLI
+supabase/.branches/
+supabase/.temp/
