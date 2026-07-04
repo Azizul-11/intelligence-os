@@ -79,6 +79,8 @@ importers:
         specifier: ^8.1.1
         version: 8.1.2(@types/node@24.13.2)(jiti@2.7.0)
 
+  packages/contracts: {}
+
 packages:
 
   '@biomejs/biome@2.5.1':
