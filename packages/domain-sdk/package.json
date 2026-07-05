@@ -1,0 +1,19 @@
+{
+  "name": "@intelligence/domain-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Universal Domain SDK contracts for IntelligenceOS",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2"
+  }
+}
