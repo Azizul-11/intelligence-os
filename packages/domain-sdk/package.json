@@ -13,6 +13,9 @@
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf dist"
   },
+  "dependencies": {
+    "@intelligence/contracts": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "^5.9.2"
   }
