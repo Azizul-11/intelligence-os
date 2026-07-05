@@ -5,3 +5,5 @@ export * from "./aliases";
 export * from "./relationships";
 export * from "./benchmarks";
 export * from "./sql";
+export * from "./capabilities";
+export * from "./recommendations";
