@@ -7,5 +7,5 @@ export * from "./alias-registry";
 export * from "./relationship-registry";
 export * from "./benchmark-registry";
 export * from "./sql-template-registry";
-// export * from "./recommendation-registry";
+export * from "./recommendation-registry";
 export * from "./capability-registry";
