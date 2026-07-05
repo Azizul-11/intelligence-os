@@ -4,3 +4,4 @@ export * from "./metrics";
 export * from "./aliases";
 export * from "./relationships";
 export * from "./benchmarks";
+export * from "./sql";
