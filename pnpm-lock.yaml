@@ -79,6 +79,19 @@ importers:
         specifier: ^8.1.1
         version: 8.1.2(@types/node@24.13.2)(jiti@2.7.0)
 
+  domain-packs/healthcare:
+    dependencies:
+      '@intelligence/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@intelligence/domain-sdk':
+        specifier: workspace:*
+        version: link:../../packages/domain-sdk
+    devDependencies:
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.3
+
   packages/contracts: {}
 
   packages/data-platform:
