@@ -1,6 +1,8 @@
 import type { AliasDefinition } from "../alias-registry";
 import type { BenchmarkDefinition } from "../benchmark-registry";
 import type { CapabilityDefinition } from "../capability-registry";
+import type { CategoryDefinition } from "../category-registry";
+import type { DimensionDefinition } from "../dimension-registry";
 import type { EntityDefinition } from "../entity-registry";
 import type { MetricDefinition } from "../metric-registry";
 import type { RecommendationDefinition } from "../recommendation-registry";
@@ -9,12 +11,6 @@ import type { SqlTemplateDefinition } from "../sql-template-registry";
 
 import type { DomainManifest } from "./domain-manifest";
 
-/**
- * Public contract implemented by every Domain Pack.
- *
- * The manifest describes the domain.
- * The registries provide the domain knowledge.
- */
 export interface DomainPack {
   manifest: DomainManifest;
 
@@ -23,6 +19,10 @@ export interface DomainPack {
   metrics: readonly MetricDefinition[];
 
   aliases: readonly AliasDefinition[];
+
+  dimensions: readonly DimensionDefinition[];
+
+  categories: readonly CategoryDefinition[];
 
   relationships: readonly RelationshipDefinition[];
 

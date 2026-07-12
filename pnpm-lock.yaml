@@ -127,6 +127,19 @@ importers:
         specifier: ^5.9.2
         version: 5.9.3
 
+  packages/semantic:
+    dependencies:
+      '@intelligence/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@intelligence/domain-sdk':
+        specifier: workspace:*
+        version: link:../domain-sdk
+    devDependencies:
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.3
+
 packages:
 
   '@biomejs/biome@2.5.1':

@@ -7,3 +7,6 @@ export * from "./benchmarks";
 export * from "./sql";
 export * from "./capabilities";
 export * from "./recommendations";
+export * from "./healthcare-domain";
+export * from "./categories";
+export * from "./dimensions";

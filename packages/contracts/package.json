@@ -7,11 +7,15 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    }
+  ".": {
+    "types": "./dist/index.d.ts",
+    "import": "./dist/index.js"
   },
+  "./semantic": {
+    "types": "./dist/semantic/index.d.ts",
+    "import": "./dist/semantic/index.js"
+  }
+},
   "files": [
     "dist"
   ],

@@ -11,6 +11,9 @@ import { healthcareSqlTemplates } from "./sql";
 import { healthcareCapabilities } from "./capabilities";
 import { healthcareRecommendations } from "./recommendations";
 
+import { healthcareCategories } from "./categories";
+import { healthcareDimensions } from "./dimensions";
+
 export const healthcareDomain: DomainPack = {
   manifest: healthcareManifest,
 
@@ -20,6 +23,11 @@ export const healthcareDomain: DomainPack = {
   metrics: healthcareMetrics,
 
   aliases: healthcareAliases,
+
+  dimensions: healthcareDimensions,
+
+categories: healthcareCategories,
+
 
   relationships: healthcareRelationships,
 
