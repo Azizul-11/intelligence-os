@@ -1,11 +1,12 @@
 import type { AliasResolutionResult } from "./alias-resolution-result";
 
 export class AliasResolver {
-  resolve(
-    input: string,
-    aliases: ReadonlyMap<string, string>,
-  ): AliasResolutionResult {
-    const canonicalKey = aliases.get(input);
+  constructor(
+    private readonly aliases: ReadonlyMap<string, string>,
+  ) {}
+
+  resolve(input: string): AliasResolutionResult {
+    const canonicalKey = this.aliases.get(input);
 
     if (!canonicalKey) {
       return {
