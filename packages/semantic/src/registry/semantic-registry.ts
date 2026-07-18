@@ -24,4 +24,12 @@ export class SemanticRegistry {
   hasRelationship(relationshipKey: string): boolean {
     return this.data.relationships.has(relationshipKey);
   }
+
+  hasDimension(dimensionKey: string): boolean {
+    return this.data.dimensions.has(dimensionKey);
+}
+
+hasBenchmark(benchmarkKey: string): boolean {
+    return this.data.benchmarks.has(benchmarkKey);
+}
 }

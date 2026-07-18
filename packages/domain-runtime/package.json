@@ -1,0 +1,16 @@
+{
+  "name": "@intelligence/domain-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "debug": "tsx src/runtime/debug.ts"
+  },
+  "dependencies": {
+    "@intelligence/domain-sdk": "workspace:*",
+    "@intelligence/semantic": "workspace:*",
+    "@intelligence/healthcare-domain": "workspace:*"
+  }
+}

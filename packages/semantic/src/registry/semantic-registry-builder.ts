@@ -12,6 +12,10 @@ export class SemanticRegistryBuilder {
 
   private readonly relationships = new Set<string>();
 
+  private readonly dimensions = new Set<string>();
+
+private readonly benchmarks = new Set<string>();
+
   addAlias(alias: string, canonicalKey: string): this {
     this.aliases.set(alias, canonicalKey);
     return this;
@@ -37,14 +41,26 @@ export class SemanticRegistryBuilder {
     return this;
   }
 
+  addDimension(dimensionKey: string): this {
+  this.dimensions.add(dimensionKey);
+  return this;
+}
+
+addBenchmark(benchmarkKey: string): this {
+  this.benchmarks.add(benchmarkKey);
+  return this;
+}
+
   build(): SemanticRegistry {
     const data: SemanticRegistryData = {
-      aliases: this.aliases,
-      metrics: this.metrics,
-      entities: this.entities,
-      categories: this.categories,
-      relationships: this.relationships,
-    };
+    aliases: this.aliases,
+    metrics: this.metrics,
+    entities: this.entities,
+    categories: this.categories,
+    dimensions: this.dimensions,
+    relationships: this.relationships,
+    benchmarks: this.benchmarks,
+};
 
     return new SemanticRegistry(data);
   }

@@ -117,6 +117,18 @@ importers:
         specifier: ^5.9.2
         version: 5.9.3
 
+  packages/domain-runtime:
+    dependencies:
+      '@intelligence/domain-sdk':
+        specifier: workspace:*
+        version: link:../domain-sdk
+      '@intelligence/healthcare-domain':
+        specifier: workspace:*
+        version: link:../../domain-packs/healthcare
+      '@intelligence/semantic':
+        specifier: workspace:*
+        version: link:../semantic
+
   packages/domain-sdk:
     dependencies:
       '@intelligence/contracts':
