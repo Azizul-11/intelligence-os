@@ -2,47 +2,67 @@ import type { SemanticValidationContext } from "./validation-context";
 import type { SemanticValidationResult } from "./validation-result";
 import type { SemanticValidator } from "./validator";
 
-export class DuplicateValidator
-  implements SemanticValidator
-{
-  validate(
-    context: SemanticValidationContext,
-  ): SemanticValidationResult {
+export class DuplicateValidator implements SemanticValidator {
+  validate(context: SemanticValidationContext): SemanticValidationResult {
     const errors: string[] = [];
 
     this.checkDuplicates(
-      context.entities.map((e) => e.key),
+      context.entities.map((e) => e.id),
       "Entity",
       errors,
     );
 
     this.checkDuplicates(
-      context.metrics.map((m) => m.key),
+      context.concepts.map((c) => c.id),
+      "Concept",
+      errors,
+    );
+
+    this.checkDuplicates(
+      context.metrics.map((m) => m.id),
       "Metric",
       errors,
     );
 
     this.checkDuplicates(
-      context.categories.map((c) => c.key),
+      context.categories.map((c) => c.id),
       "Category",
       errors,
     );
 
     this.checkDuplicates(
-      context.dimensions.map((d) => d.key),
+      context.dimensions.map((d) => d.id),
       "Dimension",
       errors,
     );
 
     this.checkDuplicates(
-      context.aliases.map((a) => a.alias),
+      context.aliases.flatMap((a) => a.aliases),
       "Alias",
       errors,
     );
 
     this.checkDuplicates(
-      context.benchmarks.map((b) => b.key),
+      context.benchmarks.map((b) => b.id),
       "Benchmark",
+      errors,
+    );
+
+    this.checkDuplicates(
+      context.capabilities.map((c) => c.id),
+      "Capability",
+      errors,
+    );
+
+    this.checkDuplicates(
+      context.recommendations.map((r) => r.id),
+      "Recommendation",
+      errors,
+    );
+
+    this.checkDuplicates(
+      context.sqlTemplates.map((t) => t.id),
+      "SQL Template",
       errors,
     );
 

@@ -11,10 +11,14 @@ import type { SqlTemplateDefinition } from "../sql-template-registry";
 
 import type { DomainManifest } from "./domain-manifest";
 
+import type { ConceptDefinition } from "../concept-registry";
+
 export interface DomainPack {
   manifest: DomainManifest;
 
   entities: readonly EntityDefinition[];
+
+  concepts: readonly ConceptDefinition[];
 
   metrics: readonly MetricDefinition[];
 

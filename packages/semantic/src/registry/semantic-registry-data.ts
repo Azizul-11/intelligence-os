@@ -5,6 +5,8 @@ export interface SemanticRegistryData {
 
   readonly entities: ReadonlySet<string>;
 
+  readonly concepts: ReadonlySet<string>;
+  
   readonly categories: ReadonlySet<string>;
 
   readonly relationships: ReadonlySet<string>;

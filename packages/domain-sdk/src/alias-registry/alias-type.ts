@@ -1,9 +1,19 @@
+// import type { SemanticType } from "../semantic";
+// export type AliasType =
+//   |SemanticType
+//   | "entity"
+//   | "metric"
+//   | "dimension"
+//   | "category"
+//   | "benchmark"
+//   | "relationship"
+//   | "sql-template"
+//   | "recommendation";
+
+
+import type { SemanticType } from "../semantic";
+
 export type AliasType =
-  | "entity"
-  | "metric"
-  | "dimension"
-  | "category"
-  | "benchmark"
-  | "relationship"
+  | SemanticType
   | "sql-template"
   | "recommendation";

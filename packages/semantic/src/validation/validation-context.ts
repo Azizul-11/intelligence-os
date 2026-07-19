@@ -1,25 +1,37 @@
 import type {
   EntityDefinition,
+  ConceptDefinition,
   MetricDefinition,
   AliasDefinition,
   CategoryDefinition,
   DimensionDefinition,
   BenchmarkDefinition,
   RelationshipDefinition,
-} from "@intelligence/contracts/semantic";
+  SqlTemplateDefinition,
+  CapabilityDefinition,
+  RecommendationDefinition,
+} from "@intelligence/domain-sdk";
 
 export interface SemanticValidationContext {
   entities: readonly EntityDefinition[];
 
+  concepts: readonly ConceptDefinition[];
+
   metrics: readonly MetricDefinition[];
-
-  categories: readonly CategoryDefinition[];
-
-  dimensions: readonly DimensionDefinition[];
 
   aliases: readonly AliasDefinition[];
 
-  benchmarks: readonly BenchmarkDefinition[];
+  dimensions: readonly DimensionDefinition[];
+
+  categories: readonly CategoryDefinition[];
 
   relationships: readonly RelationshipDefinition[];
+
+  benchmarks: readonly BenchmarkDefinition[];
+
+  sqlTemplates: readonly SqlTemplateDefinition[];
+
+  capabilities: readonly CapabilityDefinition[];
+
+  recommendations: readonly RecommendationDefinition[];
 }

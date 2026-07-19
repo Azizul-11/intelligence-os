@@ -19,6 +19,7 @@
     "check": "biome check .",
     "ingest:healthcare": "tsx scripts/ingest/ingest-healthcare.ts",
     "verify:healthcare": "tsx scripts/ingest/verify-healthcare.ts",
+    "verify:runtime": "tsx scripts/semantic/verify-runtime.ts",
     "test:supabase": "tsx scripts/test-supabase.ts"
   },
   "devDependencies": {

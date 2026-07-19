@@ -24,11 +24,12 @@ export class SemanticResolver {
     const matchResult = this.matcher.match(candidates);
     const ontologyResult = this.ontology.resolve(matchResult.canonicalKey);
 
-    return {
-      resolved: ontologyResult.found,
-      originalQuery: query,
-      normalizedQuery,
-      canonicalKey: ontologyResult.canonicalKey,
-    };
+   return {
+  resolved: ontologyResult.found,
+  originalQuery: query,
+  normalizedQuery,
+  canonicalKey: ontologyResult.canonicalKey,
+  semanticType: ontologyResult.semanticType,
+};
   }
 }

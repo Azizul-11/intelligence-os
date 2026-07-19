@@ -6,7 +6,12 @@ export class AliasResolver {
   ) {}
 
   resolve(input: string): AliasResolutionResult {
+    // const canonicalKey = this.aliases.get(input);
     const canonicalKey = this.aliases.get(input);
+
+console.log("AliasResolver");
+console.log("Input:", input);
+console.log("Canonical:", canonicalKey);
 
     if (!canonicalKey) {
       return {

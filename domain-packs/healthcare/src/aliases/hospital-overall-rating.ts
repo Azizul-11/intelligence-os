@@ -3,7 +3,7 @@ import type { AliasDefinition } from "@intelligence/domain-sdk";
 export const hospitalOverallRatingAlias: AliasDefinition = {
   id: "hospital-overall-rating",
 
-  canonical: "Hospital Overall Rating",
+ canonical: "hospital-overall-rating",
 
   aliases: [
     "Hospital Overall Rating",

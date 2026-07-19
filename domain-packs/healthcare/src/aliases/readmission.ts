@@ -3,7 +3,7 @@ import type { AliasDefinition } from "@intelligence/domain-sdk";
 export const readmissionAlias: AliasDefinition = {
   id: "readmission",
 
-  canonical: "Readmission Rate",
+  canonical: "readmission-rate",
 
   aliases: [
     "Readmission",

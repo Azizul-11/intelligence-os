@@ -8,6 +8,8 @@ export class SemanticRegistryBuilder {
 
   private readonly entities = new Set<string>();
 
+  private readonly concepts = new Set<string>();
+
   private readonly categories = new Set<string>();
 
   private readonly relationships = new Set<string>();
@@ -36,6 +38,11 @@ private readonly benchmarks = new Set<string>();
     return this;
   }
 
+  addConcept(conceptKey: string): this {
+  this.concepts.add(conceptKey);
+  return this;
+}
+
   addRelationship(relationshipKey: string): this {
     this.relationships.add(relationshipKey);
     return this;
@@ -56,6 +63,7 @@ addBenchmark(benchmarkKey: string): this {
     aliases: this.aliases,
     metrics: this.metrics,
     entities: this.entities,
+    concepts: this.concepts,
     categories: this.categories,
     dimensions: this.dimensions,
     relationships: this.relationships,

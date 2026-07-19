@@ -11,20 +11,20 @@ export class RelationshipValidator
     const errors: string[] = [];
 
     const entityKeys = new Set(
-      context.entities.map((entity) => entity.key),
+      context.entities.map((entity) => entity.id),
     );
 
     for (const relationship of context.relationships) {
-      if (!entityKeys.has(relationship.source)) {
+      if (!entityKeys.has(relationship.sourceEntity)) {
         errors.push(
-          `Relationship references unknown source entity '${relationship.source}'.`,
-        );
+  `Relationship references unknown source entity '${relationship.sourceEntity}'.`,
+);
       }
 
-      if (!entityKeys.has(relationship.target)) {
+      if (!entityKeys.has(relationship.targetEntity)) {
         errors.push(
-          `Relationship references unknown target entity '${relationship.target}'.`,
-        );
+  `Relationship references unknown target entity '${relationship.targetEntity}'.`,
+);
       }
     }
 

@@ -13,12 +13,15 @@ import { healthcareRecommendations } from "./recommendations";
 
 import { healthcareCategories } from "./categories";
 import { healthcareDimensions } from "./dimensions";
+import { concepts } from "./concepts";
 
 export const healthcareDomain: DomainPack = {
   manifest: healthcareManifest,
 
 
   entities: healthcareEntities,
+
+  concepts,
 
   metrics: healthcareMetrics,
 

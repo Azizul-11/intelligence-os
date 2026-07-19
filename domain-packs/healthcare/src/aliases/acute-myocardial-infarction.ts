@@ -3,7 +3,8 @@ import type { AliasDefinition } from "@intelligence/domain-sdk";
 export const acuteMyocardialInfarctionAlias: AliasDefinition = {
   id: "acute-myocardial-infarction",
 
-  canonical: "Acute Myocardial Infarction",
+  // canonical: "Acute Myocardial Infarction",
+  canonical: "acute-myocardial-infarction",
 
   aliases: [
     "AMI",
@@ -11,7 +12,7 @@ export const acuteMyocardialInfarctionAlias: AliasDefinition = {
     "Acute Myocardial Infarction",
   ],
 
-  type: "entity",
+ type: "concept",
 
   description:
     "Canonical healthcare term representing Acute Myocardial Infarction.",

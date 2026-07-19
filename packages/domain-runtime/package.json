@@ -11,6 +11,7 @@
   "dependencies": {
     "@intelligence/domain-sdk": "workspace:*",
     "@intelligence/semantic": "workspace:*",
-    "@intelligence/healthcare-domain": "workspace:*"
+    "@intelligence/healthcare-domain": "workspace:*",
+    "@intelligence/sql-template-resolver": "workspace:*"
   }
 }
