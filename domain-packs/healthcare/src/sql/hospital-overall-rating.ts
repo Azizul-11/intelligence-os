@@ -10,10 +10,13 @@ export const hospitalOverallRatingSqlTemplate: SqlTemplateDefinition = {
   description:
     "Returns the overall CMS hospital rating for a specific hospital.",
 
-  template: `
-SELECT overall_rating
-FROM hospital_metrics
-WHERE hospital_id = :hospitalId;
+template: `
+SELECT
+  facility_id,
+  hospital_name,
+  overall_rating
+FROM warehouse_hospitals
+WHERE facility_id = :hospitalId;
 `.trim(),
 
   type: "lookup",

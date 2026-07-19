@@ -1,0 +1,24 @@
+{
+  "name": "@intelligence/sql-executor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "demo": "tsx src/demo.ts"
+  },
+  "dependencies": {
+    "@intelligence/domain-sdk": "workspace:*",
+    "@intelligence/healthcare-domain": "workspace:*",
+    "@supabase/supabase-js": "2.49.8",
+    "tsx": "^4.23.0"
+  }
+}

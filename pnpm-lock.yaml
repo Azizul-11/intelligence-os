@@ -142,6 +142,12 @@ importers:
         specifier: ^5.9.2
         version: 5.9.3
 
+  packages/query-planner:
+    dependencies:
+      '@intelligence/semantic':
+        specifier: workspace:*
+        version: link:../semantic
+
   packages/semantic:
     dependencies:
       '@intelligence/contracts':
@@ -154,6 +160,21 @@ importers:
       typescript:
         specifier: ^5.9.2
         version: 5.9.3
+
+  packages/sql-executor:
+    dependencies:
+      '@intelligence/domain-sdk':
+        specifier: workspace:*
+        version: link:../domain-sdk
+      '@intelligence/healthcare-domain':
+        specifier: workspace:*
+        version: link:../../domain-packs/healthcare
+      '@supabase/supabase-js':
+        specifier: 2.49.8
+        version: 2.49.8
+      tsx:
+        specifier: ^4.23.0
+        version: 4.23.0
 
   packages/sql-template-resolver:
     dependencies:
