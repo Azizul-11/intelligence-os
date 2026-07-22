@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import crypto from "node:crypto";
 
 export interface DatasetRegistration {
   id: string;
@@ -11,32 +12,32 @@ export interface DatasetRegistration {
   path: string;
   size: number;
   modified: Date;
+  checksum: string;
 }
-
 export function registerDataset(
   datasetPath: string,
+  manifest: Omit<
+  DatasetRegistration,
+  "path" | "size" | "modified" | "checksum"
+>,
 ): DatasetRegistration {
   const stats = fs.statSync(datasetPath);
+  const fileBuffer = fs.readFileSync(datasetPath);
+
+  const checksum = crypto
+  .createHash("sha256")
+  .update(fileBuffer)
+  .digest("hex");
 
   return {
-    id: "cms-hospital-general-information",
+  ...manifest,
 
-    name: "CMS Hospital General Information",
+  path: datasetPath,
 
-    domain: "healthcare",
+  size: stats.size,
 
-    provider: "Centers for Medicare & Medicaid Services",
+  modified: stats.mtime,
 
-    source: "CMS",
-
-    format: "csv",
-
-    version: "2025",
-
-    path: datasetPath,
-
-    size: stats.size,
-
-    modified: stats.mtime,
-  };
+  checksum,
+};
 }

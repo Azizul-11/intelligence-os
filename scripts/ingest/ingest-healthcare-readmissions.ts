@@ -1,43 +1,31 @@
-/**
- * IntelligenceOS
- *
- * Phase 3.11 — First Real ETL
- *
- * First end-to-end ETL pipeline for the Healthcare Domain SDK.
- */
-
-import { registerDataset } from "./pipeline/register";
 import fs from "node:fs";
 import path from "node:path";
-import { resolveEntities } from "./pipeline/resolve";
-import { flattenEntities } from "./pipeline/flatten";
-import { buildWarehouse } from "./pipeline/warehouse";
-import { verifyWarehouse } from "./pipeline/verify";
+
+import { registerDataset } from "./pipeline/register";
+import { readDataset } from "./pipeline/read";
 import { discoverSchema } from "./pipeline/schema";
 import { validateDataset } from "./pipeline/validate";
-import { normalizeRecords } from "./pipeline/normalize";
-import { readDataset } from "./pipeline/read";
+
 import {
   printDatasetProfile,
   printSchema,
   printValidation,
   printNormalization,
-  printEntityResolution,
-  printFlattening,
-  printWarehouseBuild,
-  printVerification,
 } from "./pipeline/report";
 
-import { insertHospitals } from "../warehouse/insert-hospitals";
-import { insertStates } from "../warehouse/insert-states";
-import { insertCounties } from "../warehouse/insert-counties";
-import { insertDataset } from "../warehouse/insert-dataset";
+import { normalizeHospitalReadmissionRecords } from "./datasets/healthcare/hospital-readmissions/normalize";
+import { flattenHospitalReadmissions } from "./datasets/healthcare/hospital-readmissions/flatten";
 
+import { insertHospitalReadmissions } from "../warehouse/insert-hospital-readmissions";
+
+import { insertDataset } from "../warehouse/insert-dataset";
 import { insertPipelineRun } from "../warehouse/insert-pipeline-run";
 
-import { hospitalGeneralInformationManifest } from "./datasets/healthcare/hospital-general-information/manifest";
+import { hospitalReadmissionsManifest } from "./datasets/healthcare/hospital-readmissions/manifest";
 
 import { findDatasetByChecksum } from "../warehouse/find-dataset-by-checksum";
+
+import { verifyHospitalReadmissions } from "./datasets/healthcare/hospital-readmissions/verify";
 
 async function main() {
   const startedAt = new Date();
@@ -53,13 +41,13 @@ async function main() {
   // Locate the raw dataset
   // -----------------------------------------------------
 
-  const datasetPath = path.resolve(
-    "data",
-    "raw",
-    "healthcare",
-    "cms",
-    "Hospital_General_Information.csv",
-  );
+const datasetPath = path.resolve(
+  "data",
+  "raw",
+  "healthcare",
+  "cms",
+  "FY_2026_Hospital_Readmissions_Reduction_Program_Hospital.csv",
+);
 
   console.log(`Dataset Path: ${datasetPath}`);
   console.log("");
@@ -80,16 +68,15 @@ async function main() {
   // Register the raw file
   // -----------------------------------------------------
 
- const datasetRegistration = registerDataset(
+  const datasetRegistration = registerDataset(
   datasetPath,
-  hospitalGeneralInformationManifest,
+  hospitalReadmissionsManifest,
 );
 
 const existingDataset =
   await findDatasetByChecksum(
     datasetRegistration.checksum,
   );
-
 
   if (existingDataset) {
   console.log("");
@@ -99,6 +86,7 @@ const existingDataset =
 
   return;
 }
+
   console.log("Raw File");
   console.log("----------------------------------------");
   console.log(`Name: ${path.basename(datasetPath)}`);
@@ -173,7 +161,7 @@ const existingDataset =
 
   const validation = validateDataset(
   datasetProfile,
-  hospitalGeneralInformationManifest.requiredColumns,
+  hospitalReadmissionsManifest.requiredColumns,
 );
 
   printValidation(datasetProfile, validation);
@@ -181,53 +169,82 @@ const existingDataset =
   /**
    * Phase 3.11.5 — Normalization
    */
+const normalizedRecords =
+  normalizeHospitalReadmissionRecords(records);
 
-  const normalizedRecords = normalizeRecords(records);
+printNormalization(normalizedRecords);
 
-  printNormalization(normalizedRecords);
+const warehouse =
+  flattenHospitalReadmissions(normalizedRecords);
 
-  const resolved = resolveEntities(normalizedRecords);
+console.log("");
+console.log("Sample Readmission Record");
+console.log("----------------------------------------");
+console.log(warehouse[0]);
 
-  printEntityResolution(resolved);
-
-  const warehouse = flattenEntities(resolved);
+try {
+  const inserted =
+    await insertHospitalReadmissions(warehouse);
 
   console.log("");
-  console.log("Sample State");
-  console.log("----------------------------------------");
-  console.log(warehouse.states[0]);
+  console.log(
+    `✓ ${inserted} readmission records persisted to Supabase`,
+  );
+} catch (error) {
+  console.error("Failed to persist readmission records.");
+  throw error;
+}
+
+const verification =
+  verifyHospitalReadmissions(warehouse);
+
 
   console.log("");
-  console.log("Sample County");
-  console.log("----------------------------------------");
-  console.log(warehouse.counties[0]);
+console.log("Verification");
+console.log("----------------------------------------");
 
-  printFlattening(warehouse);
+console.log(
+  `Rows                  : ${
+    verification.hasRows ? "✓ Passed" : "✗ Failed"
+  }`,
+);
 
-  try {
-    const inserted = await insertHospitals(warehouse.hospitals);
+console.log(
+  `Facility IDs          : ${
+    verification.missingFacilityIdsPassed
+      ? "✓ Passed"
+      : "✗ Failed"
+  }`,
+);
 
-    console.log("");
-    console.log(`✓ ${inserted} hospitals persisted to Supabase`);
+console.log(
+  `Measure Codes         : ${
+    verification.missingMeasureCodesPassed
+      ? "✓ Passed"
+      : "✗ Failed"
+  }`,
+);
 
-    const insertedStates = await insertStates(warehouse.states);
+console.log(
+  `Duplicate Keys        : ${
+    verification.duplicateKeysPassed
+      ? "✓ Passed"
+      : "✗ Failed"
+  }`,
+);
 
-    console.log(`✓ ${insertedStates} states persisted to Supabase`);
+if (!verification.passed) {
+  console.log("");
+  console.log("Duplicate Keys:");
+  console.log(verification.duplicateKeys);
 
-    const insertedCounties = await insertCounties(warehouse.counties);
+  throw new Error(
+    "Hospital Readmissions verification failed.",
+  );
+}
 
-    console.log(`✓ ${insertedCounties} counties persisted to Supabase`);
-  } catch (error) {
-    console.error("Failed to persist warehouse.");
-    throw error;
-  }
+console.log("✓ Verification Passed");
 
-  const warehouseBuild = buildWarehouse(warehouse);
-  printWarehouseBuild(warehouseBuild);
-
-  const verification = verifyWarehouse(warehouseBuild);
-
-  printVerification(verification);
 
 try {
   const finishedAt = new Date();
@@ -236,7 +253,7 @@ try {
     dataset_id: datasetRegistration.id,
     status: verification.passed ? "SUCCESS" : "FAILED",
     rows_processed: datasetProfile.rowCount,
-    rows_inserted: warehouse.hospitals.length,
+    rows_inserted: warehouse.length,
     rows_failed: 0,
     started_at: startedAt.toISOString(),
     finished_at: finishedAt.toISOString(),

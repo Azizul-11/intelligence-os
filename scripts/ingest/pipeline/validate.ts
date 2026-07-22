@@ -15,17 +15,13 @@ interface DatasetProfile {
 
 export function validateDataset(
   dataset: DatasetProfile,
+  requiredColumns: string[],
 ): ValidationResult {
   const hasRows = dataset.rowCount > 0;
 
   const hasColumns = dataset.columnCount > 0;
 
-  const requiredColumns = [
-    "Facility ID",
-    "Facility Name",
-    "State",
-    "County/Parish",
-  ];
+
 
   const missingColumns = requiredColumns.filter(
     (column) => !dataset.headers.includes(column),
