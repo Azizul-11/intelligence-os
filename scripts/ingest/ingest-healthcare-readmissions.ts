@@ -27,6 +27,8 @@ import { findDatasetByChecksum } from "../warehouse/find-dataset-by-checksum";
 
 import { verifyHospitalReadmissions } from "./datasets/healthcare/hospital-readmissions/verify";
 
+import { ensureHospitals } from "../warehouse/ensure-hospitals";
+
 async function main() {
   const startedAt = new Date();
   console.log("========================================");
@@ -182,7 +184,28 @@ console.log("Sample Readmission Record");
 console.log("----------------------------------------");
 console.log(warehouse[0]);
 
+// try {
+//   const inserted =
+//     await insertHospitalReadmissions(warehouse);
+
+//   console.log("");
+//   console.log(
+//     `✓ ${inserted} readmission records persisted to Supabase`,
+//   );
+// } catch (error) {
+//   console.error("Failed to persist readmission records.");
+//   throw error;
+// }
+
 try {
+  await ensureHospitals(
+    warehouse.map((record) => ({
+      facilityId: record.facilityId,
+      facilityName: null,
+      state: record.state,
+    })),
+  );
+
   const inserted =
     await insertHospitalReadmissions(warehouse);
 
