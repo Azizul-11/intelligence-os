@@ -1,5 +1,6 @@
-import { supabase } from "../shared/supabase";
 import type { WarehouseHospitalReadmission } from "../ingest/datasets/healthcare/hospital-readmissions/flatten";
+
+import { upsertInBatches } from "./shared/upsert-in-batches";
 
 function mapHospitalReadmission(
   record: WarehouseHospitalReadmission,
@@ -28,15 +29,9 @@ export async function insertHospitalReadmissions(
 ) {
   const rows = records.map(mapHospitalReadmission);
 
-  const { error } = await supabase
-    .from("warehouse_hospital_readmissions")
-    .upsert(rows, {
-      onConflict: "facility_id,measure_code",
-    });
-
-  if (error) {
-    throw error;
-  }
-
-  return rows.length;
+  return upsertInBatches(
+    "warehouse_hospital_readmissions",
+    rows,
+    "facility_id,measure_code",
+  );
 }
