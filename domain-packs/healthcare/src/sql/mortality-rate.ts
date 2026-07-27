@@ -11,9 +11,18 @@ export const mortalityRateSqlTemplate: SqlTemplateDefinition = {
     "Returns the mortality rate for a specific hospital.",
 
   template: `
-SELECT mortality_rate
-FROM hospital_metrics
-WHERE hospital_id = :hospitalId;
+SELECT
+  facility_id,
+  measure_code,
+  measure_name,
+  score,
+  compared_to_national,
+  denominator,
+  lower_estimate,
+  higher_estimate
+FROM warehouse_hospital_clinical_outcomes
+WHERE facility_id = :hospitalId
+ORDER BY measure_code;
 `.trim(),
 
   type: "aggregation",

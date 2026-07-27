@@ -31,28 +31,18 @@ export const demoScenarios: readonly DemoScenario[] = [
   },
 
   {
+  name: "Mortality Rate",
+  question: "mortality",
+  parameters: {
+    hospitalId: "010055",
+  },
+  shouldResolve: true,
+  shouldExecute: true,
+},
+
+  {
     name: "Patient Experience",
     question: "patient experience",
-    parameters: {
-      hospitalId: "010055",
-    },
-    shouldResolve: true,
-    shouldExecute: true,
-  },
-
-  {
-    name: "Emergency Department Visits",
-    question: "emergency department visits",
-    parameters: {
-      hospitalId: "010055",
-    },
-    shouldResolve: true,
-    shouldExecute: true,
-  },
-
-  {
-    name: "Length of Stay",
-    question: "length of stay",
     parameters: {
       hospitalId: "010055",
     },

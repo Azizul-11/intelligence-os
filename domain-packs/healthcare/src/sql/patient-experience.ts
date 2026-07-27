@@ -10,10 +10,20 @@ export const patientExperienceSqlTemplate: SqlTemplateDefinition = {
   description:
     "Returns patient experience metrics for a hospital.",
 
-  template: `
-SELECT patient_experience_score
-FROM hospital_metrics
-WHERE hospital_id = :hospitalId;
+template: `
+SELECT
+  facility_id,
+  measure_code,
+  question,
+  answer_description,
+  patient_survey_star_rating,
+  answer_percent,
+  linear_mean_value,
+  completed_surveys,
+  survey_response_rate_percent
+FROM warehouse_hospital_hcahps
+WHERE facility_id = :hospitalId
+ORDER BY measure_code;
 `.trim(),
 
   type: "summary",

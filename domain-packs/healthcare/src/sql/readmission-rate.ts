@@ -10,10 +10,16 @@ export const readmissionRateSqlTemplate: SqlTemplateDefinition = {
   description:
     "Returns the hospital readmission rate.",
 
-  template: `
-SELECT readmission_rate
-FROM hospital_metrics
-WHERE hospital_id = :hospitalId;
+ template: `
+SELECT
+  facility_id,
+  measure_code,
+  predicted_readmission_rate,
+  expected_readmission_rate,
+  excess_readmission_ratio
+FROM warehouse_hospital_readmissions
+WHERE facility_id = :hospitalId
+ORDER BY measure_code;
 `.trim(),
 
   type: "aggregation",

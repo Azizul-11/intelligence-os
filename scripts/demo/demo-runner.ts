@@ -77,6 +77,10 @@ export class DemoRunner {
     return;
   }
 
+
+  
+
+
   // -------------------------------------------------
   // 3. SQL Template Resolution
   // -------------------------------------------------
@@ -94,6 +98,9 @@ export class DemoRunner {
     return;
   }
 
+  console.log("========== TEMPLATE DEBUG ==========");
+console.log(sqlTemplate.template);
+console.log("====================================");
 // -------------------------------------------------
 // 4. SQL Execution
 // -------------------------------------------------
