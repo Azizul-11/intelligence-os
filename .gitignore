@@ -99,4 +99,6 @@ yarn-debug.log*
 # ======================================================
 # Uncomment when datasets become large.
 
-# data/raw/
+data/raw/
+
+data/raw/healthcare/cms/*.csv
