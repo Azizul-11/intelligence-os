@@ -4,25 +4,21 @@
   "private": true,
   "description": "Healthcare Domain Pack for IntelligenceOS",
   "type": "module",
-
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-
   "files": [
     "dist"
   ],
-
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json --emitDeclarationOnly && npx esbuild src/index.ts --bundle --outfile=dist/index.js --format=esm --packages=external",
     "clean": "rm -rf dist"
   },
-
   "dependencies": {
     "@intelligence/contracts": "workspace:*",
     "@intelligence/domain-sdk": "workspace:*"
   },
-
   "devDependencies": {
+    "esbuild": "^0.28.1",
     "typescript": "^5.9.2"
   }
 }

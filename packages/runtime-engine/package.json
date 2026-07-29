@@ -1,0 +1,21 @@
+{
+  "name": "@intelligence/runtime-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@intelligence/domain-runtime": "workspace:*",
+    "@intelligence/query-planner": "workspace:*",
+    "@intelligence/semantic": "workspace:*",
+    "@intelligence/sql-executor": "workspace:*"
+  }
+}
