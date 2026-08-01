@@ -12,11 +12,12 @@ export const hospitalOverallRatingRankingSqlTemplate: SqlTemplateDefinition = {
 
   template: `
 SELECT
-  facility_id,
-  hospital_name,
-  overall_rating
+    facility_id,
+    hospital_name,
+    overall_rating
 FROM warehouse_hospitals
-ORDER BY overall_rating DESC
+WHERE overall_rating IS NOT NULL
+ORDER BY overall_rating DESC NULLS LAST
 LIMIT 10;
 `.trim(),
 
