@@ -33,6 +33,13 @@ export class SqlExecutor {
     template: SqlTemplateDefinition,
     parameters: Record<string, unknown>,
   ): Promise<SqlExecutionResult> {
+
+    console.log("========== SQL EXECUTOR ==========");
+console.log("Template ID:", template.id);
+console.log("Template Name:", template.name);
+console.log("Template Parameters:", template.parameters);
+console.log("Runtime Parameters:", parameters);
+
     for (const parameter of template.parameters ?? []) {
       if (
         parameter.required &&

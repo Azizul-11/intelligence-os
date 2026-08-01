@@ -1,0 +1,65 @@
+// src/create-runtime-engine.ts
+function createRuntimeEngine({
+  runtime,
+  semantic,
+  planner,
+  executor
+}) {
+  return {
+    async execute(request) {
+      console.log(">>> RuntimeEngine.execute()");
+      const semanticResult = semantic.resolve(request.question);
+      if (!semanticResult.resolved) {
+        return {
+          success: false,
+          rows: [],
+          rowCount: 0,
+          error: "Unable to resolve question."
+        };
+      }
+      const plan = planner.createPlan(semanticResult);
+      if (!plan.success || !plan.plan || !plan.plan.metricId) {
+        return {
+          success: false,
+          rows: [],
+          rowCount: 0,
+          error: "Unable to create query plan."
+        };
+      }
+      const templateId = runtime.domain.executionStrategy.selectTemplate(
+        plan.plan.metricId,
+        plan.plan.intent
+      );
+      const template = runtime.sqlResolver.resolve(
+        templateId
+      );
+      console.log("========== RUNTIME ==========");
+      console.log("Requested Template:", templateId);
+      if (template.template) {
+        console.log("Resolved Template:", template.template.id);
+        console.log(
+          "Parameters:",
+          template.template.parameters
+        );
+      }
+      if (!template.found || !template.template) {
+        return {
+          success: false,
+          rows: [],
+          rowCount: 0,
+          error: "SQL template not found."
+        };
+      }
+      const parameters = runtime.domain.executionStrategy.resolveParameters(
+        request.parameters ?? {}
+      );
+      return executor.execute(
+        template.template,
+        parameters
+      );
+    }
+  };
+}
+export {
+  createRuntimeEngine
+};

@@ -3,18 +3,28 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     }
   },
+
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "demo": "tsx src/demo.ts"
+    "build:edge": "pnpm run build && pnpm exec esbuild src/index.ts --bundle --platform=neutral --format=esm --packages=external --outfile=edge/index.js",
+    "demo": "tsx src/demo.ts",
+    "clean": "rm -rf dist edge"
   },
+
+  "devDependencies": {
+    "esbuild": "^0.28.1"
+  },
+
   "dependencies": {
     "@intelligence/domain-sdk": "workspace:*",
     "@intelligence/healthcare-domain": "workspace:*",

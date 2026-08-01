@@ -13,9 +13,11 @@
   ],
 
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "clean": "rm -rf dist"
-  },
+  "build": "tsc -p tsconfig.json",
+  "build:edge": "pnpm run build && pnpm exec esbuild src/index.ts --bundle --platform=neutral --format=esm --packages=external --outfile=edge/index.js",
+  "typecheck": "tsc --noEmit -p tsconfig.json",
+  "clean": "rm -rf dist edge"
+},
 
   "dependencies": {
     "@intelligence/contracts": "workspace:*",

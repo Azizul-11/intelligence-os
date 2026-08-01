@@ -9,14 +9,18 @@
   "files": [
     "dist"
   ],
-  "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "clean": "rm -rf dist"
-  },
+ "scripts": {
+  "build": "tsc -p tsconfig.json",
+  "build:edge": "pnpm run build && pnpm exec esbuild src/index.ts --bundle --platform=neutral --format=esm --packages=external --outfile=edge/index.js",
+  "clean": "rm -rf dist edge"
+},
+
+
   "dependencies": {
     "@intelligence/contracts": "workspace:*"
   },
   "devDependencies": {
-    "typescript": "^5.9.2"
-  }
+  "esbuild": "^0.28.1",
+  "typescript": "^5.9.2"
+}
 }

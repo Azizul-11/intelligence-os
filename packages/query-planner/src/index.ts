@@ -4,3 +4,6 @@ export * from "./query-plan-result";
 export * from "./query-filter";
 export * from "./query-sort";
 export * from "./query-limit";
+
+export * from "./query-intent";
+export * from "./query-intent-detector";

@@ -14,6 +14,7 @@ import { healthcareRecommendations } from "./recommendations";
 import { healthcareCategories } from "./categories";
 import { healthcareDimensions } from "./dimensions";
 import { concepts } from "./concepts";
+import { HealthcareExecutionStrategy } from "./runtime";
 
 export const healthcareDomain: DomainPack = {
   manifest: healthcareManifest,
@@ -29,7 +30,7 @@ export const healthcareDomain: DomainPack = {
 
   dimensions: healthcareDimensions,
 
-categories: healthcareCategories,
+  categories: healthcareCategories,
 
 
   relationships: healthcareRelationships,
@@ -41,4 +42,6 @@ categories: healthcareCategories,
   capabilities: healthcareCapabilities,
 
   recommendations: healthcareRecommendations,
+  executionStrategy:
+  new HealthcareExecutionStrategy(),
 };

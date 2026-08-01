@@ -21,6 +21,9 @@ importers:
       csv-parse:
         specifier: ^7.0.1
         version: 7.0.1
+      esbuild:
+        specifier: ^0.28.1
+        version: 0.28.1
       tsx:
         specifier: ^4.23.0
         version: 4.23.0
@@ -165,6 +168,10 @@ importers:
       '@intelligence/sql-executor':
         specifier: workspace:*
         version: link:../sql-executor
+    devDependencies:
+      esbuild:
+        specifier: ^0.28.1
+        version: 0.28.1
 
   packages/semantic:
     dependencies:

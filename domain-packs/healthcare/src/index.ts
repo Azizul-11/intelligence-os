@@ -10,3 +10,4 @@ export * from "./recommendations";
 export * from "./healthcare-domain";
 export * from "./categories";
 export * from "./dimensions";
+export * from "./runtime";

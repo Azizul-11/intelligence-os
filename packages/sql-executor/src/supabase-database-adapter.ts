@@ -13,15 +13,23 @@ export class SupabaseDatabaseAdapter implements DatabaseAdapter {
     console.log("========== SQL ==========");
     console.log(sql);
     console.log("=========================");
-    const normalizedSql = sql.trim().replace(/;\s*$/, "");
-    const { data, error } = await this.supabase.rpc("run_sql", {
-      query: normalizedSql,
-    });
+ const normalizedSql = sql.trim().replace(/;\s*$/, "");
 
-    if (error) {
-      throw error;
-    }
+console.log("Calling run_sql RPC...");
 
-    return (data ?? []) as T[];
+const { data, error } = await this.supabase.rpc("run_sql", {
+  query: normalizedSql,
+});
+
+console.log("RPC returned.");
+console.log("Data:", data);
+console.log("Error:", error);
+
+if (error) {
+  console.error("run_sql failed:", error);
+  throw error;
+}
+
+return (data ?? []) as T[];
   }
 }

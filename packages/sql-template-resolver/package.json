@@ -12,9 +12,15 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json"
-  },
+  "build": "tsc -p tsconfig.json",
+  "build:edge": "pnpm run build && pnpm exec esbuild src/index.ts --bundle --platform=neutral --format=esm --packages=external --outfile=edge/index.js",
+  "clean": "rm -rf dist edge"
+},
   "dependencies": {
     "@intelligence/domain-sdk": "workspace:*"
-  }
+  },
+  "devDependencies": {
+  "esbuild": "^0.28.1",
+  "typescript": "^5.9.2"
+}
 }

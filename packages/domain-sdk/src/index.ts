@@ -15,3 +15,4 @@ export * from "./sql-template-registry";
 export * from "./recommendation-registry";
 export * from "./capability-registry";
 export * from "./semantic";
+export * from "./runtime";

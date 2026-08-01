@@ -2,6 +2,29 @@
   "imports": {
     "@supabase/functions-js": "jsr:@supabase/functions-js@^2",
     "@supabase/server": "npm:@supabase/server@^1",
-    "@intelligence/healthcare-domain": "../../../domain-packs/healthcare/dist/index.js"
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2.49.8",
+
+    "@intelligence/domain-sdk":
+      "../../../packages/domain-sdk/edge/index.js",
+
+    "@intelligence/runtime-engine":
+      "../../../packages/runtime-engine/edge/index.js",
+
+    "@intelligence/domain-runtime":
+      "../../../packages/domain-runtime/edge/index.js",
+
+    "@intelligence/query-planner":
+      "../../../packages/query-planner/edge/index.js",
+
+    "@intelligence/semantic":
+      "../../../packages/semantic/edge/index.js",
+
+    "@intelligence/sql-executor":
+      "../../../packages/sql-executor/edge/index.js",
+
+    "@intelligence/healthcare-domain":
+      "../../../domain-packs/healthcare/dist/index.js",
+      "@intelligence/sql-template-resolver":
+  "../../../packages/sql-template-resolver/edge/index.js"
   }
 }
