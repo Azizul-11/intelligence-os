@@ -18,29 +18,62 @@ var QueryIntentDetector = class {
   }
 };
 
+// src/semantic-collector.ts
+var SemanticCollector = class {
+  collect(matches) {
+    return {
+      metrics: matches.filter(
+        (match) => match.semanticType === "metric"
+      ),
+      entities: matches.filter(
+        (match) => match.semanticType === "entity"
+      ),
+      dimensions: matches.filter(
+        (match) => match.semanticType === "dimension"
+      ),
+      categories: matches.filter(
+        (match) => match.semanticType === "category"
+      ),
+      benchmarks: matches.filter(
+        (match) => match.semanticType === "benchmark"
+      ),
+      relationships: matches.filter(
+        (match) => match.semanticType === "relationship"
+      )
+    };
+  }
+};
+
 // src/query-planner.ts
 var QueryPlanner = class {
   intentDetector = new QueryIntentDetector();
+  collector = new SemanticCollector();
   createPlan(semantic) {
-    if (!semantic.resolved || !semantic.canonicalKey) {
+    const collections = this.collector.collect(semantic.matches);
+    if (!semantic.resolved || collections.metrics.length === 0) {
       return {
         success: false,
         plan: null
       };
     }
-    const intent = this.intentDetector.detect(
-      semantic.originalQuery
-    );
+    const intent = this.intentDetector.detect(semantic.originalQuery);
     console.log("========== QUERY PLANNER ==========");
-    console.log("Metric :", semantic.canonicalKey);
+    console.log("Semantic Collections");
+    console.log({
+      metrics: collections.metrics,
+      entities: collections.entities,
+      dimensions: collections.dimensions,
+      categories: collections.categories,
+      benchmarks: collections.benchmarks,
+      relationships: collections.relationships
+    });
     console.log("Intent :", intent);
     console.log("Planner Intent:", intent);
     return {
       success: true,
       plan: {
-        metricId: semantic.canonicalKey,
+        semantic: collections,
         intent,
-        dimensions: [],
         filters: []
       }
     };
@@ -48,5 +81,6 @@ var QueryPlanner = class {
 };
 export {
   QueryIntentDetector,
-  QueryPlanner
+  QueryPlanner,
+  SemanticCollector
 };

@@ -6,18 +6,28 @@ export class AliasResolver {
   resolve(input: string): AliasResolutionResult {
     // const canonicalKey = this.aliases.get(input);
 
-    console.log("========== ALIAS DEBUG ==========");
-    console.log(
-      "Contains 'overall rating':",
-      this.aliases.has("overall rating"),
-    );
+    
 
-    console.log(
-      "Contains 'highest rated hospitals':",
-      this.aliases.has("highest rated hospitals"),
-    );
+    // console.log("========== ALIAS DEBUG ==========");
+    // console.log(
+    //   "Contains 'overall rating':",
+    //   this.aliases.has("overall rating"),
+    // );
 
-    const canonicalKey = this.aliases.get(input);
+    // console.log(
+    //   "Contains 'highest rated hospitals':",
+    //   this.aliases.has("highest rated hospitals"),
+    // );
+
+    // const canonicalKey = this.aliases.get(input);
+
+     console.log("================================");
+  console.log("ALIAS INPUT:", input);
+  console.log("================================");
+
+  const canonicalKey = this.aliases.get(input);
+
+  console.log("MATCH:", canonicalKey);
 
     console.log("AliasResolver");
     console.log("Input:", input);

@@ -7,3 +7,5 @@ export * from "./query-limit";
 
 export * from "./query-intent";
 export * from "./query-intent-detector";
+export * from "./semantic-collector";
+export * from "./semantic-collections";

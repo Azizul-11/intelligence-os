@@ -50,6 +50,8 @@ import { SemanticResolver } from "./resolver";
 import { SemanticAnalyzer } from "./analyzer";
 import { PhraseExtractor } from "./phrase";
 import { LexicalRewriter } from "./rewriter";
+import { SemanticCandidateBuilder } from "./candidate";
+
 export function createSemanticResolver(
   registry: SemanticRegistry,
 ): SemanticResolver {
@@ -58,8 +60,9 @@ export function createSemanticResolver(
   new SemanticAnalyzer(),
   new LexicalRewriter(),
   new PhraseExtractor(),
-  new AliasResolver(registry.getAliases()),
-  new Matcher(),
+ new AliasResolver(registry.getAliases()),
+new SemanticCandidateBuilder(),
+new Matcher(),
   new Ontology(registry),
 );
 

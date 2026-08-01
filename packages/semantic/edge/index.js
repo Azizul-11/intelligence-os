@@ -5,16 +5,11 @@ var AliasResolver = class {
   }
   aliases;
   resolve(input) {
-    console.log("========== ALIAS DEBUG ==========");
-    console.log(
-      "Contains 'overall rating':",
-      this.aliases.has("overall rating")
-    );
-    console.log(
-      "Contains 'highest rated hospitals':",
-      this.aliases.has("highest rated hospitals")
-    );
+    console.log("================================");
+    console.log("ALIAS INPUT:", input);
+    console.log("================================");
     const canonicalKey = this.aliases.get(input);
+    console.log("MATCH:", canonicalKey);
     console.log("AliasResolver");
     console.log("Input:", input);
     console.log("Canonical:", canonicalKey);
@@ -382,12 +377,13 @@ var SemanticValidationEngine = class {
 
 // src/pipeline/semantic-pipeline.ts
 var SemanticPipeline = class {
-  constructor(normalizer, analyzer, lexicalRewriter, phraseExtractor, aliasResolver, matcher, ontology) {
+  constructor(normalizer, analyzer, lexicalRewriter, phraseExtractor, aliasResolver, candidateBuilder, matcher, ontology) {
     this.normalizer = normalizer;
     this.analyzer = analyzer;
     this.lexicalRewriter = lexicalRewriter;
     this.phraseExtractor = phraseExtractor;
     this.aliasResolver = aliasResolver;
+    this.candidateBuilder = candidateBuilder;
     this.matcher = matcher;
     this.ontology = ontology;
   }
@@ -396,9 +392,11 @@ var SemanticPipeline = class {
   lexicalRewriter;
   phraseExtractor;
   aliasResolver;
+  candidateBuilder;
   matcher;
   ontology;
   resolve(query) {
+    console.log("\u{1F525} NEW SEMANTIC PIPELINE V2 \u{1F525}");
     const normalizedQuery = this.normalizer.normalize(query);
     console.log("========== SEMANTIC ==========");
     console.log("Original :", query);
@@ -406,42 +404,51 @@ var SemanticPipeline = class {
     const analyzed = this.analyzer.analyze(normalizedQuery);
     console.log("Analyzed Tokens:");
     for (const token of analyzed) {
-      console.log(
-        token.token.value,
-        "\u2192",
-        token.role
-      );
+      console.log(token.token.value, "\u2192", token.role);
     }
-    const rewritten = this.lexicalRewriter.rewrite(
-      normalizedQuery
-    );
+    const rewritten = this.lexicalRewriter.rewrite(normalizedQuery);
     console.log("Rewritten:");
     console.log(rewritten.rewritten);
     const rewrittenTokens = rewritten.rewritten.split(" ").filter(Boolean).map((value, position) => ({
       value,
       position
     }));
-    const phrases = this.phraseExtractor.extract(
-      rewrittenTokens
-    );
+    const phrases = this.phraseExtractor.extract(rewrittenTokens);
     console.log("Phrases:");
     for (const phrase of phrases) {
       console.log("-", phrase.value);
     }
-    const aliasResult = this.aliasResolver.resolve(
-      rewritten.rewritten
+    const semanticCandidates = [];
+    for (const phrase of phrases) {
+      const aliasResult = this.aliasResolver.resolve(phrase.value);
+      if (!aliasResult.matched) {
+        continue;
+      }
+      const ontologyResult2 = this.ontology.resolve(aliasResult.canonicalKey);
+      if (!ontologyResult2.found) {
+        continue;
+      }
+      const candidate = this.candidateBuilder.build(
+        phrase.value,
+        ontologyResult2.canonicalKey,
+        ontologyResult2.semanticType,
+        1
+      );
+      semanticCandidates.push(candidate);
+    }
+    console.log("Semantic Candidates");
+    console.log(semanticCandidates);
+    const matchResult = this.matcher.match(
+      semanticCandidates.map((candidate) => candidate.canonicalKey)
     );
-    const candidates = aliasResult.canonicalKey ? [aliasResult.canonicalKey] : [];
-    const matchResult = this.matcher.match(candidates);
-    const ontologyResult = this.ontology.resolve(
-      matchResult.canonicalKey
-    );
+    const ontologyResult = this.ontology.resolve(matchResult.canonicalKey);
     return {
       resolved: ontologyResult.found,
       originalQuery: query,
       normalizedQuery,
       canonicalKey: ontologyResult.canonicalKey,
-      semanticType: ontologyResult.semanticType
+      semanticType: ontologyResult.semanticType,
+      matches: semanticCandidates
     };
   }
 };
@@ -558,6 +565,20 @@ var LexicalRewriter = class {
   }
 };
 
+// src/candidate/SemanticCandidateBuilder.ts
+var SemanticCandidateBuilder = class {
+  build(phrase, canonicalKey, semanticType, confidence = 1) {
+    return {
+      phrase,
+      canonicalKey,
+      semanticType,
+      confidence,
+      start: 0,
+      end: 0
+    };
+  }
+};
+
 // src/create-semantic-resolver.ts
 function createSemanticResolver(registry) {
   const pipeline = new SemanticPipeline(
@@ -566,6 +587,7 @@ function createSemanticResolver(registry) {
     new LexicalRewriter(),
     new PhraseExtractor(),
     new AliasResolver(registry.getAliases()),
+    new SemanticCandidateBuilder(),
     new Matcher(),
     new Ontology(registry)
   );
@@ -697,6 +719,7 @@ export {
   ReferenceValidator,
   RelationshipValidator,
   SemanticAnalyzer,
+  SemanticCandidateBuilder,
   SemanticPipeline,
   SemanticRegistry,
   SemanticRegistryBuilder,

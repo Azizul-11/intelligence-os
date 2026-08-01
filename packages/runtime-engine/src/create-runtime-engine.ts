@@ -24,6 +24,12 @@ export function createRuntimeEngine({
       console.log(">>> RuntimeEngine.execute()");
       const semanticResult = semantic.resolve(request.question);
 
+      console.log("========== SEMANTIC RESULT ==========");
+console.log(
+  JSON.stringify(semanticResult, null, 2),
+);
+console.log("=====================================");
+
       if (!semanticResult.resolved) {
         return {
           success: false,
@@ -35,18 +41,25 @@ export function createRuntimeEngine({
 
       const plan = planner.createPlan(semanticResult);
 
-      if (!plan.success || !plan.plan || !plan.plan.metricId) {
-        return {
-          success: false,
-          rows: [],
-          rowCount: 0,
-          error: "Unable to create query plan.",
-        };
-      }
+    if (
+  !plan.success ||
+  !plan.plan ||
+  plan.plan.semantic.metrics.length === 0
+) {
+  return {
+    success: false,
+    rows: [],
+    rowCount: 0,
+    error: "Unable to create query plan.",
+  };
+}
+
+const primaryMetric =
+  plan.plan.semantic.metrics[0]?.canonicalKey;
 
   const templateId =
   runtime.domain.executionStrategy.selectTemplate(
-    plan.plan.metricId,
+    primaryMetric!,
     plan.plan.intent,
   );
 
@@ -56,6 +69,8 @@ const template =
   );
 
   console.log("========== RUNTIME ==========");
+console.log("Metrics:", plan.plan.semantic.metrics);
+console.log("Primary Metric:", primaryMetric);
 console.log("Requested Template:", templateId);
 
 if (template.template) {
