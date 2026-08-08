@@ -6,4 +6,7 @@ export const cmsFacilityEntity: EntityDefinition = {
   displayName: "CMS Facility",
   category: organizationCategory,
   description: "Facility registered within the Centers for Medicare & Medicaid Services datasets.",
+  execution: {
+  parameter: "facility",
+},
 } as const;

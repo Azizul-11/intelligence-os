@@ -15,5 +15,6 @@ export function createDomainRuntime(
     sqlResolver: new SqlTemplateResolver(
       domain.sqlTemplates,
     ),
+    entityProvider: domain.entityProvider,
   };
 }

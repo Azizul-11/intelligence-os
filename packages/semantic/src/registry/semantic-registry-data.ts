@@ -1,17 +1,54 @@
+// export interface SemanticRegistryData {
+//   readonly aliases: ReadonlyMap<string, string>;
+
+//   readonly metrics: ReadonlySet<string>;
+
+//   readonly entities: ReadonlySet<string>;
+
+//   readonly concepts: ReadonlySet<string>;
+  
+//   readonly categories: ReadonlySet<string>;
+
+//   readonly relationships: ReadonlySet<string>;
+//   readonly dimensions: ReadonlySet<string>;
+//   readonly benchmarks: ReadonlySet<string>;
+
+
+// }
+
+
+import type {
+  BenchmarkDefinition,
+  CategoryDefinition,
+  ConceptDefinition,
+  DimensionDefinition,
+  EntityDefinition,
+  MetricDefinition,
+  RelationshipDefinition,
+} from "@intelligence/domain-sdk";
+
+
 export interface SemanticRegistryData {
   readonly aliases: ReadonlyMap<string, string>;
 
-  readonly metrics: ReadonlySet<string>;
+  readonly metrics:
+    ReadonlyMap<string, MetricDefinition>;
 
-  readonly entities: ReadonlySet<string>;
+  readonly entities:
+    ReadonlyMap<string, EntityDefinition>;
 
-  readonly concepts: ReadonlySet<string>;
-  
-  readonly categories: ReadonlySet<string>;
+  readonly concepts:
+    ReadonlyMap<string, ConceptDefinition>;
 
-  readonly relationships: ReadonlySet<string>;
-  readonly dimensions: ReadonlySet<string>;
-  readonly benchmarks: ReadonlySet<string>;
+  readonly categories:
+    ReadonlyMap<string, CategoryDefinition>;
 
+  readonly relationships:
+    ReadonlyMap<string, RelationshipDefinition>;
 
+  readonly dimensions:
+    ReadonlyMap<string, DimensionDefinition>;
+
+  readonly benchmarks:
+    ReadonlyMap<string, BenchmarkDefinition>;
 }

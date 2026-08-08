@@ -10,6 +10,8 @@ export interface QueryPlan {
 
   intent: QueryIntent;
 
+  parameters: Record<string, unknown>;
+
   filters: QueryFilter[];
 
   sort?: QuerySort;

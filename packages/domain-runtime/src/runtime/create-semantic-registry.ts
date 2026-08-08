@@ -15,40 +15,41 @@ export function createSemanticRegistry(
 ): SemanticRegistry {
   const builder = new SemanticRegistryBuilder();
   const normalizer = new Normalizer();
+  
   // Metrics
-  for (const metric of domain.metrics) {
-    builder.addMetric(metric.id);
-  }
-
-  // Entities
-  for (const entity of domain.entities) {
-    builder.addEntity(entity.id);
-  }
-
-  // Concepts
-for (const concept of domain.concepts) {
-  builder.addConcept(concept.id);
+for (const metric of domain.metrics) {
+  builder.addMetric(metric);
 }
 
-  // Categories
-  for (const category of domain.categories) {
-    builder.addCategory(category.id);
-  }
+// Entities
+for (const entity of domain.entities) {
+  builder.addEntity(entity);
+}
 
-  // Dimensions
-  for (const dimension of domain.dimensions) {
-    builder.addDimension(dimension.id);
-  }
+// Concepts
+for (const concept of domain.concepts) {
+  builder.addConcept(concept);
+}
 
-  // Relationships
-  for (const relationship of domain.relationships) {
-    builder.addRelationship(relationship.id);
-  }
+// Categories
+for (const category of domain.categories) {
+  builder.addCategory(category);
+}
 
-  // Benchmarks
-  for (const benchmark of domain.benchmarks) {
-    builder.addBenchmark(benchmark.id);
-  }
+// Dimensions
+for (const dimension of domain.dimensions) {
+  builder.addDimension(dimension);
+}
+
+// Relationships
+for (const relationship of domain.relationships) {
+  builder.addRelationship(relationship);
+}
+
+// Benchmarks
+for (const benchmark of domain.benchmarks) {
+  builder.addBenchmark(benchmark);
+}
 
   // Aliases
   for (const aliasDefinition of domain.aliases) {

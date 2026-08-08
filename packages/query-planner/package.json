@@ -21,6 +21,7 @@
 },
 
   "dependencies": {
-    "@intelligence/semantic": "workspace:*"
-  }
+  "@intelligence/semantic": "workspace:*",
+  "@intelligence/domain-sdk": "workspace:*"
+}
 }

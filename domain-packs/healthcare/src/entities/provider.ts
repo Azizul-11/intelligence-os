@@ -6,4 +6,7 @@ export const providerEntity: EntityDefinition = {
   displayName: "Provider",
   category: personCategory,
   description: "Licensed healthcare professional delivering medical services.",
+  execution: {
+  parameter: "provider",
+},
 } as const;

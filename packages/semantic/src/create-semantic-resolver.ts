@@ -51,18 +51,21 @@ import { SemanticAnalyzer } from "./analyzer";
 import { PhraseExtractor } from "./phrase";
 import { LexicalRewriter } from "./rewriter";
 import { SemanticCandidateBuilder } from "./candidate";
-
+import { EntityResolver } from "./entity";
+import type { EntityProvider } from "@intelligence/domain-sdk";
 export function createSemanticResolver(
   registry: SemanticRegistry,
+  entityProvider: EntityProvider,
 ): SemanticResolver {
-  const pipeline = new SemanticPipeline(
+const pipeline = new SemanticPipeline(
   new Normalizer(),
   new SemanticAnalyzer(),
   new LexicalRewriter(),
   new PhraseExtractor(),
- new AliasResolver(registry.getAliases()),
-new SemanticCandidateBuilder(),
-new Matcher(),
+  new AliasResolver(registry.getAliases()),
+  new EntityResolver(entityProvider),
+  new SemanticCandidateBuilder(),
+  new Matcher(),
   new Ontology(registry),
 );
 

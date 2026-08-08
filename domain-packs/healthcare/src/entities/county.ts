@@ -6,4 +6,7 @@ export const countyEntity: EntityDefinition = {
   displayName: "County",
   category: locationCategory,
   description: "Administrative geographic region used for healthcare reporting.",
+  execution: {
+  parameter: "county",
+},
 } as const;

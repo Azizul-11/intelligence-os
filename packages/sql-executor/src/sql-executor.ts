@@ -12,22 +12,50 @@ export class SqlExecutor {
     private readonly adapter: DatabaseAdapter,
   ) {}
 
-  private replaceParameters(
-  sql: string,
+//   private replaceParameters(
+//   sql: string,
+//   parameters: Record<string, unknown>,
+// ): string {
+//   let result = sql;
+
+//   for (const [key, value] of Object.entries(parameters)) {
+//     const replacement =
+//       typeof value === "string"
+//         ? `'${value.replace(/'/g, "''")}'`
+//         : String(value);
+
+//     result = result.replaceAll(`:${key}`, replacement);
+//   }
+
+//   return result;
+// }
+
+private replaceParameters(
+  template: SqlTemplateDefinition,
   parameters: Record<string, unknown>,
 ): string {
-  let result = sql;
+  let sql = template.template;
 
-  for (const [key, value] of Object.entries(parameters)) {
-    const replacement =
-      typeof value === "string"
-        ? `'${value.replace(/'/g, "''")}'`
-        : String(value);
+  for (const parameter of template.parameters ?? []) {
+    const value = parameters[parameter.name];
 
-    result = result.replaceAll(`:${key}`, replacement);
+    let replacement: string;
+
+    if (value === undefined || value === null) {
+      replacement = "NULL";
+    } else if (typeof value === "string") {
+      replacement = `'${value.replace(/'/g, "''")}'`;
+    } else {
+      replacement = String(value);
+    }
+
+    sql = sql.replaceAll(
+      `:${parameter.name}`,
+      replacement,
+    );
   }
 
-  return result;
+  return sql;
 }
   async execute(
     template: SqlTemplateDefinition,
@@ -57,7 +85,7 @@ console.log("Runtime Parameters:", parameters);
 
     
 const sql = this.replaceParameters(
-  template.template,
+  template,
   parameters,
 );
 

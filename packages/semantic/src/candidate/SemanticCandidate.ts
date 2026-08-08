@@ -1,4 +1,25 @@
-import type { SemanticType } from "@intelligence/domain-sdk";
+import type {
+  BenchmarkDefinition,
+  CategoryDefinition,
+  ConceptDefinition,
+  DimensionDefinition,
+  EntityDefinition,
+  MetricDefinition,
+  RelationshipDefinition,
+  SemanticType,
+} from "@intelligence/domain-sdk";
+
+
+export type SemanticDefinition =
+  | MetricDefinition
+  | EntityDefinition
+  | ConceptDefinition
+  | CategoryDefinition
+  | RelationshipDefinition
+  | DimensionDefinition
+  | BenchmarkDefinition;
+
+
 
 export interface SemanticCandidate {
   /**
@@ -17,6 +38,11 @@ export interface SemanticCandidate {
   semanticType: SemanticType;
 
   /**
+ * Full semantic definition loaded from the registry.
+ */
+definition: SemanticDefinition;
+
+  /**
    * Confidence score.
    * 0.0 - 1.0
    */
@@ -31,4 +57,6 @@ export interface SemanticCandidate {
    * Phrase end token index.
    */
   end: number;
+
+  resolvedValue?: unknown;
 }

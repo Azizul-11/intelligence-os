@@ -24,7 +24,7 @@ export function createRuntimeEngine({
       console.log(">>> RuntimeEngine.execute()");
       const semanticResult = semantic.resolve(request.question);
 
-      console.log("========== SEMANTIC RESULT ==========");
+console.log("========== SEMANTIC RESULT ==========");
 console.log(
   JSON.stringify(semanticResult, null, 2),
 );
@@ -90,10 +90,14 @@ if (template.template) {
         };
       }
 
-     const parameters =
+const parameters =
   runtime.domain.executionStrategy.resolveParameters(
-    request.parameters ?? {},
+    plan.plan.parameters,
   );
+
+console.log("========== PARAMETERS ==========");
+console.log(parameters);
+console.log("================================");
 
 return executor.execute(
   template.template,

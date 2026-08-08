@@ -44,4 +44,5 @@ export const healthcareDomain: DomainPack = {
   recommendations: healthcareRecommendations,
   executionStrategy:
   new HealthcareExecutionStrategy(),
+
 };

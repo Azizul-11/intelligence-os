@@ -1,5 +1,15 @@
+import type {
+  BenchmarkDefinition,
+  CategoryDefinition,
+  ConceptDefinition,
+  DimensionDefinition,
+  EntityDefinition,
+  MetricDefinition,
+  RelationshipDefinition,
+  SemanticType,
+} from "@intelligence/domain-sdk";
+
 import type { SemanticRegistryData } from "./semantic-registry-data";
-import type { SemanticType } from "@intelligence/domain-sdk";
 export class SemanticRegistry {
   constructor(
     private readonly data: SemanticRegistryData,
@@ -9,6 +19,53 @@ export class SemanticRegistry {
     return this.data.aliases;
   }
 
+  getMetric(
+  metricId: string,
+): MetricDefinition | undefined {
+  return this.data.metrics.get(metricId);
+}
+
+getEntity(
+  entityId: string,
+): EntityDefinition | undefined {
+  return this.data.entities.get(entityId);
+}
+
+getConcept(
+  conceptId: string,
+): ConceptDefinition | undefined {
+  return this.data.concepts.get(conceptId);
+}
+
+getCategory(
+  categoryId: string,
+): CategoryDefinition | undefined {
+  return this.data.categories.get(categoryId);
+}
+
+getRelationship(
+  relationshipId: string,
+): RelationshipDefinition | undefined {
+  return this.data.relationships.get(
+    relationshipId,
+  );
+}
+
+getDimension(
+  dimensionId: string,
+): DimensionDefinition | undefined {
+  return this.data.dimensions.get(
+    dimensionId,
+  );
+}
+
+getBenchmark(
+  benchmarkId: string,
+): BenchmarkDefinition | undefined {
+  return this.data.benchmarks.get(
+    benchmarkId,
+  );
+}
   hasMetric(metricKey: string): boolean {
     return this.data.metrics.has(metricKey);
   }

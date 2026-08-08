@@ -1,4 +1,5 @@
 import type { EntityCategory } from "./entity-category";
+import type { EntityExecution } from "./entity-execution";
 
 /**
  * Describes an entity exposed by a Domain Pack.
@@ -13,4 +14,12 @@ export interface EntityDefinition {
   description?: string;
 
   category?: EntityCategory;
+
+  /**
+   * Optional execution metadata.
+   *
+   * The planner/runtime consumes this metadata without
+   * knowing anything about the underlying domain.
+   */
+  execution?: EntityExecution;
 }

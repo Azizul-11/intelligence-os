@@ -6,4 +6,7 @@ export const departmentEntity: EntityDefinition = {
   displayName: "Department",
   category: organizationCategory,
   description: "Clinical or operational unit within a healthcare organization.",
+  execution: {
+  parameter: "department",
+},
 } as const;

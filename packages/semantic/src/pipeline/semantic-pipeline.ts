@@ -14,7 +14,7 @@ import { LexicalRewriter } from "../rewriter";
 import { SemanticCandidateBuilder } from "../candidate";
 
 import type { SemanticCandidate } from "../candidate";
-
+import { EntityResolver } from "../entity";
 export class SemanticPipeline {
   constructor(
     private readonly normalizer: Normalizer,
@@ -22,6 +22,7 @@ export class SemanticPipeline {
     private readonly lexicalRewriter: LexicalRewriter,
     private readonly phraseExtractor: PhraseExtractor,
     private readonly aliasResolver: AliasResolver,
+    private readonly entityResolver: EntityResolver,
     private readonly candidateBuilder: SemanticCandidateBuilder,
     private readonly matcher: Matcher,
     private readonly ontology: Ontology,
@@ -68,11 +69,31 @@ export class SemanticPipeline {
     for (const phrase of phrases) {
       const aliasResult = this.aliasResolver.resolve(phrase.value);
 
-      if (!aliasResult.matched) {
+      if (aliasResult.matched) {
+        const ontologyResult = this.ontology.resolve(aliasResult.canonicalKey);
+
+        if (ontologyResult.found) {
+          semanticCandidates.push(
+            this.candidateBuilder.build(
+              phrase.value,
+              ontologyResult.canonicalKey!,
+              ontologyResult.semanticType!,
+              ontologyResult.definition!,
+              1,
+            ),
+          );
+        }
+
         continue;
       }
 
-      const ontologyResult = this.ontology.resolve(aliasResult.canonicalKey);
+      const entity = this.entityResolver.resolve(phrase.value);
+
+      if (!entity.found) {
+        continue;
+      }
+
+      const ontologyResult = this.ontology.resolve(entity.entityId);
 
       if (!ontologyResult.found) {
         continue;
@@ -82,14 +103,35 @@ export class SemanticPipeline {
         phrase.value,
         ontologyResult.canonicalKey!,
         ontologyResult.semanticType!,
+        ontologyResult.definition!,
         1,
       );
+
+      candidate.resolvedValue = entity.value;
 
       semanticCandidates.push(candidate);
     }
 
-    console.log("Semantic Candidates");
-    console.log(semanticCandidates);
+    // console.log("Semantic Candidates");
+    // console.log(semanticCandidates);
+
+    console.log("========== SEMANTIC CANDIDATES ==========");
+
+    for (const candidate of semanticCandidates) {
+      console.log({
+        phrase: candidate.phrase,
+        canonical: candidate.canonicalKey,
+        type: candidate.semanticType,
+      });
+    }
+
+    console.log("=========================================");
+
+    for (const candidate of semanticCandidates) {
+      console.dir(candidate, { depth: null });
+    }
+
+    console.log(JSON.stringify(semanticCandidates, null, 2));
 
     const matchResult = this.matcher.match(
       semanticCandidates.map((candidate) => candidate.canonicalKey),
@@ -106,13 +148,13 @@ export class SemanticPipeline {
 
     // const ontologyResult = this.ontology.resolve(matchResult.canonicalKey);
 
- return {
-  resolved: ontologyResult.found,
-  originalQuery: query,
-  normalizedQuery,
-  canonicalKey: ontologyResult.canonicalKey,
-  semanticType: ontologyResult.semanticType,
-  matches: semanticCandidates,
-};
+    return {
+      resolved: ontologyResult.found,
+      originalQuery: query,
+      normalizedQuery,
+      canonicalKey: ontologyResult.canonicalKey,
+      semanticType: ontologyResult.semanticType,
+      matches: semanticCandidates,
+    };
   }
 }

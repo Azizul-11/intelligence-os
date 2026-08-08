@@ -8,4 +8,7 @@ export const hospitalEntity: EntityDefinition = {
   category: organizationCategory,
   description:
     "Healthcare organization providing inpatient and outpatient services.",
+    execution: {
+  parameter: "hospital",
+},
 };
