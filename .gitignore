@@ -104,3 +104,5 @@ data/raw/
 data/raw/healthcare/cms/*.csv
 
 *Zone.Identifier
+
+docs

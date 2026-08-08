@@ -11,3 +11,4 @@ export * from "./healthcare-domain";
 export * from "./categories";
 export * from "./dimensions";
 export * from "./runtime";
+export { HealthcareEntityProvider } from "./runtime/entity-provider";

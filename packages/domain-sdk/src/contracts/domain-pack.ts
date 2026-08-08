@@ -13,7 +13,7 @@ import type { DomainManifest } from "./domain-manifest";
 
 import type { ConceptDefinition } from "../concept-registry";
 
-import type { DomainExecutionStrategy } from "../runtime";
+import type { DomainExecutionStrategy, EntityProvider } from "../runtime";
 
 export interface DomainPack {
   manifest: DomainManifest;
@@ -39,5 +39,8 @@ export interface DomainPack {
   capabilities: readonly CapabilityDefinition[];
 
   recommendations: readonly RecommendationDefinition[];
+  
   executionStrategy: DomainExecutionStrategy;
+  
+  entityProvider: EntityProvider;
 }

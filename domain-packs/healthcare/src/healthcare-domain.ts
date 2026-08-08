@@ -15,6 +15,7 @@ import { healthcareCategories } from "./categories";
 import { healthcareDimensions } from "./dimensions";
 import { concepts } from "./concepts";
 import { HealthcareExecutionStrategy } from "./runtime";
+import { HealthcareEntityProvider } from "./runtime/entity-provider";
 
 export const healthcareDomain: DomainPack = {
   manifest: healthcareManifest,
@@ -42,7 +43,8 @@ export const healthcareDomain: DomainPack = {
   capabilities: healthcareCapabilities,
 
   recommendations: healthcareRecommendations,
-  executionStrategy:
-  new HealthcareExecutionStrategy(),
-
+  
+  executionStrategy: new HealthcareExecutionStrategy(),
+  
+  entityProvider: new HealthcareEntityProvider(),
 };
