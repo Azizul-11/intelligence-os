@@ -26,6 +26,7 @@ export function getRuntimeEngine(): RuntimeEngine {
 
   const semantic = createSemanticResolver(
     runtime.registry,
+    runtime.entityProvider,
   );
 
   const planner = new QueryPlanner();

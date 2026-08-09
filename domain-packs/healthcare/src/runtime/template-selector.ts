@@ -3,6 +3,16 @@ export class HealthcareTemplateSelector {
     metricId: string,
     intent: string,
   ): string {
+    // Explicit template mappings for metrics with non-standard template IDs
+    if (metricId === "hospital-count" && intent === "aggregation") {
+      return "hospital-count-by-state";
+    }
+
+    if (metricId === "hospital-list" && intent === "lookup") {
+      return "hospital-list-by-state";
+    }
+
+    // Standard intent-based template selection
     switch (intent) {
       case "ranking":
         return `${metricId}-ranking`;

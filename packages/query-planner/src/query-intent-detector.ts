@@ -33,7 +33,8 @@ export class QueryIntentDetector {
     if (
       q.includes("average") ||
       q.includes("count") ||
-      q.includes("total")
+      q.includes("total") ||
+      q.includes("how many")
     ) {
       return "aggregation";
     }

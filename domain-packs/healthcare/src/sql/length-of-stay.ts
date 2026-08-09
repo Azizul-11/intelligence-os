@@ -1,9 +1,9 @@
 import type { SqlTemplateDefinition } from "@intelligence/domain-sdk";
 
 export const lengthOfStaySqlTemplate: SqlTemplateDefinition = {
-  id: "length-of-stay",
+  id: "length-of-stay-aggregation",
 
-  name: "length-of-stay",
+  name: "length-of-stay-aggregation",
 
   displayName: "Length of Stay",
 

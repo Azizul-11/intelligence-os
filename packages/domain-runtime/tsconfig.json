@@ -10,5 +10,8 @@
   },
   "include": [
     "src"
+  ],
+  "exclude": [
+    "src/runtime/verify-entity-resolution.ts"
   ]
 }
