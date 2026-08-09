@@ -1,7 +1,7 @@
 import type { DimensionDefinition } from "@intelligence/domain-sdk";
 
 export const stateDimension: DimensionDefinition = {
-  id: "state",
+  id: "state-dimension",
 
   name: "state",
 
