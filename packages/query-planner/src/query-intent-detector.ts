@@ -10,7 +10,8 @@ export class QueryIntentDetector {
       q.includes("best") ||
       q.includes("worst") ||
       q.includes("top") ||
-      q.includes("bottom")
+      q.includes("bottom") ||
+      q.includes("better")
     ) {
       return "ranking";
     }

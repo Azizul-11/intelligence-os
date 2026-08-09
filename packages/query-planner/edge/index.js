@@ -2,7 +2,7 @@
 var QueryIntentDetector = class {
   detect(question) {
     const q = question.toLowerCase();
-    if (q.includes("highest") || q.includes("lowest") || q.includes("best") || q.includes("worst") || q.includes("top") || q.includes("bottom")) {
+    if (q.includes("highest") || q.includes("lowest") || q.includes("best") || q.includes("worst") || q.includes("top") || q.includes("bottom") || q.includes("better")) {
       return "ranking";
     }
     if (q.includes("compare") || q.includes("vs") || q.includes("versus")) {

@@ -10,6 +10,8 @@ export * from "./length-of-stay";
 export * from "./hospital-overall-rating-ranking";
 export * from "./hospital-count-by-state";
 export * from "./hospital-list-by-state";
+export * from "./hospital-list-by-ownership";
+export * from "./safety-performance-ranking";
 
 import { hospitalOverallRatingSqlTemplate } from "./hospital-overall-rating";
 import { mortalityRateSqlTemplate } from "./mortality-rate";
@@ -24,6 +26,8 @@ import { hospitalOverallRatingRankingSqlTemplate }
 from "./hospital-overall-rating-ranking";
 import { hospitalCountByStateSqlTemplate } from "./hospital-count-by-state";
 import { hospitalListByStateSqlTemplate } from "./hospital-list-by-state";
+import { hospitalListByOwnershipSqlTemplate } from "./hospital-list-by-ownership";
+import { safetyPerformanceRankingSqlTemplate } from "./safety-performance-ranking";
 
 export const healthcareSqlTemplates = [
     hospitalOverallRatingSqlTemplate,
@@ -38,4 +42,6 @@ export const healthcareSqlTemplates = [
     lengthOfStaySqlTemplate,
     hospitalCountByStateSqlTemplate,
     hospitalListByStateSqlTemplate,
+    hospitalListByOwnershipSqlTemplate,
+    safetyPerformanceRankingSqlTemplate,
 ] as const;

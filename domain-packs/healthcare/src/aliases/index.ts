@@ -10,6 +10,7 @@ export * from "./length-of-stay";
 export * from "./mortality-rate";
 export * from "./hospital-count";
 export * from "./hospital-list";
+export * from "./safety-performance";
 
 import { acuteMyocardialInfarctionAlias } from "./acute-myocardial-infarction";
 import { cmsAlias } from "./cms";
@@ -24,6 +25,7 @@ import { lengthOfStayAlias } from "./length-of-stay";
 import { mortalityRateAlias } from "./mortality-rate";
 import { hospitalCountAlias } from "./hospital-count";
 import { hospitalListAlias } from "./hospital-list";
+import { safetyPerformanceAlias } from "./safety-performance";
 
 export const healthcareAliases = [
   acuteMyocardialInfarctionAlias,
@@ -38,4 +40,5 @@ lengthOfStayAlias,
 mortalityRateAlias,
 hospitalCountAlias,
 hospitalListAlias,
+safetyPerformanceAlias,
 ] as const;
