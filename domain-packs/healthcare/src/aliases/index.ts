@@ -15,6 +15,11 @@ export * from "./county";
 export * from "./state-dimension";
 export * from "./year";
 export * from "./hospital-dimension";
+export * from "./national-average";
+export * from "./state-average";
+export * from "./average";
+export * from "./above-comparison";
+export * from "./below-comparison";
 
 import { acuteMyocardialInfarctionAlias } from "./acute-myocardial-infarction";
 import { cmsAlias } from "./cms";
@@ -34,6 +39,11 @@ import { countyAliases } from "./county";
 import { stateDimensionAliases } from "./state-dimension";
 import { yearAliases } from "./year";
 import { hospitalDimensionAliases } from "./hospital-dimension";
+import { nationalAverageAliases } from "./national-average";
+import { stateAverageAliases } from "./state-average";
+import { averageAliases } from "./average";
+import { aboveComparisonAliases } from "./above-comparison";
+import { belowComparisonAliases } from "./below-comparison";
 
 export const healthcareAliases = [
   acuteMyocardialInfarctionAlias,
@@ -53,4 +63,9 @@ countyAliases,
 stateDimensionAliases,
 yearAliases,
 hospitalDimensionAliases,
+nationalAverageAliases,
+stateAverageAliases,
+averageAliases,
+aboveComparisonAliases,
+belowComparisonAliases,
 ] as const;
