@@ -20,6 +20,11 @@ export * from "./state-average";
 export * from "./average";
 export * from "./above-comparison";
 export * from "./below-comparison";
+export * from "./quality";
+export * from "./safety";
+export * from "./operations";
+export * from "./experience";
+export * from "./clinical-outcomes";
 
 import { acuteMyocardialInfarctionAlias } from "./acute-myocardial-infarction";
 import { cmsAlias } from "./cms";
@@ -27,7 +32,6 @@ import { emergencyDepartmentAlias } from "./emergency-department";
 import { hcahpsAlias } from "./hcahps";
 import { hospitalOverallRatingAlias } from "./hospital-overall-rating";
 import { readmissionAlias } from "./readmission";
-
 import { patientExperienceAlias } from "./patient-experience";
 import { emergencyDepartmentVisitsAlias } from "./emergency-department-visits";
 import { lengthOfStayAlias } from "./length-of-stay";
@@ -44,6 +48,11 @@ import { stateAverageAliases } from "./state-average";
 import { averageAliases } from "./average";
 import { aboveComparisonAliases } from "./above-comparison";
 import { belowComparisonAliases } from "./below-comparison";
+import { qualityAliases } from "./quality";
+import { safetyAliases } from "./safety";
+import { operationsAliases } from "./operations";
+import { experienceAliases } from "./experience";
+import { clinicalOutcomesAliases } from "./clinical-outcomes";
 
 export const healthcareAliases = [
   acuteMyocardialInfarctionAlias,
@@ -53,19 +62,24 @@ export const healthcareAliases = [
   hospitalOverallRatingAlias,
   readmissionAlias,
   patientExperienceAlias,
-emergencyDepartmentVisitsAlias,
-lengthOfStayAlias,
-mortalityRateAlias,
-hospitalCountAlias,
-hospitalListAlias,
-safetyPerformanceAlias,
-countyAliases,
-stateDimensionAliases,
-yearAliases,
-hospitalDimensionAliases,
-nationalAverageAliases,
-stateAverageAliases,
-averageAliases,
-aboveComparisonAliases,
-belowComparisonAliases,
+  emergencyDepartmentVisitsAlias,
+  lengthOfStayAlias,
+  mortalityRateAlias,
+  hospitalCountAlias,
+  hospitalListAlias,
+  safetyPerformanceAlias,
+  countyAliases,
+  stateDimensionAliases,
+  yearAliases,
+  hospitalDimensionAliases,
+  nationalAverageAliases,
+  stateAverageAliases,
+  averageAliases,
+  aboveComparisonAliases,
+  belowComparisonAliases,
+  qualityAliases,
+  safetyAliases,
+  operationsAliases,
+  experienceAliases,
+  clinicalOutcomesAliases,
 ] as const;
