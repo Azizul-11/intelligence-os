@@ -9,3 +9,4 @@ export * from "./query-intent";
 export * from "./query-intent-detector";
 export * from "./semantic-collector";
 export * from "./semantic-collections";
+export * from "./execution-plan-mapper";

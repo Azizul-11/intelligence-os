@@ -2,7 +2,7 @@ import { healthcareDomain } from "@intelligence/healthcare-domain";
 
 import { createDomainRuntime } from "@intelligence/domain-runtime";
 import { createSemanticResolver } from "@intelligence/semantic";
-import { QueryPlanner } from "@intelligence/query-planner";
+import { QueryPlanner, ExecutionPlanMapper } from "@intelligence/query-planner";
 import {
   SqlExecutor,
   SupabaseDatabaseAdapter,
@@ -44,6 +44,7 @@ export function getRuntimeEngine(): RuntimeEngine {
     runtime,
     semantic,
     planner,
+    executionPlanMapper: new ExecutionPlanMapper(),
     executor,
   });
 

@@ -1,0 +1,63 @@
+import type { ExecutionOperation } from "./execution-operation";
+import type { ExecutionFilter } from "./execution-filter";
+import type { ExecutionOrdering } from "./execution-ordering";
+import type { ExecutionGrouping } from "./execution-grouping";
+import type { ExecutionLimit } from "./execution-limit";
+
+/**
+ * Universal Execution Plan.
+ *
+ * Represents a deterministic execution structure independent of:
+ * - Semantic resolution details
+ * - SQL generation
+ * - Domain-specific logic
+ * - Implementation details
+ *
+ * This contract bridges semantic meaning to execution, defining WHAT to execute
+ * without specifying HOW to execute it.
+ *
+ * Phase 5.1 establishes this contract.
+ * Phase 5.2 will build the semantic → execution plan mapping.
+ * Phase 5.3 will prove end-to-end execution.
+ */
+export interface ExecutionPlan {
+  /**
+   * High-level operation to perform.
+   */
+  operation: ExecutionOperation;
+
+  /**
+   * Primary metric to compute or analyze.
+   * Canonical metric identifier from the domain registry.
+   */
+  metric: string;
+
+  /**
+   * Filters to apply during execution.
+   */
+  filters: ExecutionFilter[];
+
+  /**
+   * Grouping/aggregation dimensions.
+   * Optional - not all operations require grouping.
+   */
+  grouping?: ExecutionGrouping;
+
+  /**
+   * Result ordering specification.
+   * Optional - not all operations require ordering.
+   */
+  ordering?: ExecutionOrdering;
+
+  /**
+   * Result limit and pagination.
+   * Optional - defaults may be applied by execution layer.
+   */
+  limit?: ExecutionLimit;
+
+  /**
+   * Additional execution parameters.
+   * Domain-specific values needed for execution (e.g., resolved entity IDs).
+   */
+  parameters?: Record<string, unknown>;
+}

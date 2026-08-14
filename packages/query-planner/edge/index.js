@@ -103,7 +103,153 @@ var QueryPlanner = class {
     };
   }
 };
+
+// src/execution-plan-mapper.ts
+var ExecutionPlanMapper = class {
+  /**
+   * Map QueryPlan to ExecutionPlan.
+   *
+   * Converts semantic collections and intent into execution structure.
+   */
+  map(queryPlan) {
+    const primaryMetric = this.extractPrimaryMetric(queryPlan);
+    const operation = this.mapIntent(queryPlan.intent);
+    const filters = this.buildFilters(queryPlan);
+    const grouping = this.buildGrouping(queryPlan);
+    const ordering = this.buildOrdering(queryPlan, operation);
+    const limit = this.buildLimit(queryPlan);
+    const plan = {
+      operation,
+      metric: primaryMetric,
+      filters,
+      parameters: queryPlan.parameters
+    };
+    if (grouping !== void 0) {
+      plan.grouping = grouping;
+    }
+    if (ordering !== void 0) {
+      plan.ordering = ordering;
+    }
+    if (limit !== void 0) {
+      plan.limit = limit;
+    }
+    return plan;
+  }
+  /**
+   * Extract primary metric from semantic collections.
+   */
+  extractPrimaryMetric(queryPlan) {
+    if (queryPlan.semantic.metrics.length === 0) {
+      throw new Error("ExecutionPlan requires at least one metric");
+    }
+    const primaryMetric = queryPlan.semantic.metrics[0];
+    if (!primaryMetric) {
+      throw new Error("ExecutionPlan requires at least one metric");
+    }
+    return primaryMetric.canonicalKey;
+  }
+  /**
+   * Map QueryIntent to ExecutionOperation.
+   */
+  mapIntent(intent) {
+    const mapping = {
+      lookup: "lookup",
+      ranking: "rank",
+      comparison: "compare",
+      trend: "analyze",
+      aggregation: "aggregate"
+    };
+    return mapping[intent];
+  }
+  /**
+   * Build execution filters from entity parameters.
+   *
+   * Converts resolved entities into filter constraints.
+   */
+  buildFilters(queryPlan) {
+    const filters = [];
+    for (const entity of queryPlan.semantic.entities) {
+      const definition = entity.definition;
+      if (!definition.execution) {
+        continue;
+      }
+      const parameterName = definition.execution.parameter;
+      const resolvedValue = entity.resolvedValue ?? entity.phrase;
+      filters.push({
+        field: parameterName,
+        operator: "=",
+        value: resolvedValue
+      });
+    }
+    return filters;
+  }
+  /**
+   * Build grouping from semantic dimensions.
+   */
+  buildGrouping(queryPlan) {
+    if (queryPlan.semantic.dimensions.length === 0) {
+      return void 0;
+    }
+    return {
+      dimensions: queryPlan.semantic.dimensions.map((d) => d.canonicalKey)
+    };
+  }
+  /**
+   * Build ordering based on operation and metrics.
+   *
+   * Ranking operations order by primary metric descending.
+   * Other operations may not require ordering.
+   */
+  buildOrdering(queryPlan, operation) {
+    if (operation === "rank") {
+      const primaryMetric = queryPlan.semantic.metrics[0]?.canonicalKey;
+      if (!primaryMetric) {
+        return void 0;
+      }
+      const hasAbove = queryPlan.semantic.relationships.some(
+        (r) => r.canonicalKey === "above-comparison"
+      );
+      const hasBelow = queryPlan.semantic.relationships.some(
+        (r) => r.canonicalKey === "below-comparison"
+      );
+      let direction = "desc";
+      if (hasBelow) {
+        direction = "asc";
+      }
+      return {
+        field: primaryMetric,
+        direction
+      };
+    }
+    return void 0;
+  }
+  /**
+   * Build execution limit.
+   *
+   * Apply default limit for operations that typically need them.
+   */
+  buildLimit(queryPlan) {
+    if (queryPlan.intent === "ranking" || queryPlan.intent === "lookup") {
+      return {
+        value: 10,
+        // Default limit
+        offset: 0
+      };
+    }
+    if (queryPlan.intent === "aggregation") {
+      if (queryPlan.semantic.dimensions.length > 0) {
+        return {
+          value: 100,
+          // Higher limit for grouped aggregations
+          offset: 0
+        };
+      }
+    }
+    return void 0;
+  }
+};
 export {
+  ExecutionPlanMapper,
   QueryIntentDetector,
   QueryPlanner,
   SemanticCollector

@@ -3,6 +3,7 @@ function createRuntimeEngine({
   runtime,
   semantic,
   planner,
+  executionPlanMapper,
   executor
 }) {
   return {
@@ -31,8 +32,12 @@ function createRuntimeEngine({
           error: "Unable to create query plan."
         };
       }
+      const executionPlan = executionPlanMapper.map(plan.plan);
+      console.log("========== EXECUTION PLAN ==========");
+      console.log(JSON.stringify(executionPlan, null, 2));
+      console.log("====================================");
       const primaryMetric = plan.plan.semantic.metrics[0]?.canonicalKey;
-      const templateId = runtime.domain.executionStrategy.selectTemplate(
+      const templateId = runtime.domain.executionStrategy.selectTemplateFromPlan ? runtime.domain.executionStrategy.selectTemplateFromPlan(executionPlan) : runtime.domain.executionStrategy.selectTemplate(
         primaryMetric,
         plan.plan.intent
       );
@@ -58,7 +63,7 @@ function createRuntimeEngine({
           error: "SQL template not found."
         };
       }
-      const parameters = runtime.domain.executionStrategy.resolveParameters(
+      const parameters = runtime.domain.executionStrategy.resolveParametersFromPlan ? runtime.domain.executionStrategy.resolveParametersFromPlan(executionPlan) : runtime.domain.executionStrategy.resolveParameters(
         plan.plan.parameters
       );
       console.log("========== PARAMETERS ==========");

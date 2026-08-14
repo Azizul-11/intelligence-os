@@ -1,5 +1,5 @@
 import type { DomainRuntime } from "@intelligence/domain-runtime";
-import type { QueryPlanner } from "@intelligence/query-planner";
+import type { QueryPlanner, ExecutionPlanMapper } from "@intelligence/query-planner";
 import type { SqlExecutor } from "@intelligence/sql-executor";
 import type { SemanticResolver } from "@intelligence/semantic";
 
@@ -11,12 +11,14 @@ type CreateRuntimeEngineOptions = {
   runtime: DomainRuntime;
   semantic: SemanticResolver;
   planner: QueryPlanner;
+  executionPlanMapper: ExecutionPlanMapper;
   executor: SqlExecutor;
 };
 export function createRuntimeEngine({
   runtime,
   semantic,
   planner,
+  executionPlanMapper,
   executor,
 }: CreateRuntimeEngineOptions): RuntimeEngine {
   return {
@@ -54,14 +56,23 @@ console.log("=====================================");
   };
 }
 
+// Phase 5.3: Create ExecutionPlan from QueryPlan
+const executionPlan = executionPlanMapper.map(plan.plan);
+
+console.log("========== EXECUTION PLAN ==========");
+console.log(JSON.stringify(executionPlan, null, 2));
+console.log("====================================");
+
 const primaryMetric =
   plan.plan.semantic.metrics[0]?.canonicalKey;
 
-  const templateId =
-  runtime.domain.executionStrategy.selectTemplate(
-    primaryMetric!,
-    plan.plan.intent,
-  );
+// Phase 5.3: Use ExecutionPlan if domain strategy supports it
+const templateId = runtime.domain.executionStrategy.selectTemplateFromPlan
+  ? runtime.domain.executionStrategy.selectTemplateFromPlan(executionPlan)
+  : runtime.domain.executionStrategy.selectTemplate(
+      primaryMetric!,
+      plan.plan.intent,
+    );
 
 const template =
   runtime.sqlResolver.resolve(
@@ -90,10 +101,12 @@ if (template.template) {
         };
       }
 
-const parameters =
-  runtime.domain.executionStrategy.resolveParameters(
-    plan.plan.parameters,
-  );
+// Phase 5.3: Use ExecutionPlan if domain strategy supports it
+const parameters = runtime.domain.executionStrategy.resolveParametersFromPlan
+  ? runtime.domain.executionStrategy.resolveParametersFromPlan(executionPlan)
+  : runtime.domain.executionStrategy.resolveParameters(
+      plan.plan.parameters,
+    );
 
 console.log("========== PARAMETERS ==========");
 console.log(parameters);

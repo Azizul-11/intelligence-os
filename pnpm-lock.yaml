@@ -153,6 +153,9 @@ importers:
 
   packages/query-planner:
     dependencies:
+      '@intelligence/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@intelligence/domain-sdk':
         specifier: workspace:*
         version: link:../domain-sdk
