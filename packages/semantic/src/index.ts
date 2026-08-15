@@ -12,3 +12,4 @@ export * from "./pipeline";
 export * from "./analyzer";
 export * from "./rewriter";
 export * from "./candidate";
+export * from "./direction";

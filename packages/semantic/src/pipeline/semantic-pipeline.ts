@@ -15,6 +15,7 @@ import { SemanticCandidateBuilder } from "../candidate";
 
 import type { SemanticCandidate } from "../candidate";
 import { EntityResolver } from "../entity";
+import { ModifierDirectionResolver } from "../direction";
 export class SemanticPipeline {
   constructor(
     private readonly normalizer: Normalizer,
@@ -26,6 +27,7 @@ export class SemanticPipeline {
     private readonly candidateBuilder: SemanticCandidateBuilder,
     private readonly matcher: Matcher,
     private readonly ontology: Ontology,
+    private readonly directionResolver: ModifierDirectionResolver,
   ) {}
   resolve(query: string): SemanticResolutionResult {
     console.log("🔥 NEW SEMANTIC PIPELINE V2 🔥");
@@ -80,6 +82,8 @@ export class SemanticPipeline {
               ontologyResult.semanticType!,
               ontologyResult.definition!,
               1,
+              phrase.start,
+              phrase.end,
             ),
           );
         }
@@ -105,11 +109,42 @@ export class SemanticPipeline {
         ontologyResult.semanticType!,
         ontologyResult.definition!,
         1,
+        phrase.start,
+        phrase.end,
       );
 
       candidate.resolvedValue = entity.value;
 
       semanticCandidates.push(candidate);
+    }
+
+    // Phase 6.2: associate a ranking direction with metric candidates,
+    // using the ORIGINAL (pre-rewrite) tokens - LexicalRewriter strips
+    // modifier words before phrase extraction runs, so the modifier
+    // signal must be recovered from `analyzed`, not `rewrittenTokens`.
+    const modifierTokenIndices = analyzed
+      .map((analyzedToken, index) => ({ role: analyzedToken.role, index }))
+      .filter((entry) => entry.role === "modifier")
+      .map((entry) => entry.index);
+
+    const originalTokenValues = analyzed.map(
+      (analyzedToken) => analyzedToken.token.value,
+    );
+
+    for (const candidate of semanticCandidates) {
+      if (candidate.semanticType !== "metric") {
+        continue;
+      }
+
+      const direction = this.directionResolver.resolve(
+        originalTokenValues,
+        modifierTokenIndices,
+        candidate.phrase,
+      );
+
+      if (direction) {
+        candidate.direction = direction;
+      }
     }
 
     // console.log("Semantic Candidates");

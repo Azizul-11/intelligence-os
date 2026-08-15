@@ -5,6 +5,7 @@ import type {
   ExecutionOrdering,
   ExecutionGrouping,
   ExecutionLimit,
+  ExecutionPlanMetric,
 } from "@intelligence/contracts";
 
 import type { QueryPlan } from "./query-plan";
@@ -32,7 +33,19 @@ export class ExecutionPlanMapper {
     const operation = this.mapIntent(queryPlan.intent);
     const filters = this.buildFilters(queryPlan);
     const grouping = this.buildGrouping(queryPlan);
-    const ordering = this.buildOrdering(queryPlan, operation);
+    const metrics = this.buildMetrics(queryPlan);
+
+    // Phase 6: a single global `ordering` field cannot correctly represent
+    // more than one metric's independent direction. When the plan carries
+    // more than one distinct metric, ordering is omitted here rather than
+    // populated with only the primary metric's direction, so a future
+    // consumer cannot mistake it for the whole compound ordering. Existing
+    // single-metric behavior (the common case today) is unchanged.
+    const isMultiMetric = metrics.length > 1;
+    const ordering = isMultiMetric
+      ? undefined
+      : this.buildOrdering(queryPlan, operation);
+
     const limit = this.buildLimit(queryPlan);
 
     const plan: ExecutionPlan = {
@@ -41,6 +54,10 @@ export class ExecutionPlanMapper {
       filters,
       parameters: queryPlan.parameters,
     };
+
+    if (isMultiMetric) {
+      plan.metrics = metrics;
+    }
 
     if (grouping !== undefined) {
       plan.grouping = grouping;
@@ -73,6 +90,40 @@ export class ExecutionPlanMapper {
 
     // Use first metric as primary
     return primaryMetric.canonicalKey;
+  }
+
+  /**
+   * Build the distinct set of metrics carried by this plan, in original
+   * semantic order, each paired with its independent ranking direction.
+   *
+   * Deduplicates by canonicalKey - exhaustive phrase extraction can
+   * surface the same canonical metric via more than one matched phrase
+   * (e.g. "hospital overall rating" and "overall rating" both matching
+   * the same metric), and each distinct metric must appear only once.
+   *
+   * Direction comes from the semantic layer's modifier-association
+   * signal (SemanticCandidate.direction, Phase 6.2). A distinct metric
+   * with no associable modifier defaults to "desc", consistent with the
+   * existing single-metric default in buildOrdering() below.
+   */
+  private buildMetrics(queryPlan: QueryPlan): ExecutionPlanMetric[] {
+    const seen = new Set<string>();
+    const metrics: ExecutionPlanMetric[] = [];
+
+    for (const candidate of queryPlan.semantic.metrics) {
+      if (seen.has(candidate.canonicalKey)) {
+        continue;
+      }
+
+      seen.add(candidate.canonicalKey);
+
+      metrics.push({
+        metric: candidate.canonicalKey,
+        direction: candidate.direction ?? "desc",
+      });
+    }
+
+    return metrics;
   }
 
   /**

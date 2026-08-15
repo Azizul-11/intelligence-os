@@ -9,6 +9,7 @@
  */
 
 export * from "./execution-plan";
+export * from "./execution-plan-metric";
 export * from "./execution-operation";
 export * from "./execution-filter";
 export * from "./execution-ordering";

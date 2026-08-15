@@ -12,6 +12,8 @@ export class SemanticCandidateBuilder {
   semanticType: SemanticType,
   definition: SemanticDefinition,
   confidence = 1,
+  start = 0,
+  end = 0,
 ): SemanticCandidate {
     return {
       phrase,
@@ -19,8 +21,8 @@ export class SemanticCandidateBuilder {
       semanticType,
       definition,
       confidence,
-      start: 0,
-      end: 0,
+      start,
+      end,
     };
   }
 }

@@ -59,4 +59,12 @@ definition: SemanticDefinition;
   end: number;
 
   resolvedValue?: unknown;
+
+  /**
+   * Ranking direction implied by a nearby superlative modifier
+   * ("highest", "lowest", ...), when one could be associated with this
+   * candidate. Only meaningful for metric-typed candidates. Generic,
+   * domain-agnostic — populated by ModifierDirectionResolver.
+   */
+  direction?: "asc" | "desc";
 }
