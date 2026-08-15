@@ -78,29 +78,61 @@ var QueryPlanner = class {
     const intent = this.intentDetector.detect(
       semantic.originalQuery
     );
+    const finalCollections = {
+      ...collections,
+      metrics: this.filterMetricsForIntent(collections.metrics, intent)
+    };
     const parameters = this.entityParameterResolver.resolve(
-      collections
+      finalCollections
     );
     console.log("========== QUERY PLANNER ==========");
     console.log("Semantic Collections");
     console.log({
-      metrics: collections.metrics,
-      entities: collections.entities,
-      dimensions: collections.dimensions,
-      categories: collections.categories,
-      benchmarks: collections.benchmarks,
-      relationships: collections.relationships
+      metrics: finalCollections.metrics,
+      entities: finalCollections.entities,
+      dimensions: finalCollections.dimensions,
+      categories: finalCollections.categories,
+      benchmarks: finalCollections.benchmarks,
+      relationships: finalCollections.relationships
     });
     console.log("Intent :", intent);
     return {
       success: true,
       plan: {
-        semantic: collections,
+        semantic: finalCollections,
         intent,
         parameters,
         filters: []
       }
     };
+  }
+  /**
+   * Excludes metric candidates whose own definition declares them
+   * non-rankable, when the query's detected intent is "ranking" AND at
+   * least one OTHER candidate in the same query IS rankable.
+   *
+   * This resolves a class of alias collisions where a generic,
+   * non-rankable metric phrase (e.g. one that also matches ordinary
+   * connective language describing an entity, such as "<things> in
+   * <place>") coincidentally overlaps with the start of a sentence that
+   * is actually asking to rank other, genuinely rankable metrics.
+   *
+   * Deliberately conservative: never produces an empty metrics list,
+   * and never touches a query where every candidate already agrees
+   * (all rankable, or all non-rankable) - a standalone query for a
+   * non-rankable metric is completely unaffected.
+   */
+  filterMetricsForIntent(metrics, intent) {
+    if (intent !== "ranking") {
+      return metrics;
+    }
+    const rankable = metrics.filter(
+      (metric) => metric.definition.rankable === true
+    );
+    if (rankable.length === 0 || rankable.length === metrics.length) {
+      return metrics;
+    }
+    return rankable;
   }
 };
 
