@@ -69,10 +69,75 @@ function createRuntimeEngine({
       console.log("========== PARAMETERS ==========");
       console.log(parameters);
       console.log("================================");
-      return executor.execute(
+      const primaryResult = await executor.execute(
         template.template,
         parameters
       );
+      if (!primaryResult.success) {
+        return primaryResult;
+      }
+      const strategy = runtime.domain.executionStrategy;
+      const identityField = strategy.resultIdentityField;
+      if (executionPlan.metrics && executionPlan.metrics.length > 1 && identityField && strategy.selectSecondaryMetricTemplate && strategy.resolveSecondaryMetricParameters) {
+        const primaryRows = primaryResult.rows;
+        const identityValues = primaryRows.map((row) => row[identityField]).filter((value) => value !== void 0 && value !== null);
+        const secondaryMetrics = executionPlan.metrics.filter(
+          (metric) => metric.metric !== executionPlan.metric
+        );
+        console.log("========== PHASE 7: SECONDARY METRICS ==========");
+        console.log("Identity field:", identityField);
+        console.log("Identity values:", identityValues);
+        console.log("Secondary metrics:", secondaryMetrics);
+        console.log("==================================================");
+        for (const secondaryMetric of secondaryMetrics) {
+          const secondaryTemplateId = strategy.selectSecondaryMetricTemplate(
+            secondaryMetric,
+            executionPlan
+          );
+          const secondaryTemplate = runtime.sqlResolver.resolve(secondaryTemplateId);
+          if (!secondaryTemplate.found || !secondaryTemplate.template) {
+            return {
+              success: false,
+              rows: [],
+              rowCount: 0,
+              error: `SQL template not found for requested metric "${secondaryMetric.metric}".`
+            };
+          }
+          const secondaryParameters = strategy.resolveSecondaryMetricParameters(
+            secondaryMetric,
+            executionPlan,
+            identityValues
+          );
+          const secondaryResult = await executor.execute(
+            secondaryTemplate.template,
+            secondaryParameters
+          );
+          if (!secondaryResult.success) {
+            return {
+              success: false,
+              rows: [],
+              rowCount: 0,
+              error: `Failed to execute requested metric "${secondaryMetric.metric}": ${secondaryResult.error ?? "unknown error"}`
+            };
+          }
+          const secondaryRows = secondaryResult.rows;
+          const secondaryIndex = /* @__PURE__ */ new Map();
+          for (const row of secondaryRows) {
+            secondaryIndex.set(row[identityField], row);
+          }
+          for (const row of primaryRows) {
+            const match = secondaryIndex.get(row[identityField]);
+            if (match) {
+              for (const [key, value] of Object.entries(match)) {
+                if (key !== identityField) {
+                  row[key] = value;
+                }
+              }
+            }
+          }
+        }
+      }
+      return primaryResult;
     }
   };
 }

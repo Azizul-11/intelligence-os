@@ -54,18 +54,24 @@ var SqlExecutor = class {
   //   }
   //   return result;
   // }
+  /**
+   * Renders a single scalar value using the existing escaping/quoting
+   * convention (unchanged from before Phase 7).
+   */
+  renderScalar(value) {
+    if (value === void 0 || value === null) {
+      return "NULL";
+    }
+    if (typeof value === "string") {
+      return `'${value.replace(/'/g, "''")}'`;
+    }
+    return String(value);
+  }
   replaceParameters(template, parameters) {
     let sql = template.template;
     for (const parameter of template.parameters ?? []) {
       const value = parameters[parameter.name];
-      let replacement;
-      if (value === void 0 || value === null) {
-        replacement = "NULL";
-      } else if (typeof value === "string") {
-        replacement = `'${value.replace(/'/g, "''")}'`;
-      } else {
-        replacement = String(value);
-      }
+      const replacement = Array.isArray(value) ? value.length > 0 ? value.map((element) => this.renderScalar(element)).join(", ") : "NULL" : this.renderScalar(value);
       sql = sql.replaceAll(
         `:${parameter.name}`,
         replacement

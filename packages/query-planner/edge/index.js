@@ -116,7 +116,9 @@ var ExecutionPlanMapper = class {
     const operation = this.mapIntent(queryPlan.intent);
     const filters = this.buildFilters(queryPlan);
     const grouping = this.buildGrouping(queryPlan);
-    const ordering = this.buildOrdering(queryPlan, operation);
+    const metrics = this.buildMetrics(queryPlan);
+    const isMultiMetric = metrics.length > 1;
+    const ordering = isMultiMetric ? void 0 : this.buildOrdering(queryPlan, operation);
     const limit = this.buildLimit(queryPlan);
     const plan = {
       operation,
@@ -124,6 +126,9 @@ var ExecutionPlanMapper = class {
       filters,
       parameters: queryPlan.parameters
     };
+    if (isMultiMetric) {
+      plan.metrics = metrics;
+    }
     if (grouping !== void 0) {
       plan.grouping = grouping;
     }
@@ -147,6 +152,35 @@ var ExecutionPlanMapper = class {
       throw new Error("ExecutionPlan requires at least one metric");
     }
     return primaryMetric.canonicalKey;
+  }
+  /**
+   * Build the distinct set of metrics carried by this plan, in original
+   * semantic order, each paired with its independent ranking direction.
+   *
+   * Deduplicates by canonicalKey - exhaustive phrase extraction can
+   * surface the same canonical metric via more than one matched phrase
+   * (e.g. "hospital overall rating" and "overall rating" both matching
+   * the same metric), and each distinct metric must appear only once.
+   *
+   * Direction comes from the semantic layer's modifier-association
+   * signal (SemanticCandidate.direction, Phase 6.2). A distinct metric
+   * with no associable modifier defaults to "desc", consistent with the
+   * existing single-metric default in buildOrdering() below.
+   */
+  buildMetrics(queryPlan) {
+    const seen = /* @__PURE__ */ new Set();
+    const metrics = [];
+    for (const candidate of queryPlan.semantic.metrics) {
+      if (seen.has(candidate.canonicalKey)) {
+        continue;
+      }
+      seen.add(candidate.canonicalKey);
+      metrics.push({
+        metric: candidate.canonicalKey,
+        direction: candidate.direction ?? "desc"
+      });
+    }
+    return metrics;
   }
   /**
    * Map QueryIntent to ExecutionOperation.

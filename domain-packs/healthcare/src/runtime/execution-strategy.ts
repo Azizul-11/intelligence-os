@@ -1,7 +1,7 @@
 import type {
   DomainExecutionStrategy,
 } from "@intelligence/domain-sdk";
-import type { ExecutionPlan } from "@intelligence/contracts";
+import type { ExecutionPlan, ExecutionPlanMetric } from "@intelligence/contracts";
 
 import { HealthcareTemplateSelector } from "./template-selector";
 import { HealthcareParameterResolver } from "./parameter-resolver";
@@ -14,6 +14,12 @@ export class HealthcareExecutionStrategy
 
   private readonly parameterResolver =
     new HealthcareParameterResolver();
+
+  /**
+   * Phase 7: Healthcare's own result-identity column. Universal Core
+   * reads this generically - it never contains this string itself.
+   */
+  readonly resultIdentityField = "facility_id";
 
   selectTemplate(
     metricId: string,
@@ -71,5 +77,32 @@ export class HealthcareExecutionStrategy
     }
 
     return this.parameterResolver.resolve(parameters);
+  }
+
+  /**
+   * Phase 7: select the template used to fetch a secondary metric's
+   * values for the exact facility_id set already selected by the
+   * primary metric's query.
+   */
+  selectSecondaryMetricTemplate(
+    metric: ExecutionPlanMetric,
+    _executionPlan: ExecutionPlan,
+  ): string {
+    return this.templateSelector.select(metric.metric, "byIds");
+  }
+
+  /**
+   * Phase 7: resolve parameters for a secondary metric fetch. The
+   * identity values are the exact facility_ids the primary query
+   * already returned - no independent ranking or limiting happens here.
+   */
+  resolveSecondaryMetricParameters(
+    _metric: ExecutionPlanMetric,
+    _executionPlan: ExecutionPlan,
+    identityValues: readonly unknown[],
+  ): Record<string, unknown> {
+    return {
+      facilityIds: identityValues,
+    };
   }
 }

@@ -29,6 +29,11 @@ export class HealthcareTemplateSelector {
       case "aggregation":
         return `${metricId}-aggregation`;
 
+      // Phase 7: fetch this metric's values for an exact, already-
+      // determined set of facility_ids (secondary metric enrichment).
+      case "byIds":
+        return `${metricId}-by-facility-ids`;
+
       default:
         return metricId;
     }

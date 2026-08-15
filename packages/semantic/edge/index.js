@@ -416,7 +416,7 @@ var SemanticValidationEngine = class {
 
 // src/pipeline/semantic-pipeline.ts
 var SemanticPipeline = class {
-  constructor(normalizer, analyzer, lexicalRewriter, phraseExtractor, aliasResolver, entityResolver, candidateBuilder, matcher, ontology) {
+  constructor(normalizer, analyzer, lexicalRewriter, phraseExtractor, aliasResolver, entityResolver, candidateBuilder, matcher, ontology, directionResolver) {
     this.normalizer = normalizer;
     this.analyzer = analyzer;
     this.lexicalRewriter = lexicalRewriter;
@@ -426,6 +426,7 @@ var SemanticPipeline = class {
     this.candidateBuilder = candidateBuilder;
     this.matcher = matcher;
     this.ontology = ontology;
+    this.directionResolver = directionResolver;
   }
   normalizer;
   analyzer;
@@ -436,6 +437,7 @@ var SemanticPipeline = class {
   candidateBuilder;
   matcher;
   ontology;
+  directionResolver;
   resolve(query) {
     console.log("\u{1F525} NEW SEMANTIC PIPELINE V2 \u{1F525}");
     const normalizedQuery = this.normalizer.normalize(query);
@@ -471,7 +473,9 @@ var SemanticPipeline = class {
               ontologyResult3.canonicalKey,
               ontologyResult3.semanticType,
               ontologyResult3.definition,
-              1
+              1,
+              phrase.start,
+              phrase.end
             )
           );
         }
@@ -490,10 +494,29 @@ var SemanticPipeline = class {
         ontologyResult2.canonicalKey,
         ontologyResult2.semanticType,
         ontologyResult2.definition,
-        1
+        1,
+        phrase.start,
+        phrase.end
       );
       candidate.resolvedValue = entity.value;
       semanticCandidates.push(candidate);
+    }
+    const modifierTokenIndices = analyzed.map((analyzedToken, index) => ({ role: analyzedToken.role, index })).filter((entry) => entry.role === "modifier").map((entry) => entry.index);
+    const originalTokenValues = analyzed.map(
+      (analyzedToken) => analyzedToken.token.value
+    );
+    for (const candidate of semanticCandidates) {
+      if (candidate.semanticType !== "metric") {
+        continue;
+      }
+      const direction = this.directionResolver.resolve(
+        originalTokenValues,
+        modifierTokenIndices,
+        candidate.phrase
+      );
+      if (direction) {
+        candidate.direction = direction;
+      }
     }
     console.log("========== SEMANTIC CANDIDATES ==========");
     for (const candidate of semanticCandidates) {
@@ -637,15 +660,15 @@ var LexicalRewriter = class {
 
 // src/candidate/SemanticCandidateBuilder.ts
 var SemanticCandidateBuilder = class {
-  build(phrase, canonicalKey, semanticType, definition, confidence = 1) {
+  build(phrase, canonicalKey, semanticType, definition, confidence = 1, start = 0, end = 0) {
     return {
       phrase,
       canonicalKey,
       semanticType,
       definition,
       confidence,
-      start: 0,
-      end: 0
+      start,
+      end
     };
   }
 };
@@ -661,6 +684,99 @@ var EntityResolver = class {
   }
 };
 
+// src/direction/modifier-direction-lexicon.ts
+var DESCENDING_MODIFIERS = /* @__PURE__ */ new Set([
+  "highest",
+  "best",
+  "top",
+  "largest"
+]);
+var ASCENDING_MODIFIERS = /* @__PURE__ */ new Set([
+  "lowest",
+  "worst",
+  "bottom",
+  "smallest"
+]);
+
+// src/direction/modifier-direction-resolver.ts
+var ModifierDirectionResolver = class {
+  resolve(originalTokens, modifierTokenIndices, candidatePhrase) {
+    if (modifierTokenIndices.length === 0) {
+      return void 0;
+    }
+    const phraseWords = candidatePhrase.split(" ").filter(Boolean);
+    if (phraseWords.length === 0) {
+      return void 0;
+    }
+    const span = this.findSpan(originalTokens, phraseWords);
+    if (!span) {
+      return void 0;
+    }
+    const nearestIndex = this.findNearestModifier(modifierTokenIndices, span);
+    if (nearestIndex === void 0) {
+      return void 0;
+    }
+    const modifierWord = originalTokens[nearestIndex];
+    if (!modifierWord) {
+      return void 0;
+    }
+    if (DESCENDING_MODIFIERS.has(modifierWord)) {
+      return "desc";
+    }
+    if (ASCENDING_MODIFIERS.has(modifierWord)) {
+      return "asc";
+    }
+    return void 0;
+  }
+  /**
+   * Finds the first contiguous occurrence of `words` within `tokens`.
+   * Plain sequential array comparison — no regex.
+   */
+  findSpan(tokens, words) {
+    for (let start = 0; start <= tokens.length - words.length; start++) {
+      let matched = true;
+      for (let offset = 0; offset < words.length; offset++) {
+        if (tokens[start + offset] !== words[offset]) {
+          matched = false;
+          break;
+        }
+      }
+      if (matched) {
+        return { start, end: start + words.length - 1 };
+      }
+    }
+    return void 0;
+  }
+  /**
+   * Finds the modifier token index nearest to `span` by absolute token
+   * distance. On an exact tie, prefers the modifier preceding the span
+   * (English convention: a superlative modifier typically precedes the
+   * noun phrase it modifies, e.g. "best rating", "lowest mortality").
+   */
+  findNearestModifier(modifierTokenIndices, span) {
+    let best;
+    for (const modifierIndex of modifierTokenIndices) {
+      let distance;
+      let precedes;
+      if (modifierIndex < span.start) {
+        distance = span.start - modifierIndex;
+        precedes = true;
+      } else if (modifierIndex > span.end) {
+        distance = modifierIndex - span.end;
+        precedes = false;
+      } else {
+        continue;
+      }
+      const isCloser = best === void 0 || distance < best.distance;
+      const isTieButPrecedes = best !== void 0 && distance === best.distance && precedes && !best.precedes;
+      if (isCloser || isTieButPrecedes) {
+        best = { index: modifierIndex, distance, precedes };
+      }
+    }
+    return best?.index;
+  }
+};
+
 // src/create-semantic-resolver.ts
 function createSemanticResolver(registry, entityProvider) {
   const pipeline = new SemanticPipeline(
@@ -672,7 +788,8 @@ function createSemanticResolver(registry, entityProvider) {
     new EntityResolver(entityProvider),
     new SemanticCandidateBuilder(),
     new Matcher(),
-    new Ontology(registry)
+    new Ontology(registry),
+    new ModifierDirectionResolver()
   );
   return new SemanticResolver(pipeline);
 }
@@ -826,12 +943,15 @@ var SemanticRegistryBuilder = class {
   }
 };
 export {
+  ASCENDING_MODIFIERS,
   AliasResolver,
   CompletenessValidator,
   CrossRegistryValidator,
+  DESCENDING_MODIFIERS,
   DuplicateValidator,
   LexicalRewriter,
   Matcher,
+  ModifierDirectionResolver,
   Normalizer,
   Ontology,
   PhraseExtractor,

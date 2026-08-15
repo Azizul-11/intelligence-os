@@ -30,6 +30,22 @@ export class SqlExecutor {
 //   return result;
 // }
 
+/**
+ * Renders a single scalar value using the existing escaping/quoting
+ * convention (unchanged from before Phase 7).
+ */
+private renderScalar(value: unknown): string {
+  if (value === undefined || value === null) {
+    return "NULL";
+  }
+
+  if (typeof value === "string") {
+    return `'${value.replace(/'/g, "''")}'`;
+  }
+
+  return String(value);
+}
+
 private replaceParameters(
   template: SqlTemplateDefinition,
   parameters: Record<string, unknown>,
@@ -39,15 +55,17 @@ private replaceParameters(
   for (const parameter of template.parameters ?? []) {
     const value = parameters[parameter.name];
 
-    let replacement: string;
-
-    if (value === undefined || value === null) {
-      replacement = "NULL";
-    } else if (typeof value === "string") {
-      replacement = `'${value.replace(/'/g, "''")}'`;
-    } else {
-      replacement = String(value);
-    }
+    // Phase 7: array-valued parameters render as a comma-separated list
+    // of individually escaped values (for templates that write
+    // `IN (:paramName)`), reusing the same scalar escaping as every
+    // other parameter. An empty array renders as a single NULL so
+    // `IN (:paramName)` stays valid SQL and deterministically matches
+    // nothing, rather than producing an empty, invalid `IN ()`.
+    const replacement = Array.isArray(value)
+      ? value.length > 0
+        ? value.map((element) => this.renderScalar(element)).join(", ")
+        : "NULL"
+      : this.renderScalar(value);
 
     sql = sql.replaceAll(
       `:${parameter.name}`,
