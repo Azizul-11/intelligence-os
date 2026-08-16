@@ -11,6 +11,7 @@ import type {
 import type { QueryPlan } from "./query-plan";
 import type { QueryIntent } from "./query-intent";
 import type { EntityDefinition } from "@intelligence/domain-sdk";
+import { groupEntityValues } from "./group-entity-values";
 
 /**
  * ExecutionPlanMapper
@@ -145,11 +146,20 @@ export class ExecutionPlanMapper {
    * Build execution filters from entity parameters.
    *
    * Converts resolved entities into filter constraints.
+   *
+   * Phase 7.5.3: multiple entities sharing the same execution parameter
+   * (e.g. two distinct canonical identities of the same entity type,
+   * such as "Memorial Hospital in Texas" and "Memorial Hospital in New
+   * York" both being "hospital" entities) are grouped into a single
+   * `"in"`-operator filter carrying every distinct value, instead of
+   * one `"="` filter per entity - which would silently only ever be
+   * usable as the last one added. A field with exactly one distinct
+   * value keeps the existing `"="` shape unchanged.
    */
   private buildFilters(queryPlan: QueryPlan): ExecutionFilter[] {
-    const filters: ExecutionFilter[] = [];
+    const entries: { key: string; value: string | number | boolean }[] = [];
 
-    // Convert entity parameters to filters
+    // Convert entity parameters to filter entries
     for (const entity of queryPlan.semantic.entities) {
       const definition = entity.definition as EntityDefinition;
 
@@ -157,14 +167,30 @@ export class ExecutionPlanMapper {
         continue;
       }
 
-      const parameterName = definition.execution.parameter;
       const resolvedValue = entity.resolvedValue ?? entity.phrase;
 
-      filters.push({
-        field: parameterName,
-        operator: "=",
+      entries.push({
+        key: definition.execution.parameter,
         value: resolvedValue as string | number | boolean,
       });
+    }
+
+    const filters: ExecutionFilter[] = [];
+
+    for (const [field, values] of groupEntityValues(entries)) {
+      if (values.length === 1) {
+        filters.push({
+          field,
+          operator: "=",
+          value: values[0]!,
+        });
+      } else {
+        filters.push({
+          field,
+          operator: "in",
+          value: values as string[] | number[],
+        });
+      }
     }
 
     return filters;

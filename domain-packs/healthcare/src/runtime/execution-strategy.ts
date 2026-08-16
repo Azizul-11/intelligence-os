@@ -43,6 +43,23 @@ export class HealthcareExecutionStrategy
    * Phase 5.3: Select template using ExecutionPlan.
    */
   selectTemplateFromPlan(executionPlan: ExecutionPlan): string {
+    // Phase 7.5.5: when the request names an explicit set of hospitals
+    // (more than one distinct resolved facility_id under the "hospital"
+    // execution parameter, carried as Phase 7.5.3's "in" filter), the
+    // request is always answered by fetching exactly those facilities -
+    // the same deterministic "by-facility-ids" capability Phase 7
+    // already established for secondary-metric enrichment - regardless
+    // of surface intent wording ("compare", "list", etc.). A single
+    // resolved hospital, or no hospital at all, falls through to the
+    // existing intent-based selection below, unchanged.
+    const explicitHospitalSet = executionPlan.filters.some(
+      (filter) => filter.field === "hospital" && filter.operator === "in",
+    );
+
+    if (explicitHospitalSet) {
+      return this.templateSelector.select(executionPlan.metric, "byIds");
+    }
+
     // Map ExecutionOperation to intent
     const intentMap: Record<string, string> = {
       lookup: "lookup",
