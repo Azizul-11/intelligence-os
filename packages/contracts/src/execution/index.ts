@@ -15,3 +15,4 @@ export * from "./execution-filter";
 export * from "./execution-ordering";
 export * from "./execution-grouping";
 export * from "./execution-limit";
+export * from "./execution-benchmark";

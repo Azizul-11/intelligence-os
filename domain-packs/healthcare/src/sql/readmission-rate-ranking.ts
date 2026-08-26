@@ -26,9 +26,9 @@ WHERE
         :state IS NULL
         OR h.state = :state
     )
-ORDER BY 
-    h.readm_measures_better DESC NULLS LAST,
-    h.readm_measures_worse ASC NULLS LAST
+ORDER BY
+    CASE WHEN :direction = 'ASC' THEN h.readm_measures_worse ELSE h.readm_measures_better END DESC NULLS LAST,
+    CASE WHEN :direction = 'ASC' THEN h.readm_measures_better ELSE h.readm_measures_worse END ASC NULLS LAST
 LIMIT 10;
 `.trim(),
 
@@ -40,6 +40,13 @@ LIMIT 10;
       type: "string",
       required: false,
       description: "Filter hospitals by state",
+    },
+    {
+      name: "direction",
+      type: "string",
+      required: false,
+      description:
+        "DESC (default): best performance first, ranked by most measures better-than-national, tied hospitals broken by fewest worse-than-national. ASC: worst performance first - the primary and tiebreak columns swap (most measures worse-than-national first, tied hospitals broken by fewest better-than-national), not merely a reversed sort of the DESC ordering. Declared as type \"string\" (compared against a literal in the ORDER BY CASE expression below), not type \"direction\" - this template never uses :direction as a bare trailing ORDER BY keyword, so the RCG-019 bare-keyword rendering does not apply here.",
     },
   ],
 

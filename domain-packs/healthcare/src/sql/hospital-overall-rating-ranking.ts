@@ -23,7 +23,7 @@ WHERE
         :state IS NULL
         OR state = :state
     )
-ORDER BY overall_rating DESC NULLS LAST
+ORDER BY overall_rating :direction NULLS LAST
 LIMIT 10;
 `.trim(),
 
@@ -35,6 +35,12 @@ LIMIT 10;
       type: "string",
       required: false,
       description: "Filter hospitals by state",
+    },
+    {
+      name: "direction",
+      type: "direction",
+      required: false,
+      description: "Sort direction: ASC or DESC (defaults to DESC)",
     },
   ],
 

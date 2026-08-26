@@ -3,8 +3,11 @@
  *
  * Verifies ModifierDirectionResolver correctly associates superlative
  * modifiers (best/lowest/highest/...) with the nearest metric candidate,
- * across multiple compound-query forms, and gracefully falls back
- * (leaves direction undefined) when no association can be made.
+ * across multiple compound-query forms; that a rewrite-derived
+ * (fallback) candidate still recovers its direction via RCG-020's
+ * pattern-text classification rather than being left undefined; and
+ * that non-metric candidates (relationships/benchmarks) never receive a
+ * direction field at all.
  *
  * NO SQL execution - semantic extraction only.
  */
@@ -86,16 +89,22 @@ function metricDirection(matches: any[], canonicalKey: string): string | undefin
   );
 }
 
-// D5 - Graceful fallback: candidate produced via LexicalRewriter's existing
-// regex-substitution path never literally appears in the original tokens,
-// so direction must be left undefined (not crash, not guess).
+// D5 - RCG-020: a candidate produced via LexicalRewriter's rewrite path
+// never literally appears in the original tokens, so the ordinary
+// span-based association above can never find it there. Before RCG-020
+// this meant direction stayed undefined for every such candidate
+// (asserted here originally as the then-correct "graceful fallback").
+// RCG-020 recovers direction instead from whether the fired rule's own
+// trigger phrase ("highest rated hospitals") embeds a recognized
+// modifier - it does ("highest") - so direction must now be "desc" for
+// every metric candidate this rewrite produces, not undefined.
 {
   const result = semantic.resolve("highest rated hospitals");
   const metrics = result.matches.filter((m) => m.semanticType === "metric");
-  const pass = metrics.length > 0 && metrics.every((m) => m.direction === undefined);
+  const pass = metrics.length > 0 && metrics.every((m) => m.direction === "desc");
   check(
     "D5",
-    "Regex-rewrite-path candidate leaves direction undefined (graceful fallback, no crash)",
+    "RCG-020: rewrite-path candidate recovers direction from the fired rule's own pattern text",
     pass,
     `metrics=${JSON.stringify(metrics.map((m) => ({ phrase: m.phrase, direction: m.direction })))}`,
   );

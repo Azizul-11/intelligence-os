@@ -18,4 +18,6 @@ export const readmissionRateMetric: MetricDefinition = {
   benchmarkable: true,
 
   aggregatable: true,
+
+  comparable: true,
 };

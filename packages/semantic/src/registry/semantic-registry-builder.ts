@@ -4,6 +4,7 @@ import type {
   ConceptDefinition,
   DimensionDefinition,
   EntityDefinition,
+  LexicalRewriteRule,
   MetricDefinition,
   RelationshipDefinition,
 } from "@intelligence/domain-sdk";
@@ -15,6 +16,8 @@ import { SemanticRegistry } from "./semantic-registry";
 export class SemanticRegistryBuilder {
   private readonly aliases =
     new Map<string, string>();
+
+  private readonly lexicalRewrites: LexicalRewriteRule[] = [];
 private readonly metrics =
   new Map<string, MetricDefinition>();
 
@@ -38,6 +41,11 @@ private readonly benchmarks =
 
   addAlias(alias: string, canonicalKey: string): this {
     this.aliases.set(alias, canonicalKey);
+    return this;
+  }
+
+  addLexicalRewrite(rule: LexicalRewriteRule): this {
+    this.lexicalRewrites.push(rule);
     return this;
   }
 
@@ -105,6 +113,7 @@ addBenchmark(
   build(): SemanticRegistry {
     const data: SemanticRegistryData = {
     aliases: this.aliases,
+    lexicalRewrites: this.lexicalRewrites,
     metrics: this.metrics,
     entities: this.entities,
     concepts: this.concepts,

@@ -51,6 +51,11 @@ for (const benchmark of domain.benchmarks) {
   builder.addBenchmark(benchmark);
 }
 
+  // Lexical rewrite rules (generic ranking-idiom fallback declarations)
+  for (const rule of domain.lexicalRewrites ?? []) {
+    builder.addLexicalRewrite(rule);
+  }
+
   // Aliases
   for (const aliasDefinition of domain.aliases) {
     for (const alias of aliasDefinition.aliases) {

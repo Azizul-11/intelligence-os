@@ -16,3 +16,4 @@ export * from "./recommendation-registry";
 export * from "./capability-registry";
 export * from "./semantic";
 export * from "./runtime";
+export * from "./lexical-rewrite-registry";

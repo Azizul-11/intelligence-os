@@ -23,6 +23,7 @@ import type {
   ConceptDefinition,
   DimensionDefinition,
   EntityDefinition,
+  LexicalRewriteRule,
   MetricDefinition,
   RelationshipDefinition,
 } from "@intelligence/domain-sdk";
@@ -30,6 +31,8 @@ import type {
 
 export interface SemanticRegistryData {
   readonly aliases: ReadonlyMap<string, string>;
+
+  readonly lexicalRewrites: readonly LexicalRewriteRule[];
 
   readonly metrics:
     ReadonlyMap<string, MetricDefinition>;

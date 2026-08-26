@@ -4,6 +4,7 @@ import type {
   ConceptDefinition,
   DimensionDefinition,
   EntityDefinition,
+  LexicalRewriteRule,
   MetricDefinition,
   RelationshipDefinition,
   SemanticType,
@@ -17,6 +18,10 @@ export class SemanticRegistry {
 
   getAliases(): ReadonlyMap<string, string> {
     return this.data.aliases;
+  }
+
+  getLexicalRewrites(): readonly LexicalRewriteRule[] {
+    return this.data.lexicalRewrites;
   }
 
   getMetric(

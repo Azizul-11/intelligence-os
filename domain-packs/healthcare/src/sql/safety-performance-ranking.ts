@@ -36,7 +36,7 @@ WHERE facility_safety_measure_count > 0
     :state IS NULL
     OR state = :state
   )
-ORDER BY safety_score DESC, hospital_name ASC
+ORDER BY safety_score :direction, hospital_name ASC
 LIMIT 100;
 `.trim(),
 
@@ -48,6 +48,12 @@ LIMIT 100;
       type: "string",
       required: false,
       description: "Optional state filter",
+    },
+    {
+      name: "direction",
+      type: "direction",
+      required: false,
+      description: "Sort direction: ASC or DESC (defaults to DESC)",
     },
   ],
 

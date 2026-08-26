@@ -67,4 +67,16 @@ definition: SemanticDefinition;
    * domain-agnostic — populated by ModifierDirectionResolver.
    */
   direction?: "asc" | "desc";
+
+  /**
+   * True when this candidate's phrase was introduced by a domain's
+   * declared generic-ranking-idiom rewrite rule (see
+   * LexicalRewriteRule) rather than appearing verbatim in the user's
+   * original text - i.e. it represents a fallback/default meaning
+   * supplied in the absence of anything more specific, not an explicit
+   * user request. Generic, domain-agnostic — populated by
+   * SemanticPipeline from LexicalRewriter's applied-replacements record.
+   * Only meaningful for metric-typed candidates.
+   */
+  isFallback?: boolean;
 }

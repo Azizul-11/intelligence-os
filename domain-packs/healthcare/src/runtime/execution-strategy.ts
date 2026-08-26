@@ -60,6 +60,51 @@ export class HealthcareExecutionStrategy
       return this.templateSelector.select(executionPlan.metric, "byIds");
     }
 
+    const hasStateFilter = executionPlan.filters.some(
+      (filter) => filter.field === "state",
+    );
+
+    // RCG-008: grouped ranking. Universal Core only ever supplies an
+    // opaque dimension canonical key on ExecutionPlan.grouping -
+    // Healthcare owns the mapping from that key to its own grouped SQL
+    // templates and column names (see HealthcareTemplateSelector).
+    if (executionPlan.grouping && executionPlan.grouping.dimensions.length > 0) {
+      const dimensionKey = executionPlan.grouping.dimensions[0]!;
+
+      // Ratified Decision 2: county is high-cardinality (1,555 distinct
+      // values in the real warehouse) and requires a bounding state
+      // filter. Without one, deliberately resolve to an unregistered
+      // template id (the same honest "SQL template not found" failure
+      // used for every other genuinely unsupported request) rather than
+      // executing an unbounded, ~1,555-row query.
+      if (dimensionKey === "county-dimension" && !hasStateFilter) {
+        return `${executionPlan.metric}-ranking-by-county-unbounded`;
+      }
+
+      return this.templateSelector.select(
+        executionPlan.metric,
+        "ranking-by-dimension",
+        dimensionKey,
+      );
+    }
+
+    // RCG-009: benchmark comparison. `executionPlan.benchmark.benchmark`
+    // is an opaque canonical id from Healthcare's own benchmark
+    // registry - only Healthcare (never Universal Core) interprets it.
+    if (executionPlan.benchmark) {
+      // Ratified Decision 5: a bare "state average" benchmark with no
+      // state named anywhere in the query is a clean failure, not a
+      // silently unscoped (or silently zero-row) comparison.
+      if (executionPlan.benchmark.benchmark === "state-average" && !hasStateFilter) {
+        return `${executionPlan.metric}-ranking-benchmark-requires-state`;
+      }
+
+      return this.templateSelector.select(
+        executionPlan.metric,
+        "ranking-benchmark",
+      );
+    }
+
     // Map ExecutionOperation to intent
     const intentMap: Record<string, string> = {
       lookup: "lookup",
@@ -86,6 +131,28 @@ export class HealthcareExecutionStrategy
     // Convert filters to parameters
     for (const filter of executionPlan.filters) {
       parameters[filter.field] = filter.value;
+    }
+
+    // RCG-019: pass the plan's already-resolved sort direction through
+    // to any SQL template that declares a "direction"-typed parameter.
+    // Templates that don't declare one simply ignore this extra key -
+    // SqlExecutor only substitutes parameters a template explicitly
+    // names. Omitted (not just falsy) when the plan carries no
+    // ordering at all (e.g. non-ranking operations, or the still-out-
+    // of-scope multi-metric case - see Fix Cycle 008), so a template's
+    // own default direction behavior is unaffected.
+    if (executionPlan.ordering) {
+      parameters.direction = executionPlan.ordering.direction === "asc" ? "ASC" : "DESC";
+    }
+
+    // RCG-009: pass the plan's benchmark comparison through to any SQL
+    // template that declares "benchmark"/"comparison"-named parameters.
+    // The benchmark string stays exactly the opaque canonical id
+    // Universal Core produced - only this Healthcare-owned code (and
+    // the SQL template it flows into) ever interprets it.
+    if (executionPlan.benchmark) {
+      parameters.benchmark = executionPlan.benchmark.benchmark;
+      parameters.comparison = executionPlan.benchmark.comparison;
     }
 
     // Merge with any additional parameters from ExecutionPlan

@@ -13,6 +13,8 @@ export const safetyPerformanceAlias: AliasDefinition = {
     "hospital safety",
     "safety rating",
     "safety score",
+    "safety record",
+    "safety track record",
   ],
 
   type: "metric",

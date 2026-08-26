@@ -461,7 +461,7 @@ var SemanticPipeline = class {
     for (const phrase of phrases) {
       console.log("-", phrase.value);
     }
-    const semanticCandidates = [];
+    let semanticCandidates = [];
     for (const phrase of phrases) {
       const aliasResult = this.aliasResolver.resolve(phrase.value);
       if (aliasResult.matched) {
@@ -501,6 +501,22 @@ var SemanticPipeline = class {
       candidate.resolvedValue = entity.value;
       semanticCandidates.push(candidate);
     }
+    semanticCandidates = semanticCandidates.filter((inner) => {
+      if (inner.semanticType !== "entity") {
+        return true;
+      }
+      return !semanticCandidates.some(
+        (outer) => outer !== inner && outer.semanticType === "entity" && outer.start <= inner.start && outer.end >= inner.end && (outer.start < inner.start || outer.end > inner.end)
+      );
+    });
+    for (const candidate of semanticCandidates) {
+      if (candidate.semanticType !== "metric") {
+        continue;
+      }
+      candidate.isFallback = rewritten.appliedReplacements.some(
+        (applied) => applied.replacement.includes(candidate.phrase)
+      );
+    }
     const modifierTokenIndices = analyzed.map((analyzedToken, index) => ({ role: analyzedToken.role, index })).filter((entry) => entry.role === "modifier").map((entry) => entry.index);
     const originalTokenValues = analyzed.map(
       (analyzedToken) => analyzedToken.token.value
@@ -516,6 +532,39 @@ var SemanticPipeline = class {
       );
       if (direction) {
         candidate.direction = direction;
+      }
+    }
+    for (const candidate of semanticCandidates) {
+      if (candidate.semanticType !== "metric" || !candidate.isFallback || candidate.direction) {
+        continue;
+      }
+      const matchedRule = rewritten.appliedReplacements.find(
+        (applied) => applied.replacement.includes(candidate.phrase)
+      );
+      if (!matchedRule) {
+        continue;
+      }
+      const direction = this.directionResolver.resolveFromText(
+        matchedRule.pattern
+      );
+      if (direction) {
+        candidate.direction = direction;
+      }
+    }
+    const metricCandidates = semanticCandidates.filter(
+      (candidate) => candidate.semanticType === "metric"
+    );
+    const distinctMetricKeys = new Set(
+      metricCandidates.map((candidate) => candidate.canonicalKey)
+    );
+    let ambiguityError;
+    if (distinctMetricKeys.size === 1) {
+      const contradiction = this.directionResolver.detectContradiction(
+        originalTokenValues,
+        modifierTokenIndices
+      );
+      if (contradiction) {
+        ambiguityError = `I'm seeing both "${contradiction.ascendingWord}" and "${contradiction.descendingWord}" applied to the same ranking, so I'm not sure which direction you'd like - highest to lowest, or lowest to highest?`;
       }
     }
     console.log("========== SEMANTIC CANDIDATES ==========");
@@ -535,13 +584,18 @@ var SemanticPipeline = class {
       semanticCandidates.map((candidate) => candidate.canonicalKey)
     );
     const ontologyResult = this.ontology.resolve(matchResult.canonicalKey);
+    const unsupportedNegation = analyzed.some(
+      (analyzedToken) => analyzedToken.role === "negator"
+    );
     return {
       resolved: ontologyResult.found,
       originalQuery: query,
       normalizedQuery,
       canonicalKey: ontologyResult.canonicalKey,
       semanticType: ontologyResult.semanticType,
-      matches: semanticCandidates
+      matches: semanticCandidates,
+      ...ambiguityError !== void 0 ? { ambiguityError } : {},
+      ...unsupportedNegation ? { unsupportedNegation } : {}
     };
   }
 };
@@ -584,6 +638,12 @@ var STOPWORDS = /* @__PURE__ */ new Set([
   "in",
   "on"
 ]);
+var NEGATORS = /* @__PURE__ */ new Set([
+  "not",
+  "excluding",
+  "without",
+  "except"
+]);
 
 // src/analyzer/semantic-analyzer.ts
 var SemanticAnalyzer = class {
@@ -604,6 +664,9 @@ var SemanticAnalyzer = class {
     }
     if (OPERATORS.has(value)) {
       return "operator";
+    }
+    if (NEGATORS.has(value)) {
+      return "negator";
     }
     if (!Number.isNaN(Number(value))) {
       return "number";
@@ -633,27 +696,37 @@ var PhraseExtractor = class {
 };
 
 // src/rewriter/lexical-rewriter.ts
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 var LexicalRewriter = class {
+  constructor(rules = []) {
+    this.rules = rules;
+  }
+  rules;
   rewrite(text) {
     let rewritten = text;
-    rewritten = rewritten.replace(
-      /\bhighest rated hospitals\b/g,
-      "hospital overall rating"
-    );
-    rewritten = rewritten.replace(
-      /\bbest hospitals\b/g,
-      "hospital overall rating"
-    );
-    rewritten = rewritten.replace(
-      /\btop hospitals\b/g,
-      "hospital overall rating"
-    );
+    const appliedReplacements = [];
+    for (const rule of this.rules) {
+      const before = rewritten;
+      rewritten = rewritten.replace(
+        new RegExp(`\\b${escapeRegExp(rule.pattern)}\\b`, "g"),
+        rule.replacement
+      );
+      if (rewritten !== before) {
+        appliedReplacements.push({
+          pattern: rule.pattern,
+          replacement: rule.replacement
+        });
+      }
+    }
     rewritten = rewritten.split(" ").filter(
       (word) => !MODIFIERS.has(word)
     ).join(" ");
     return {
       original: text,
-      rewritten
+      rewritten,
+      appliedReplacements
     };
   }
 };
@@ -775,6 +848,83 @@ var ModifierDirectionResolver = class {
     }
     return best?.index;
   }
+  /**
+   * Classifies a direction directly from a piece of arbitrary text (e.g.
+   * a domain's lexical-rewrite rule pattern, such as "worst hospitals")
+   * by checking whether any of its words is a recognized superlative
+   * modifier - no span or token-distance logic, no candidate-phrase
+   * search.
+   *
+   * Used when a candidate's own phrase cannot be located in the
+   * original text at all - a fallback/rewrite-derived candidate, whose
+   * phrase only exists after the rewrite ran (see RCG-020) - so the
+   * ordinary resolve() method's span-based approach can never apply.
+   * Generic, domain-agnostic: the caller supplies arbitrary text: this
+   * method never inspects domain or metric identity.
+   */
+  resolveFromText(text) {
+    const words = text.split(" ").filter(Boolean);
+    for (const word of words) {
+      if (DESCENDING_MODIFIERS.has(word)) {
+        return "desc";
+      }
+      if (ASCENDING_MODIFIERS.has(word)) {
+        return "asc";
+      }
+    }
+    return void 0;
+  }
+  /**
+   * RCG-010: detects a genuine direction contradiction - both an
+   * ascending and a descending modifier present among the given
+   * indices - as distinct from a legitimate "from X to Y" range/order
+   * expression (e.g. "rank hospitals from best to worst"), which is
+   * not a contradiction and must be left alone.
+   *
+   * Domain-agnostic and candidate-agnostic: only ever inspects the
+   * existing generic ASCENDING_MODIFIERS/DESCENDING_MODIFIERS sets and
+   * the ordinary English words "from"/"to" - never a domain-specific
+   * word, never a regex. Callers are responsible for first confirming
+   * this check should even apply (see SemanticPipeline: only when the
+   * query names exactly one distinct metric - a genuine cross-metric
+   * query, e.g. "highest rating and lowest mortality", legitimately
+   * carries an ascending and a descending modifier for two DIFFERENT
+   * candidates, which is not a contradiction and must never reach this
+   * method at all).
+   *
+   * The range/order exemption is intentionally narrow: exactly one
+   * ascending and one descending modifier, with "from" immediately
+   * preceding whichever comes first in the text and "to" immediately
+   * preceding whichever comes second. Any other shape (three or more
+   * conflicting modifiers, or two conflicting modifiers not connected
+   * by "from ... to ...") is reported as a contradiction rather than
+   * guessed at.
+   */
+  detectContradiction(originalTokens, modifierTokenIndices) {
+    const ascendingIndices = modifierTokenIndices.filter(
+      (index) => ASCENDING_MODIFIERS.has(originalTokens[index] ?? "")
+    );
+    const descendingIndices = modifierTokenIndices.filter(
+      (index) => DESCENDING_MODIFIERS.has(originalTokens[index] ?? "")
+    );
+    if (ascendingIndices.length === 0 || descendingIndices.length === 0) {
+      return void 0;
+    }
+    if (ascendingIndices.length === 1 && descendingIndices.length === 1) {
+      const sorted = [ascendingIndices[0], descendingIndices[0]].sort(
+        (a, b) => a - b
+      );
+      const firstIndex = sorted[0];
+      const secondIndex = sorted[1];
+      if (originalTokens[firstIndex - 1] === "from" && originalTokens[secondIndex - 1] === "to") {
+        return void 0;
+      }
+    }
+    return {
+      ascendingWord: originalTokens[ascendingIndices[0]],
+      descendingWord: originalTokens[descendingIndices[0]]
+    };
+  }
 };
 
 // src/create-semantic-resolver.ts
@@ -782,7 +932,7 @@ function createSemanticResolver(registry, entityProvider) {
   const pipeline = new SemanticPipeline(
     new Normalizer(),
     new SemanticAnalyzer(),
-    new LexicalRewriter(),
+    new LexicalRewriter(registry.getLexicalRewrites()),
     new PhraseExtractor(),
     new AliasResolver(registry.getAliases()),
     new EntityResolver(entityProvider),
@@ -802,6 +952,9 @@ var SemanticRegistry = class {
   data;
   getAliases() {
     return this.data.aliases;
+  }
+  getLexicalRewrites() {
+    return this.data.lexicalRewrites;
   }
   getMetric(metricId) {
     return this.data.metrics.get(metricId);
@@ -880,6 +1033,7 @@ var SemanticRegistry = class {
 // src/registry/semantic-registry-builder.ts
 var SemanticRegistryBuilder = class {
   aliases = /* @__PURE__ */ new Map();
+  lexicalRewrites = [];
   metrics = /* @__PURE__ */ new Map();
   entities = /* @__PURE__ */ new Map();
   concepts = /* @__PURE__ */ new Map();
@@ -889,6 +1043,10 @@ var SemanticRegistryBuilder = class {
   benchmarks = /* @__PURE__ */ new Map();
   addAlias(alias, canonicalKey) {
     this.aliases.set(alias, canonicalKey);
+    return this;
+  }
+  addLexicalRewrite(rule) {
+    this.lexicalRewrites.push(rule);
     return this;
   }
   addMetric(metric) {
@@ -931,6 +1089,7 @@ var SemanticRegistryBuilder = class {
   build() {
     const data = {
       aliases: this.aliases,
+      lexicalRewrites: this.lexicalRewrites,
       metrics: this.metrics,
       entities: this.entities,
       concepts: this.concepts,

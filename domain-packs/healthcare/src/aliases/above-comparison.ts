@@ -12,6 +12,7 @@ export const aboveComparisonAliases: AliasDefinition = {
     "greater than",
     "exceeding",
     "over",
+    "outperform",
   ],
 
   type: "relationship",

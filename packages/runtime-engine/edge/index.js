@@ -1,4 +1,5 @@
 // src/create-runtime-engine.ts
+import { assessPlanCompleteness } from "@intelligence/query-planner";
 function createRuntimeEngine({
   runtime,
   semantic,
@@ -23,19 +24,36 @@ function createRuntimeEngine({
           error: "Unable to resolve question."
         };
       }
-      const plan = planner.createPlan(semanticResult);
+      if (semanticResult.unsupportedNegation) {
+        return {
+          success: false,
+          rows: [],
+          rowCount: 0,
+          error: 'This question includes an exclusion or negation (e.g. "excluding", "without", "except", "not") that IntelligenceOS cannot yet safely represent. Please rephrase without excluding/negating a value.'
+        };
+      }
+      const plan = planner.createPlan(semanticResult, runtime.domain.metrics);
       if (!plan.success || !plan.plan || plan.plan.semantic.metrics.length === 0) {
         return {
           success: false,
           rows: [],
           rowCount: 0,
-          error: "Unable to create query plan."
+          // RCG-010: prefer a specific, natural-language reason (e.g. a
+          // detected direction contradiction) when the planner supplied one.
+          error: plan.error ?? "Unable to create query plan."
         };
       }
       const executionPlan = executionPlanMapper.map(plan.plan);
       console.log("========== EXECUTION PLAN ==========");
       console.log(JSON.stringify(executionPlan, null, 2));
       console.log("====================================");
+      const completeness = assessPlanCompleteness(
+        semanticResult.matches,
+        executionPlan
+      );
+      console.log("========== PLAN COMPLETENESS ==========");
+      console.log(JSON.stringify(completeness, null, 2));
+      console.log("========================================");
       const primaryMetric = plan.plan.semantic.metrics[0]?.canonicalKey;
       const templateId = runtime.domain.executionStrategy.selectTemplateFromPlan ? runtime.domain.executionStrategy.selectTemplateFromPlan(executionPlan) : runtime.domain.executionStrategy.selectTemplate(
         primaryMetric,
@@ -137,7 +155,7 @@ function createRuntimeEngine({
           }
         }
       }
-      return primaryResult;
+      return { ...primaryResult, completeness };
     }
   };
 }

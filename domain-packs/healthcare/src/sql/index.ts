@@ -15,6 +15,15 @@ export * from "./safety-performance-ranking";
 export * from "./hospital-overall-rating-by-facility-ids";
 export * from "./mortality-rate-by-facility-ids";
 export * from "./readmission-rate-by-facility-ids";
+export * from "./safety-performance-by-facility-ids";
+export * from "./patient-experience-by-facility-ids";
+export * from "./hospital-overall-rating-ranking-by-state";
+export * from "./hospital-overall-rating-ranking-by-county";
+export * from "./hospital-overall-rating-ranking-benchmark";
+export * from "./mortality-rate-ranking-benchmark";
+export * from "./readmission-rate-ranking-benchmark";
+export * from "./safety-performance-ranking-benchmark";
+export * from "./hospital-detail";
 
 import { hospitalOverallRatingSqlTemplate } from "./hospital-overall-rating";
 import { mortalityRateSqlTemplate } from "./mortality-rate";
@@ -34,6 +43,15 @@ import { safetyPerformanceRankingSqlTemplate } from "./safety-performance-rankin
 import { hospitalOverallRatingByFacilityIdsSqlTemplate } from "./hospital-overall-rating-by-facility-ids";
 import { mortalityRateByFacilityIdsSqlTemplate } from "./mortality-rate-by-facility-ids";
 import { readmissionRateByFacilityIdsSqlTemplate } from "./readmission-rate-by-facility-ids";
+import { safetyPerformanceByFacilityIdsSqlTemplate } from "./safety-performance-by-facility-ids";
+import { patientExperienceByFacilityIdsSqlTemplate } from "./patient-experience-by-facility-ids";
+import { hospitalOverallRatingRankingByStateSqlTemplate } from "./hospital-overall-rating-ranking-by-state";
+import { hospitalOverallRatingRankingByCountySqlTemplate } from "./hospital-overall-rating-ranking-by-county";
+import { hospitalOverallRatingRankingBenchmarkSqlTemplate } from "./hospital-overall-rating-ranking-benchmark";
+import { mortalityRateRankingBenchmarkSqlTemplate } from "./mortality-rate-ranking-benchmark";
+import { readmissionRateRankingBenchmarkSqlTemplate } from "./readmission-rate-ranking-benchmark";
+import { safetyPerformanceRankingBenchmarkSqlTemplate } from "./safety-performance-ranking-benchmark";
+import { hospitalDetailSqlTemplate } from "./hospital-detail";
 
 export const healthcareSqlTemplates = [
     hospitalOverallRatingSqlTemplate,
@@ -53,4 +71,13 @@ export const healthcareSqlTemplates = [
     hospitalOverallRatingByFacilityIdsSqlTemplate,
     mortalityRateByFacilityIdsSqlTemplate,
     readmissionRateByFacilityIdsSqlTemplate,
+    safetyPerformanceByFacilityIdsSqlTemplate,
+    patientExperienceByFacilityIdsSqlTemplate,
+    hospitalOverallRatingRankingByStateSqlTemplate,
+    hospitalOverallRatingRankingByCountySqlTemplate,
+    hospitalOverallRatingRankingBenchmarkSqlTemplate,
+    mortalityRateRankingBenchmarkSqlTemplate,
+    readmissionRateRankingBenchmarkSqlTemplate,
+    safetyPerformanceRankingBenchmarkSqlTemplate,
+    hospitalDetailSqlTemplate,
 ] as const;

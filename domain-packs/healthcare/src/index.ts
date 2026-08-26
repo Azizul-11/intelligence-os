@@ -8,6 +8,7 @@ export * from "./sql";
 export * from "./capabilities";
 export * from "./recommendations";
 export * from "./healthcare-domain";
+export * from "./lexical-rewrites";
 export * from "./categories";
 export * from "./dimensions";
 export * from "./runtime";

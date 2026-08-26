@@ -1,5 +1,6 @@
 import type { DomainRuntime } from "@intelligence/domain-runtime";
 import type { QueryPlanner, ExecutionPlanMapper } from "@intelligence/query-planner";
+import { assessPlanCompleteness } from "@intelligence/query-planner";
 import type { SqlExecutor } from "@intelligence/sql-executor";
 import type { SemanticResolver } from "@intelligence/semantic";
 
@@ -41,7 +42,29 @@ console.log("=====================================");
         };
       }
 
-      const plan = planner.createPlan(semanticResult);
+      // F5 safety gate: a recognized negation/exclusion marker was
+      // detected in the query, but no mechanism anywhere downstream
+      // (candidate representation, ExecutionPlan filters, SQL
+      // templates) can safely represent negation/exclusion today.
+      // Refuse honestly here, before any planning or SQL execution,
+      // rather than silently treat the negated term as a positive
+      // inclusion.
+      if (semanticResult.unsupportedNegation) {
+        return {
+          success: false,
+          rows: [],
+          rowCount: 0,
+          error:
+            "This question includes an exclusion or negation (e.g. \"excluding\", \"without\", \"except\", \"not\") that IntelligenceOS cannot yet safely represent. Please rephrase without excluding/negating a value.",
+        };
+      }
+
+      // Fix Cycle 018 (Option A): pass the active domain's full,
+      // already-declared metric list through opaquely, so QueryPlanner
+      // can discover a domain-declared `comparable` set for a
+      // metric-less multi-entity request. Universal Core never inspects
+      // this list beyond the generic `comparable` flag.
+      const plan = planner.createPlan(semanticResult, runtime.domain.metrics);
 
     if (
   !plan.success ||
@@ -52,7 +75,9 @@ console.log("=====================================");
     success: false,
     rows: [],
     rowCount: 0,
-    error: "Unable to create query plan.",
+    // RCG-010: prefer a specific, natural-language reason (e.g. a
+    // detected direction contradiction) when the planner supplied one.
+    error: plan.error ?? "Unable to create query plan.",
   };
 }
 
@@ -62,6 +87,21 @@ const executionPlan = executionPlanMapper.map(plan.plan);
 console.log("========== EXECUTION PLAN ==========");
 console.log(JSON.stringify(executionPlan, null, 2));
 console.log("====================================");
+
+// Pre-Phase 8: observe (never correct) whether every semantically
+// resolved candidate ended up represented in the plan just built.
+// Uses the raw, pre-collection candidate list (semanticResult.matches)
+// rather than plan.plan.semantic, since some semantic types (e.g.
+// "concept") are dropped by SemanticCollector before QueryPlan.semantic
+// is even built and would otherwise be invisible to this check.
+const completeness = assessPlanCompleteness(
+  semanticResult.matches,
+  executionPlan,
+);
+
+console.log("========== PLAN COMPLETENESS ==========");
+console.log(JSON.stringify(completeness, null, 2));
+console.log("========================================");
 
 const primaryMetric =
   plan.plan.semantic.metrics[0]?.canonicalKey;
@@ -224,7 +264,7 @@ if (
   }
 }
 
-return primaryResult;
+return { ...primaryResult, completeness };
     },
   };
 }

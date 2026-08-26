@@ -18,4 +18,6 @@ export const patientExperienceMetric: MetricDefinition = {
   benchmarkable: true,
 
   aggregatable: true,
+
+  comparable: true,
 };

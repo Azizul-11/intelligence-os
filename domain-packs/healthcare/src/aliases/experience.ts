@@ -7,8 +7,6 @@ export const experienceAliases: AliasDefinition = {
 
   aliases: [
     "experience",
-    "patient experience",
-    "patient satisfaction",
     "satisfaction",
   ],
 

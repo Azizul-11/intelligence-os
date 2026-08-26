@@ -18,4 +18,6 @@ export const safetyPerformanceMetric: MetricDefinition = {
   benchmarkable: true,
 
   aggregatable: false,
+
+  comparable: true,
 };

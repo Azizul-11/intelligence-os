@@ -10,6 +10,7 @@ import { healthcareBenchmarks } from "./benchmarks";
 import { healthcareSqlTemplates } from "./sql";
 import { healthcareCapabilities } from "./capabilities";
 import { healthcareRecommendations } from "./recommendations";
+import { healthcareLexicalRewrites } from "./lexical-rewrites";
 
 import { healthcareCategories } from "./categories";
 import { healthcareDimensions } from "./dimensions";
@@ -43,7 +44,9 @@ export const healthcareDomain: DomainPack = {
   capabilities: healthcareCapabilities,
 
   recommendations: healthcareRecommendations,
-  
+
+  lexicalRewrites: healthcareLexicalRewrites,
+
   executionStrategy: new HealthcareExecutionStrategy(),
   
   entityProvider: new HealthcareEntityProvider(),

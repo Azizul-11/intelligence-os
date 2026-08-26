@@ -5,7 +5,8 @@ export type TokenRole =
   | "noun"
   | "modifier"
   | "number"
-  | "operator";
+  | "operator"
+  | "negator";
 
 export interface AnalyzedToken {
   token: Token;

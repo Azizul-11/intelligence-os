@@ -6,6 +6,7 @@ import {
   MODIFIERS,
   OPERATORS,
   STOPWORDS,
+  NEGATORS,
 } from "./lexicon";
 
 export class SemanticAnalyzer {
@@ -30,6 +31,10 @@ export class SemanticAnalyzer {
 
     if (OPERATORS.has(value)) {
       return "operator";
+    }
+
+    if (NEGATORS.has(value)) {
+      return "negator";
     }
 
     if (!Number.isNaN(Number(value))) {

@@ -4,6 +4,7 @@ import type { ExecutionOrdering } from "./execution-ordering";
 import type { ExecutionGrouping } from "./execution-grouping";
 import type { ExecutionLimit } from "./execution-limit";
 import type { ExecutionPlanMetric } from "./execution-plan-metric";
+import type { ExecutionBenchmark } from "./execution-benchmark";
 
 /**
  * Universal Execution Plan.
@@ -80,4 +81,11 @@ export interface ExecutionPlan {
    * Domain-specific values needed for execution (e.g., resolved entity IDs).
    */
   parameters?: Record<string, unknown>;
+
+  /**
+   * RCG-009: a comparison against a domain-defined benchmark reference
+   * value (e.g. "above the national average"). Optional - opaque to
+   * Universal Core, see ExecutionBenchmark.
+   */
+  benchmark?: ExecutionBenchmark;
 }

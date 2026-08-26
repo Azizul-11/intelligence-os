@@ -18,4 +18,6 @@ export const mortalityRateMetric: MetricDefinition = {
   benchmarkable: true,
 
   aggregatable: true,
+
+  comparable: true,
 };

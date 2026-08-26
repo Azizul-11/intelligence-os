@@ -11,6 +11,7 @@ export const patientExperienceAlias: AliasDefinition = {
     "patient survey",
     "survey results",
     "experience score",
+    "patient care experience",
   ],
 
   type: "metric",

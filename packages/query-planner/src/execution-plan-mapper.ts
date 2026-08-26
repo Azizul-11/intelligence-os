@@ -6,6 +6,7 @@ import type {
   ExecutionGrouping,
   ExecutionLimit,
   ExecutionPlanMetric,
+  ExecutionBenchmark,
 } from "@intelligence/contracts";
 
 import type { QueryPlan } from "./query-plan";
@@ -48,6 +49,7 @@ export class ExecutionPlanMapper {
       : this.buildOrdering(queryPlan, operation);
 
     const limit = this.buildLimit(queryPlan);
+    const benchmark = this.buildBenchmark(queryPlan);
 
     const plan: ExecutionPlan = {
       operation,
@@ -70,6 +72,10 @@ export class ExecutionPlanMapper {
 
     if (limit !== undefined) {
       plan.limit = limit;
+    }
+
+    if (benchmark !== undefined) {
+      plan.benchmark = benchmark;
     }
 
     return plan;
@@ -222,10 +228,27 @@ export class ExecutionPlanMapper {
     operation: ExecutionOperation,
   ): ExecutionOrdering | undefined {
     if (operation === "rank") {
-      const primaryMetric = queryPlan.semantic.metrics[0]?.canonicalKey;
+      const primaryCandidate = queryPlan.semantic.metrics[0];
+      const primaryMetric = primaryCandidate?.canonicalKey;
 
       if (!primaryMetric) {
         return undefined;
+      }
+
+      // RCG-019: prefer the direction already resolved from a ranking
+      // modifier ("highest"/"lowest"/...) - the same generic signal
+      // buildMetrics() below already consumes for the multi-metric case
+      // (Phase 6.2, SemanticCandidate.direction). This was previously
+      // never read here at all, so a query's actually-requested
+      // direction never reached ExecutionPlan.ordering; only the
+      // relationship-based fallback below ran, which only ever flips
+      // direction when a "below"-style relationship candidate is also
+      // present (a separate, unrelated signal - see RCG-009).
+      if (primaryCandidate.direction) {
+        return {
+          field: primaryMetric,
+          direction: primaryCandidate.direction,
+        };
       }
 
       // Determine direction from relationships if present
@@ -280,5 +303,55 @@ export class ExecutionPlanMapper {
     }
 
     return undefined;
+  }
+
+  /**
+   * RCG-009: build a benchmark comparison from semantic `relationship`
+   * and `benchmark` candidates.
+   *
+   * Requires BOTH a `relationship` candidate (e.g. "above"/"below" -
+   * the signal that this is a genuine comparison request, not merely a
+   * sentence that happens to mention a benchmark word - see RCG-009b)
+   * AND a `benchmark` candidate (the reference value itself, e.g.
+   * "national average"). Domain-agnostic: only ever reads the two
+   * Universal semantic-type categories `relationship`/`benchmark` -
+   * never a domain-specific canonical id.
+   *
+   * When more than one benchmark candidate is present (exhaustive
+   * phrase extraction can match both a qualified phrase, e.g. "national
+   * average", and the bare word "average" within it), the longer,
+   * more specific phrase match is preferred - a generic
+   * disambiguation rule, not one that inspects which canonical id is
+   * involved.
+   */
+  private buildBenchmark(
+    queryPlan: QueryPlan,
+  ): ExecutionBenchmark | undefined {
+    const { relationships, benchmarks } = queryPlan.semantic;
+
+    if (relationships.length === 0 || benchmarks.length === 0) {
+      return undefined;
+    }
+
+    const comparison: "above" | "below" | undefined = relationships.some(
+      (r) => r.canonicalKey === "below-comparison",
+    )
+      ? "below"
+      : relationships.some((r) => r.canonicalKey === "above-comparison")
+        ? "above"
+        : undefined;
+
+    if (!comparison) {
+      return undefined;
+    }
+
+    const primaryBenchmark = [...benchmarks].sort(
+      (a, b) => (b.end - b.start) - (a.end - a.start),
+    )[0]!;
+
+    return {
+      benchmark: primaryBenchmark.canonicalKey,
+      comparison,
+    };
   }
 }

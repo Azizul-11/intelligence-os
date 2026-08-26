@@ -18,4 +18,6 @@ export const hospitalOverallRatingMetric: MetricDefinition = {
   benchmarkable: true,
 
   aggregatable: false,
+
+  comparable: true,
 };

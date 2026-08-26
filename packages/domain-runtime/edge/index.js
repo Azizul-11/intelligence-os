@@ -27,6 +27,9 @@ function createSemanticRegistry(domain) {
   for (const benchmark of domain.benchmarks) {
     builder.addBenchmark(benchmark);
   }
+  for (const rule of domain.lexicalRewrites ?? []) {
+    builder.addLexicalRewrite(rule);
+  }
   for (const aliasDefinition of domain.aliases) {
     for (const alias of aliasDefinition.aliases) {
       builder.addAlias(

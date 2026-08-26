@@ -131,6 +131,32 @@ export class HealthcareEntityProvider
       };
     }
 
+    // Qualifier wiring: Universal Core's PhraseExtractor already
+    // produces the full compound phrase "<hospital name> in
+    // <qualifier>" as one of its exhaustive candidate substrings (e.g.
+    // "memorial hospital in texas" from "Memorial Hospital in Texas
+    // overall rating") - no Universal Core change is needed to receive
+    // it, since resolve(phrase: string) already accepts arbitrary
+    // text. This is purely Healthcare's own interpretation of that
+    // text: split on the literal word " in " (a plain string search,
+    // not a regex) and, if the part before it names a known (possibly
+    // ambiguous) hospital, narrow its candidates by the part after it
+    // using the exact same logic resolveHospitalByQualifier() already
+    // uses. Never guesses: unresolved or still-ambiguous results fall
+    // through to the caller's existing "don't silently pick one"
+    // handling, unchanged.
+    const inIndex = phrase.toLowerCase().lastIndexOf(" in ");
+
+    if (inIndex > 0) {
+      const namePart = phrase.slice(0, inIndex);
+      const qualifierPart = phrase.slice(inIndex + 4);
+      const nameCandidates = this.hospitalsByName.get(normalizeText(namePart));
+
+      if (nameCandidates && nameCandidates.length > 0) {
+        return this.narrowByQualifier(namePart, nameCandidates, qualifierPart);
+      }
+    }
+
     return {
       found: false,
       entityId: null,
@@ -169,6 +195,23 @@ export class HealthcareEntityProvider
       };
     }
 
+    return this.narrowByQualifier(hospitalName, candidates, qualifier);
+  }
+
+  /**
+   * Shared narrowing logic used by both resolveHospitalByQualifier()
+   * (called directly, e.g. by a future explicit-qualifier caller) and
+   * resolve()'s own "<name> in <qualifier>" compound-phrase handling
+   * above. Never guesses: if the qualifier does not narrow the
+   * candidate set to exactly one facility, the result remains
+   * "ambiguous" with the relevant candidate set rather than arbitrarily
+   * picking one.
+   */
+  private narrowByQualifier(
+    hospitalName: string,
+    candidates: HospitalIdentityRecord[],
+    qualifier: string,
+  ): EntityResolutionResult {
     const normalizedQualifier = normalizeText(qualifier);
     const qualifierAsStateCode = STATES.get(normalizedQualifier);
 

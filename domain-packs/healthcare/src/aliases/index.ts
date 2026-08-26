@@ -25,6 +25,7 @@ export * from "./safety";
 export * from "./operations";
 export * from "./experience";
 export * from "./clinical-outcomes";
+export * from "./hospital-detail";
 
 import { acuteMyocardialInfarctionAlias } from "./acute-myocardial-infarction";
 import { cmsAlias } from "./cms";
@@ -53,6 +54,7 @@ import { safetyAliases } from "./safety";
 import { operationsAliases } from "./operations";
 import { experienceAliases } from "./experience";
 import { clinicalOutcomesAliases } from "./clinical-outcomes";
+import { hospitalDetailAlias } from "./hospital-detail";
 
 export const healthcareAliases = [
   acuteMyocardialInfarctionAlias,
@@ -82,4 +84,5 @@ export const healthcareAliases = [
   operationsAliases,
   experienceAliases,
   clinicalOutcomesAliases,
+  hospitalDetailAlias,
 ] as const;

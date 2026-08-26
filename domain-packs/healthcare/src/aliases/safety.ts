@@ -8,7 +8,6 @@ export const safetyAliases: AliasDefinition = {
   aliases: [
     "safety",
     "patient safety",
-    "safety performance",
     "clinical safety",
   ],
 

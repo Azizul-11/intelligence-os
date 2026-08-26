@@ -61,7 +61,7 @@ export function createSemanticResolver(
 const pipeline = new SemanticPipeline(
   new Normalizer(),
   new SemanticAnalyzer(),
-  new LexicalRewriter(),
+  new LexicalRewriter(registry.getLexicalRewrites()),
   new PhraseExtractor(),
   new AliasResolver(registry.getAliases()),
   new EntityResolver(entityProvider),
