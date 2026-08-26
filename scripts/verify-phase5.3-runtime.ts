@@ -15,10 +15,11 @@ import { SqlExecutor, SupabaseDatabaseAdapter } from "../packages/sql-executor/s
 import { createRuntimeEngine } from "../packages/runtime-engine/src/create-runtime-engine";
 import type { RuntimeRequest } from "../packages/runtime-engine/src/runtime-request";
 import { createClient } from "@supabase/supabase-js";
+import { env } from "./shared/env";
 
 // Supabase connection
-const SUPABASE_URL = process.env.SUPABASE_URL || "https://uejnblmhappddtbablki.supabase.co";
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVlam5ibG1oYXBwZGR0YmFibGtpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA4NDYxNDgsImV4cCI6MjA5NjQyMjE0OH0.tCglCuuehpQYtpQwVmUKOYQb6gg55tb8n-oMtJTLiyA";
+const SUPABASE_URL = env.supabaseUrl;
+const SUPABASE_ANON_KEY = env.supabaseAnonKey;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
