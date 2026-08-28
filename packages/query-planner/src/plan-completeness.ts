@@ -1,6 +1,7 @@
 import type { SemanticCandidate } from "@intelligence/semantic";
 import type { EntityDefinition } from "@intelligence/domain-sdk";
 import type { ExecutionPlan } from "@intelligence/contracts";
+import type { SemanticCollections } from "./semantic-collections";
 
 /**
  * Pre-Phase 8 semantic-completeness check.
@@ -16,6 +17,20 @@ import type { ExecutionPlan } from "@intelligence/contracts";
  * candidate, corrects a plan, guesses intent, or changes the answer -
  * it only reports which resolved candidates were not accounted for, so
  * a future Phase 8 answerability layer can decide what to do about it.
+ *
+ * Phase 8.2: `plannedSemantic` is `QueryPlan.semantic` - QueryPlanner's
+ * own already-filtered collections (after `filterMetricsForIntent()`/
+ * `filterFallbackMetrics()`), passed through unmodified by the caller.
+ * A raw metric candidate absent from `plannedSemantic.metrics` was
+ * legitimately removed by that existing, unmodified planner filtering
+ * and is never a discrepancy; only a candidate that survived filtering
+ * but is still absent from the built ExecutionPlan is genuinely
+ * unaccounted for. No new filtering mechanism is introduced - this only
+ * reads a value the planner already computes. Entity/dimension/category/
+ * concept/benchmark checks below are unaffected: none of them undergo
+ * any comparable planner-level filtering today (confirmed by direct
+ * inspection of QueryPlanner.createPlan()), so their existing legitimate-
+ * suppression handling (see each branch below) remains exactly as it was.
  *
  * Known, deliberate scope limit: relationship-typed candidates are not
  * checked. Their consumption paths (ExecutionPlanMapper.buildBenchmark()
@@ -40,6 +55,7 @@ export interface PlanCompletenessReport {
 export function assessPlanCompleteness(
   candidates: readonly SemanticCandidate[],
   plan: ExecutionPlan,
+  plannedSemantic: SemanticCollections,
 ): PlanCompletenessReport {
   const discrepancies: PlanCompletenessDiscrepancy[] = [];
 
@@ -47,6 +63,15 @@ export function assessPlanCompleteness(
     plan.metric,
     ...(plan.metrics?.map((metric) => metric.metric) ?? []),
   ]);
+
+  // Phase 8.2 (Blocker 1): the set of metric canonicalKeys that survived
+  // QueryPlanner's own legitimate filtering (filterMetricsForIntent()/
+  // filterFallbackMetrics()) and were actually planned. A raw candidate
+  // missing from this set was intentionally removed by that existing
+  // logic, not silently lost.
+  const plannedMetricKeys = new Set(
+    plannedSemantic.metrics.map((metric) => metric.canonicalKey),
+  );
 
   const filterValues = new Set<unknown>();
 
@@ -79,6 +104,13 @@ export function assessPlanCompleteness(
 
   for (const candidate of candidates) {
     if (candidate.semanticType === "metric") {
+      // Phase 8.2 (Blocker 1): a candidate legitimately removed by
+      // filterMetricsForIntent()/filterFallbackMetrics() never reached
+      // planning at all - it is not a discrepancy, it is intentional.
+      if (!plannedMetricKeys.has(candidate.canonicalKey)) {
+        continue;
+      }
+
       if (!planMetricKeys.has(candidate.canonicalKey)) {
         discrepancies.push({
           semanticType: candidate.semanticType,

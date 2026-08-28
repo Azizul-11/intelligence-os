@@ -613,12 +613,15 @@ var ExecutionPlanMapper = class {
 };
 
 // src/plan-completeness.ts
-function assessPlanCompleteness(candidates, plan) {
+function assessPlanCompleteness(candidates, plan, plannedSemantic) {
   const discrepancies = [];
   const planMetricKeys = /* @__PURE__ */ new Set([
     plan.metric,
     ...plan.metrics?.map((metric) => metric.metric) ?? []
   ]);
+  const plannedMetricKeys = new Set(
+    plannedSemantic.metrics.map((metric) => metric.canonicalKey)
+  );
   const filterValues = /* @__PURE__ */ new Set();
   for (const filter of plan.filters) {
     if (Array.isArray(filter.value)) {
@@ -641,6 +644,9 @@ function assessPlanCompleteness(candidates, plan) {
   );
   for (const candidate of candidates) {
     if (candidate.semanticType === "metric") {
+      if (!plannedMetricKeys.has(candidate.canonicalKey)) {
+        continue;
+      }
       if (!planMetricKeys.has(candidate.canonicalKey)) {
         discrepancies.push({
           semanticType: candidate.semanticType,
@@ -718,10 +724,22 @@ function assessPlanCompleteness(candidates, plan) {
     discrepancies
   };
 }
+
+// src/candidate-consistency.ts
+function hasRelationshipWithoutBenchmark(candidates) {
+  const hasRelationship = candidates.some(
+    (candidate) => candidate.semanticType === "relationship"
+  );
+  const hasBenchmark = candidates.some(
+    (candidate) => candidate.semanticType === "benchmark"
+  );
+  return hasRelationship && !hasBenchmark;
+}
 export {
   ExecutionPlanMapper,
   QueryIntentDetector,
   QueryPlanner,
   SemanticCollector,
-  assessPlanCompleteness
+  assessPlanCompleteness,
+  hasRelationshipWithoutBenchmark
 };

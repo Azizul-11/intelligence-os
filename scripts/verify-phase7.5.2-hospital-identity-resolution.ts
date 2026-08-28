@@ -22,6 +22,23 @@ import { HealthcareEntityProvider } from "../domain-packs/healthcare/src/runtime
 
 const provider = new HealthcareEntityProvider();
 
+/**
+ * Phase 8.3: candidate entries are now `{value, label}` objects (see
+ * AmbiguousCandidate) rather than bare facility_id strings, so a
+ * duplicate-name candidate set can carry a human-readable label for
+ * targeted clarification. Extracts just the opaque `value` for the
+ * identity assertions below, which predate and are independent of that
+ * labeling change - this file verifies WHICH facilities are returned,
+ * not how they are presented.
+ */
+function candidateValues(candidates: unknown[]): unknown[] {
+  return candidates.map((candidate) =>
+    typeof candidate === "object" && candidate !== null && "value" in candidate
+      ? (candidate as { value: unknown }).value
+      : candidate,
+  );
+}
+
 interface Result {
   id: string;
   description: string;
@@ -63,8 +80,8 @@ function check(id: string, description: string, pass: boolean, detail: string) {
     result.status === "ambiguous" &&
     Array.isArray(result.candidates) &&
     result.candidates.length === 2 &&
-    result.candidates.includes("010051") && // AL, Eutaw
-    result.candidates.includes("250782") && // MS, Leakesville
+    candidateValues(result.candidates).includes("010051") && // AL, Eutaw
+    candidateValues(result.candidates).includes("250782") && // MS, Leakesville
     result.value === null;
 
   check(
@@ -141,9 +158,9 @@ function check(id: string, description: string, pass: boolean, detail: string) {
     result.status === "ambiguous" &&
     Array.isArray(result.candidates) &&
     result.candidates.length === 3 &&
-    result.candidates.includes("450235") &&
-    result.candidates.includes("451358") &&
-    result.candidates.includes("451386");
+    candidateValues(result.candidates).includes("450235") &&
+    candidateValues(result.candidates).includes("451358") &&
+    candidateValues(result.candidates).includes("451386");
 
   check(
     "CASE 4 - STILL AMBIGUOUS AFTER QUALIFIER",

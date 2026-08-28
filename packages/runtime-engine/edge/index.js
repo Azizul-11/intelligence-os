@@ -1,5 +1,26 @@
 // src/create-runtime-engine.ts
-import { assessPlanCompleteness } from "@intelligence/query-planner";
+import { assessPlanCompleteness, hasRelationshipWithoutBenchmark } from "@intelligence/query-planner";
+
+// src/build-clarification-message.ts
+function isAmbiguousCandidate(value) {
+  return typeof value === "object" && value !== null && "value" in value;
+}
+function candidateLabel(candidate) {
+  if (isAmbiguousCandidate(candidate)) {
+    return typeof candidate.label === "string" ? candidate.label : String(candidate.value);
+  }
+  return String(candidate);
+}
+function buildClarificationMessage(identityAmbiguities) {
+  const clauses = identityAmbiguities.map((ambiguity) => {
+    const subject = ambiguity.phrase && ambiguity.phrase.length > 0 ? ambiguity.phrase : "entity";
+    const labels = (ambiguity.candidates ?? []).map(candidateLabel);
+    return `Which ${subject} do you mean \u2014 ${labels.join(" or ")}?`;
+  });
+  return clauses.join(" ");
+}
+
+// src/create-runtime-engine.ts
 function createRuntimeEngine({
   runtime,
   semantic,
@@ -16,12 +37,28 @@ function createRuntimeEngine({
         JSON.stringify(semanticResult, null, 2)
       );
       console.log("=====================================");
+      if (semanticResult.identityAmbiguities && semanticResult.identityAmbiguities.length > 0) {
+        return {
+          success: false,
+          rows: [],
+          rowCount: 0,
+          error: buildClarificationMessage(semanticResult.identityAmbiguities),
+          answerability: {
+            status: "ambiguous",
+            reason: "identity-ambiguous",
+            candidates: semanticResult.identityAmbiguities.flatMap(
+              (ambiguity) => ambiguity.candidates ?? []
+            )
+          }
+        };
+      }
       if (!semanticResult.resolved) {
         return {
           success: false,
           rows: [],
           rowCount: 0,
-          error: "Unable to resolve question."
+          error: "Unable to resolve question.",
+          answerability: { status: "not_directly_answerable" }
         };
       }
       if (semanticResult.unsupportedNegation) {
@@ -29,7 +66,20 @@ function createRuntimeEngine({
           success: false,
           rows: [],
           rowCount: 0,
-          error: 'This question includes an exclusion or negation (e.g. "excluding", "without", "except", "not") that IntelligenceOS cannot yet safely represent. Please rephrase without excluding/negating a value.'
+          error: 'This question includes an exclusion or negation (e.g. "excluding", "without", "except", "not") that IntelligenceOS cannot yet safely represent. Please rephrase without excluding/negating a value.',
+          answerability: { status: "not_directly_answerable" }
+        };
+      }
+      if (hasRelationshipWithoutBenchmark(semanticResult.matches)) {
+        return {
+          success: false,
+          rows: [],
+          rowCount: 0,
+          error: 'This question compares against a reference value (e.g. "above", "below") but does not name one IntelligenceOS recognizes (e.g. "national average", "state average"). Please include the specific reference value you mean.',
+          answerability: {
+            status: "ambiguous",
+            reason: "candidate-inconsistent"
+          }
         };
       }
       const plan = planner.createPlan(semanticResult, runtime.domain.metrics);
@@ -40,7 +90,14 @@ function createRuntimeEngine({
           rowCount: 0,
           // RCG-010: prefer a specific, natural-language reason (e.g. a
           // detected direction contradiction) when the planner supplied one.
-          error: plan.error ?? "Unable to create query plan."
+          error: plan.error ?? "Unable to create query plan.",
+          // Phase 8.1: plan.error is set only by RCG-010's direction-
+          // contradiction check inside QueryPlanner.createPlan() - its presence
+          // is the existing, generic signal distinguishing "the semantic
+          // candidates contradict each other" from "there was nothing to plan
+          // at all" (e.g. zero resolved metrics, even after Fix Cycle 018's
+          // comparable-metric discovery).
+          answerability: plan.error ? { status: "ambiguous", reason: "candidate-inconsistent" } : { status: "not_directly_answerable", reason: "semantic-incomplete" }
         };
       }
       const executionPlan = executionPlanMapper.map(plan.plan);
@@ -49,11 +106,28 @@ function createRuntimeEngine({
       console.log("====================================");
       const completeness = assessPlanCompleteness(
         semanticResult.matches,
-        executionPlan
+        executionPlan,
+        plan.plan.semantic
       );
       console.log("========== PLAN COMPLETENESS ==========");
       console.log(JSON.stringify(completeness, null, 2));
       console.log("========================================");
+      const hasUnaccountedMetricLoss = completeness.discrepancies.some(
+        (discrepancy) => discrepancy.semanticType === "metric"
+      );
+      if (hasUnaccountedMetricLoss) {
+        return {
+          success: false,
+          rows: [],
+          rowCount: 0,
+          error: "This question resolved a measurement that could not be carried through to planning, so I can't safely answer it.",
+          completeness,
+          answerability: {
+            status: "not_directly_answerable",
+            reason: "plan-incomplete"
+          }
+        };
+      }
       const primaryMetric = plan.plan.semantic.metrics[0]?.canonicalKey;
       const templateId = runtime.domain.executionStrategy.selectTemplateFromPlan ? runtime.domain.executionStrategy.selectTemplateFromPlan(executionPlan) : runtime.domain.executionStrategy.selectTemplate(
         primaryMetric,
@@ -155,10 +229,11 @@ function createRuntimeEngine({
           }
         }
       }
-      return { ...primaryResult, completeness };
+      return { ...primaryResult, completeness, answerability: { status: "answerable" } };
     }
   };
 }
 export {
+  buildClarificationMessage,
   createRuntimeEngine
 };

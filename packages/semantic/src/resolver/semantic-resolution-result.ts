@@ -1,4 +1,4 @@
-import type { SemanticType } from "@intelligence/domain-sdk";
+import type { SemanticType, EntityResolutionResult } from "@intelligence/domain-sdk";
 
 import type { SemanticMatch } from "../candidate/semantic-match";
 import type { SemanticCandidate } from "../candidate";
@@ -35,4 +35,22 @@ export interface SemanticResolutionResult {
    * false) for every query with no negation marker present.
    */
   unsupportedNegation?: boolean;
+
+  /**
+   * Phase 8.1: entity mentions that a Domain SDK's EntityProvider resolved
+   * as `status: "ambiguous"` (more than one legitimate candidate identity,
+   * none silently chosen) rather than `"unique"` or `"not_found"`. Reuses
+   * the existing, already-generic EntityResolutionResult shape verbatim -
+   * no new domain-agnostic type was introduced for this.
+   *
+   * Before Phase 8.1, this information was discarded at the exact point
+   * SemanticPipeline.resolve() decided whether to build a SemanticCandidate
+   * for a phrase (an ambiguous and a not-found entity were treated
+   * identically - both simply produced no candidate). This field preserves
+   * the distinction without changing that underlying behavior: an ambiguous
+   * mention still never produces a SemanticCandidate and is never guessed.
+   * Absent (not merely an empty array) when no entity mention in the query
+   * was ambiguous.
+   */
+  identityAmbiguities?: EntityResolutionResult[];
 }

@@ -462,6 +462,7 @@ var SemanticPipeline = class {
       console.log("-", phrase.value);
     }
     let semanticCandidates = [];
+    const identityAmbiguities = [];
     for (const phrase of phrases) {
       const aliasResult = this.aliasResolver.resolve(phrase.value);
       if (aliasResult.matched) {
@@ -483,6 +484,13 @@ var SemanticPipeline = class {
       }
       const entity = this.entityResolver.resolve(phrase.value);
       if (!entity.found) {
+        if (entity.status === "ambiguous") {
+          identityAmbiguities.push({
+            start: phrase.start,
+            end: phrase.end,
+            result: entity
+          });
+        }
         continue;
       }
       const ontologyResult2 = this.ontology.resolve(entity.entityId);
@@ -509,6 +517,22 @@ var SemanticPipeline = class {
         (outer) => outer !== inner && outer.semanticType === "entity" && outer.start <= inner.start && outer.end >= inner.end && (outer.start < inner.start || outer.end > inner.end)
       );
     });
+    const resolvedEntitySpans = semanticCandidates.filter(
+      (candidate) => candidate.semanticType === "entity"
+    );
+    semanticCandidates = semanticCandidates.filter((candidate) => {
+      if (candidate.semanticType === "entity") {
+        return true;
+      }
+      return !resolvedEntitySpans.some(
+        (entityCandidate) => entityCandidate.start <= candidate.start && entityCandidate.end >= candidate.end
+      );
+    });
+    const filteredIdentityAmbiguities = identityAmbiguities.filter(
+      (ambiguity) => !resolvedEntitySpans.some(
+        (candidate) => ambiguity.start <= candidate.end && candidate.start <= ambiguity.end
+      )
+    );
     for (const candidate of semanticCandidates) {
       if (candidate.semanticType !== "metric") {
         continue;
@@ -595,7 +619,8 @@ var SemanticPipeline = class {
       semanticType: ontologyResult.semanticType,
       matches: semanticCandidates,
       ...ambiguityError !== void 0 ? { ambiguityError } : {},
-      ...unsupportedNegation ? { unsupportedNegation } : {}
+      ...unsupportedNegation ? { unsupportedNegation } : {},
+      ...filteredIdentityAmbiguities.length > 0 ? { identityAmbiguities: filteredIdentityAmbiguities.map((a) => a.result) } : {}
     };
   }
 };

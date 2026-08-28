@@ -52,6 +52,14 @@ export interface EntityResolutionResult {
    *
    * Domain-agnostic: Universal Core only ever checks how many
    * candidates exist, never what they mean.
+   *
+   * Phase 8.3: each entry may optionally be shaped as an
+   * `AmbiguousCandidate` (`{value, label?}`) so Universal Core can build
+   * a targeted clarification message without needing to understand the
+   * candidate's meaning - it only ever displays `label` verbatim.
+   * Remains `unknown[]` (not narrowed to `AmbiguousCandidate[]`) so a
+   * Domain SDK that has not adopted this shape - returning bare opaque
+   * values, as before Phase 8.3 - remains valid without any change.
    */
   candidates?: unknown[];
 }

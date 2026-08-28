@@ -11,3 +11,4 @@ export * from "./semantic-collector";
 export * from "./semantic-collections";
 export * from "./execution-plan-mapper";
 export * from "./plan-completeness";
+export * from "./candidate-consistency";

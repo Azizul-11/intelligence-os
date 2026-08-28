@@ -13,3 +13,4 @@ export * from "./analyzer";
 export * from "./rewriter";
 export * from "./candidate";
 export * from "./direction";
+export * from "./answerability";

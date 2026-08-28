@@ -16,6 +16,7 @@ import { SemanticCandidateBuilder } from "../candidate";
 import type { SemanticCandidate } from "../candidate";
 import { EntityResolver } from "../entity";
 import { ModifierDirectionResolver } from "../direction";
+import type { EntityResolutionResult } from "@intelligence/domain-sdk";
 export class SemanticPipeline {
   constructor(
     private readonly normalizer: Normalizer,
@@ -68,6 +69,19 @@ export class SemanticPipeline {
 
     let semanticCandidates: SemanticCandidate[] = [];
 
+    // Phase 8.1: entity mentions the Domain SDK's EntityProvider reports as
+    // genuinely ambiguous (more than one legitimate candidate identity) -
+    // never guessed, never dropped without a trace. See
+    // SemanticResolutionResult.identityAmbiguities. Spans are tracked
+    // alongside so the containment/overlap suppression below (mirroring
+    // F4's own logic) can tell an over-extended, garbage-qualifier
+    // sub-phrase apart from a genuinely standalone ambiguous mention.
+    const identityAmbiguities: {
+      start: number;
+      end: number;
+      result: EntityResolutionResult;
+    }[] = [];
+
     for (const phrase of phrases) {
       const aliasResult = this.aliasResolver.resolve(phrase.value);
 
@@ -94,6 +108,14 @@ export class SemanticPipeline {
       const entity = this.entityResolver.resolve(phrase.value);
 
       if (!entity.found) {
+        if (entity.status === "ambiguous") {
+          identityAmbiguities.push({
+            start: phrase.start,
+            end: phrase.end,
+            result: entity,
+          });
+        }
+
         continue;
       }
 
@@ -145,6 +167,56 @@ export class SemanticPipeline {
           (outer.start < inner.start || outer.end > inner.end),
       );
     });
+
+    const resolvedEntitySpans = semanticCandidates.filter(
+      (candidate) => candidate.semanticType === "entity",
+    );
+
+    // Phase 8.4: a non-entity candidate (dimension, category, etc.) whose
+    // span is fully contained within a successfully-resolved entity
+    // candidate's span is part of that entity's own name/mention, not an
+    // independent signal the user expressed - e.g. the word "county"
+    // inside "Greene County Hospital" must not survive as a standalone
+    // "county-dimension" candidate once "Greene County Hospital" itself
+    // resolves as a real entity, exactly as F4 above already prevents a
+    // shorter entity sub-span from surviving alongside a larger one.
+    // Generic and additive: keys only on `semanticType`/`start`/`end` -
+    // never inspects which entity, which dimension/category, or which
+    // domain is involved, and never touches F4's own entity-vs-entity
+    // filtering or the Phase 8.1 identity-ambiguity containment logic
+    // below (both operate on separate arrays/conditions). A genuinely
+    // separate, non-overlapping dimension/category mention elsewhere in
+    // the same query is left untouched.
+    semanticCandidates = semanticCandidates.filter((candidate) => {
+      if (candidate.semanticType === "entity") {
+        return true;
+      }
+
+      return !resolvedEntitySpans.some(
+        (entityCandidate) =>
+          entityCandidate.start <= candidate.start && entityCandidate.end >= candidate.end,
+      );
+    });
+
+    // Phase 8.1: the same exhaustive-substring artifact F4 handles above
+    // also applies to an ambiguous entity-identity result - e.g. an
+    // over-extended qualifier phrase ("<name> in <state> overall rating")
+    // where the trailing words don't narrow anything, reported ambiguous
+    // by the Domain SDK, even though a shorter, correctly-qualified
+    // sub-phrase of the same mention ("<name> in <state>") already
+    // resolved to exactly one real entity candidate. An ambiguous result
+    // whose span overlaps a real, surviving entity candidate is not a
+    // separate, unresolved mention - it's the same mention the entity
+    // candidate already resolved - so it is dropped. A genuinely
+    // unqualified ambiguous mention (no overlapping entity candidate
+    // anywhere in the query) is left untouched.
+    const filteredIdentityAmbiguities = identityAmbiguities.filter(
+      (ambiguity) =>
+        !resolvedEntitySpans.some(
+          (candidate) =>
+            ambiguity.start <= candidate.end && candidate.start <= ambiguity.end,
+        ),
+    );
 
     // RCG-002: mark metric candidates whose phrase was introduced by a
     // domain's declared generic-ranking-idiom rewrite rule (rather than
@@ -313,6 +385,9 @@ export class SemanticPipeline {
       matches: semanticCandidates,
       ...(ambiguityError !== undefined ? { ambiguityError } : {}),
       ...(unsupportedNegation ? { unsupportedNegation } : {}),
+      ...(filteredIdentityAmbiguities.length > 0
+        ? { identityAmbiguities: filteredIdentityAmbiguities.map((a) => a.result) }
+        : {}),
     };
   }
 }

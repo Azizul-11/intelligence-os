@@ -1,10 +1,25 @@
 import type {
   EntityProvider,
   EntityResolutionResult,
+  AmbiguousCandidate,
 } from "@intelligence/domain-sdk";
 
 import { hospitalIdentityDirectory } from "./hospital-identity-directory";
 import type { HospitalIdentityRecord } from "./hospital-identity-directory";
+
+/**
+ * Phase 8.3: presents a candidate facility as the Universal, opaque
+ * `AmbiguousCandidate` shape - `value` is the canonical facility_id
+ * (unchanged from before Phase 8.3); `label` is a human-readable
+ * "<city>, <state>" string a targeted clarification can display
+ * verbatim. Universal Core never interprets either field.
+ */
+function toAmbiguousCandidate(record: HospitalIdentityRecord): AmbiguousCandidate {
+  return {
+    value: record.facilityId,
+    label: `${record.city}, ${record.state}`,
+  };
+}
 
 /**
  * Generic text normalization (lowercase, strip punctuation, collapse
@@ -127,7 +142,7 @@ export class HealthcareEntityProvider
         value: null,
         phrase,
         status: "ambiguous",
-        candidates: hospitalCandidates.map((candidate) => candidate.facilityId),
+        candidates: hospitalCandidates.map(toAmbiguousCandidate),
       };
     }
 
@@ -244,7 +259,7 @@ export class HealthcareEntityProvider
         value: null,
         phrase: hospitalName,
         status: "ambiguous",
-        candidates: narrowed.map((candidate) => candidate.facilityId),
+        candidates: narrowed.map(toAmbiguousCandidate),
       };
     }
 
@@ -258,7 +273,7 @@ export class HealthcareEntityProvider
       value: null,
       phrase: hospitalName,
       status: "ambiguous",
-      candidates: candidates.map((candidate) => candidate.facilityId),
+      candidates: candidates.map(toAmbiguousCandidate),
     };
   }
 }
