@@ -16,6 +16,7 @@ import { SemanticCandidateBuilder } from "../candidate";
 import type { SemanticCandidate } from "../candidate";
 import { EntityResolver } from "../entity";
 import { ModifierDirectionResolver } from "../direction";
+import { TemporalResolver } from "../temporal";
 import type { EntityResolutionResult } from "@intelligence/domain-sdk";
 export class SemanticPipeline {
   constructor(
@@ -29,6 +30,7 @@ export class SemanticPipeline {
     private readonly matcher: Matcher,
     private readonly ontology: Ontology,
     private readonly directionResolver: ModifierDirectionResolver,
+    private readonly temporalResolver: TemporalResolver,
   ) {}
   resolve(query: string): SemanticResolutionResult {
     console.log("🔥 NEW SEMANTIC PIPELINE V2 🔥");
@@ -67,6 +69,16 @@ export class SemanticPipeline {
       console.log("-", phrase.value);
     }
 
+    // Phase 8.6A: a literal point-year value (e.g. "2021") is recognized
+    // from the same token stream PhraseExtractor uses, independent of
+    // AliasResolver/Ontology - a literal year has no Domain-registered
+    // definition and must never be looked up in any registry. Kept
+    // entirely separate from `semanticCandidates`/`matches`: a "year"/
+    // "by year" grouping request continues to resolve only through the
+    // ordinary alias path below (`year-dimension`, semanticType
+    // "dimension") and is never affected by this.
+    const temporalCandidates = this.temporalResolver.resolve(rewrittenTokens);
+
     let semanticCandidates: SemanticCandidate[] = [];
 
     // Phase 8.1: entity mentions the Domain SDK's EntityProvider reports as
@@ -80,6 +92,34 @@ export class SemanticPipeline {
       start: number;
       end: number;
       result: EntityResolutionResult;
+    }[] = [];
+
+    // Qualifier-safety: a longer phrase attempt that named a known
+    // entity type (via its `entityId`) but was explicitly reported
+    // `not_found` - e.g. a qualifier that contradicts the sole
+    // candidate a bare name resolves to - is tracked the same way an
+    // ambiguity is, so the suppression pass below can recognize that a
+    // shorter, contained resolved candidate of the SAME entity type,
+    // representing the exact same bare name (`phrase`), is not a
+    // separate, independently-valid mention: it's the same mention a
+    // longer, more specific attempt on the same text already examined
+    // and rejected. Requiring an exact `phrase` match (not merely span
+    // containment) is what distinguishes this from a genuinely
+    // successful, already-qualified candidate that a further, over-
+    // extended attempt failed to narrow any further (e.g. "Mayo Clinic
+    // in Jacksonville, Florida": "mayo clinic in jacksonville" resolves
+    // uniquely; the over-extended "mayo clinic in jacksonville
+    // florida" fails, but its own bare-name portion is still "mayo
+    // clinic", not "mayo clinic in jacksonville" - so it never matches
+    // the surviving candidate's own phrase and never suppresses it).
+    // Never populated for a phrase the Domain SDK never recognized at
+    // all (`entityId: null`), only for a named entity type whose
+    // qualifier genuinely conflicted.
+    const identityConflicts: {
+      start: number;
+      end: number;
+      entityId: string;
+      phrase: string;
     }[] = [];
 
     for (const phrase of phrases) {
@@ -113,6 +153,13 @@ export class SemanticPipeline {
             start: phrase.start,
             end: phrase.end,
             result: entity,
+          });
+        } else if (entity.status === "not_found" && entity.entityId && entity.phrase) {
+          identityConflicts.push({
+            start: phrase.start,
+            end: phrase.end,
+            entityId: entity.entityId,
+            phrase: entity.phrase,
           });
         }
 
@@ -168,6 +215,73 @@ export class SemanticPipeline {
       );
     });
 
+    // Qualifier-safety: a resolved entity candidate whose span is
+    // strictly contained within a tracked identity conflict's span
+    // (same entity type - see `identityConflicts` above) is not an
+    // independently-valid mention. It is the same underlying mention a
+    // longer, explicitly-qualified attempt on the same text already
+    // examined and rejected (the qualifier contradicted the only
+    // candidate that name resolves to) - continuing to treat the
+    // shorter, unqualified sub-phrase as if the query had never named
+    // a qualifier at all would silently answer about the wrong entity.
+    // Scoped narrowly: only suppresses a candidate whose own
+    // `canonicalKey` matches the conflict's `entityId` (never a
+    // different entity type, e.g. a qualifier word that independently
+    // resolves as its own, unrelated entity - see the Phase 8.1
+    // suppression condition below for that distinct case), whose own
+    // `phrase` exactly equals the conflict's bare-name `phrase` (so an
+    // already-qualified, genuinely-resolved candidate - e.g. "mayo
+    // clinic in jacksonville" - is never suppressed merely because a
+    // further, over-extended attempt on the same bare name failed to
+    // narrow any further), and only on proven strict containment,
+    // mirroring F4's own geometry.
+    //
+    // Additionally requires the suppression to be safe with respect to
+    // OTHER same-type entity candidates elsewhere in the query (a
+    // multi-entity request, e.g. an explicit comparison): suppressing
+    // is safe when this is the only same-type entity anywhere in the
+    // query (nothing else could plausibly be the qualifier's real
+    // target), or when another same-type candidate elsewhere already
+    // resolved to the exact same value (this candidate is a redundant,
+    // corrupted second mention of an entity already captured
+    // correctly, not independent information). Otherwise, a trailing
+    // qualifier positioned near one of several distinct entities in a
+    // comparison is not assumed to belong to that specific entity -
+    // e.g. "Compare Mayo Clinic and Cleveland Clinic in Florida..."
+    // must not drop Cleveland Clinic merely because it is not in
+    // Florida; the two entities remain independent, unrelated
+    // mentions, and the trailing qualifier's intended target is
+    // genuinely unclear from span position alone.
+    semanticCandidates = semanticCandidates.filter((candidate) => {
+      if (candidate.semanticType !== "entity") {
+        return true;
+      }
+
+      const conflicts = identityConflicts.filter(
+        (conflict) =>
+          conflict.entityId === candidate.canonicalKey &&
+          conflict.phrase === candidate.phrase &&
+          conflict.start <= candidate.start &&
+          conflict.end >= candidate.end,
+      );
+
+      if (conflicts.length === 0) {
+        return true;
+      }
+
+      const otherSameTypeCandidates = semanticCandidates.filter(
+        (other) => other !== candidate && other.canonicalKey === candidate.canonicalKey,
+      );
+
+      const safeToSuppress =
+        otherSameTypeCandidates.length === 0 ||
+        otherSameTypeCandidates.some(
+          (other) => other.resolvedValue === candidate.resolvedValue,
+        );
+
+      return !safeToSuppress;
+    });
+
     const resolvedEntitySpans = semanticCandidates.filter(
       (candidate) => candidate.semanticType === "entity",
     );
@@ -210,11 +324,51 @@ export class SemanticPipeline {
     // candidate already resolved - so it is dropped. A genuinely
     // unqualified ambiguous mention (no overlapping entity candidate
     // anywhere in the query) is left untouched.
-    const filteredIdentityAmbiguities = identityAmbiguities.filter(
+    //
+    // Qualifier-identity-safety correction: the overlapping candidate
+    // must be of the SAME entity type as the ambiguity (its
+    // `canonicalKey` must equal the ambiguity's own `entityId`) before
+    // it may suppress it. A qualifier word that independently resolves
+    // as its own, different-type entity (e.g. "Texas" as a `state`
+    // entity, overlapping a `hospital` ambiguity that this same
+    // qualifier word already, correctly, narrowed) is never grounds to
+    // discard a genuine, still-real ambiguity - discarding it would
+    // silently replace a correctly-narrowed candidate set with a
+    // broader, un-narrowed one instead of preserving the user's own
+    // qualifier.
+    const candidateSuppressedIdentityAmbiguities = identityAmbiguities.filter(
       (ambiguity) =>
         !resolvedEntitySpans.some(
           (candidate) =>
-            ambiguity.start <= candidate.end && candidate.start <= ambiguity.end,
+            candidate.canonicalKey === ambiguity.result.entityId &&
+            ambiguity.start <= candidate.end &&
+            candidate.start <= ambiguity.end,
+        ),
+    );
+
+    // Qualifier-identity-safety: the same exhaustive-substring artifact
+    // F4 handles for resolved entity candidates also applies between
+    // two ambiguity entries on the SAME entity type - e.g. a bare name
+    // ("memorial hospital") and a qualified attempt on that same name
+    // ("memorial hospital in texas") can each independently remain
+    // "ambiguous" (the qualifier narrowed the set but not to exactly
+    // one). The shorter, unqualified ambiguity is not a separate user
+    // mention - it's the same mention a longer, more specific attempt
+    // on the same text already examined - so it is dropped in favor of
+    // the longer, strictly-containing ambiguity, mirroring F4's own
+    // "longer/more-specific span wins" geometry exactly. A genuinely
+    // separate, non-overlapping ambiguous mention elsewhere in the same
+    // query, or one with no longer containing counterpart, is left
+    // untouched.
+    const filteredIdentityAmbiguities = candidateSuppressedIdentityAmbiguities.filter(
+      (inner) =>
+        !candidateSuppressedIdentityAmbiguities.some(
+          (outer) =>
+            outer !== inner &&
+            outer.result.entityId === inner.result.entityId &&
+            outer.start <= inner.start &&
+            outer.end >= inner.end &&
+            (outer.start < inner.start || outer.end > inner.end),
         ),
     );
 
@@ -388,6 +542,7 @@ export class SemanticPipeline {
       ...(filteredIdentityAmbiguities.length > 0
         ? { identityAmbiguities: filteredIdentityAmbiguities.map((a) => a.result) }
         : {}),
+      ...(temporalCandidates.length > 0 ? { temporalCandidates } : {}),
     };
   }
 }

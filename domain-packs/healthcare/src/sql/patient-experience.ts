@@ -40,4 +40,10 @@ ORDER BY measure_code;
   deterministic: true,
 
   enabled: true,
+
+  // Phase 8.6B: this template's only filter is the requested hospital's
+  // own identity, and a non-empty result is exclusively that hospital's
+  // own measures - a zero-row result genuinely means this hospital has
+  // no HCAHPS data, not merely that some other filter matched nothing.
+  singleEntityRecord: true,
 };

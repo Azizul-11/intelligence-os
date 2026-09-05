@@ -1,5 +1,6 @@
 import type { PlanCompletenessReport } from "@intelligence/query-planner";
 import type { AnswerabilityResult } from "@intelligence/semantic";
+import type { CoverageFact } from "./coverage-fact";
 
 export interface RuntimeResult<T = unknown> {
   success: boolean;
@@ -33,4 +34,19 @@ export interface RuntimeResult<T = unknown> {
    * because this field exists.
    */
   answerability?: AnswerabilityResult;
+
+  /**
+   * Phase 8.6C: purely evidentiary, policy-neutral population-coverage
+   * facts - one entry per metric whose resolved template declared a
+   * companion `coverageTemplateId` (see SqlTemplateDefinition). Present
+   * only on a successful "rank"/"aggregate" execution where at least
+   * one involved metric's template opted in; never present otherwise.
+   * Additive and diagnostic: nothing about success/failure, `rows`, or
+   * `rowCount` changes because this field exists or because coverage
+   * is incomplete. Deliberately carries no interpretation of the
+   * numbers - no policy, no threshold, no disclosure text - that
+   * remains a later, separately-authorized answerability/guidance
+   * decision.
+   */
+  coverage?: CoverageFact[];
 }

@@ -23,4 +23,18 @@ export interface ChatRequest {
    * Useful for persistence and permissions.
    */
   userId?: string;
+
+  /**
+   * Phase 8.10 Layer 2: Optional identifier for a pending clarification or
+   * guidance interaction. If present, this request is a continuation (Turn 2)
+   * responding to a previous clarification/guidance prompt (Turn 1).
+   */
+  pendingInteractionId?: string;
+
+  /**
+   * Phase 8.10 Layer 2: User's response to the pending clarification/guidance.
+   * Required if pendingInteractionId is present.
+   * Examples: "Tucson" (clarification) or "use overall rating" (guidance)
+   */
+  continuationResponse?: string;
 }

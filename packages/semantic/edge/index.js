@@ -416,7 +416,7 @@ var SemanticValidationEngine = class {
 
 // src/pipeline/semantic-pipeline.ts
 var SemanticPipeline = class {
-  constructor(normalizer, analyzer, lexicalRewriter, phraseExtractor, aliasResolver, entityResolver, candidateBuilder, matcher, ontology, directionResolver) {
+  constructor(normalizer, analyzer, lexicalRewriter, phraseExtractor, aliasResolver, entityResolver, candidateBuilder, matcher, ontology, directionResolver, temporalResolver) {
     this.normalizer = normalizer;
     this.analyzer = analyzer;
     this.lexicalRewriter = lexicalRewriter;
@@ -427,6 +427,7 @@ var SemanticPipeline = class {
     this.matcher = matcher;
     this.ontology = ontology;
     this.directionResolver = directionResolver;
+    this.temporalResolver = temporalResolver;
   }
   normalizer;
   analyzer;
@@ -438,6 +439,7 @@ var SemanticPipeline = class {
   matcher;
   ontology;
   directionResolver;
+  temporalResolver;
   resolve(query) {
     console.log("\u{1F525} NEW SEMANTIC PIPELINE V2 \u{1F525}");
     const normalizedQuery = this.normalizer.normalize(query);
@@ -461,8 +463,10 @@ var SemanticPipeline = class {
     for (const phrase of phrases) {
       console.log("-", phrase.value);
     }
+    const temporalCandidates = this.temporalResolver.resolve(rewrittenTokens);
     let semanticCandidates = [];
     const identityAmbiguities = [];
+    const identityConflicts = [];
     for (const phrase of phrases) {
       const aliasResult = this.aliasResolver.resolve(phrase.value);
       if (aliasResult.matched) {
@@ -489,6 +493,13 @@ var SemanticPipeline = class {
             start: phrase.start,
             end: phrase.end,
             result: entity
+          });
+        } else if (entity.status === "not_found" && entity.entityId && entity.phrase) {
+          identityConflicts.push({
+            start: phrase.start,
+            end: phrase.end,
+            entityId: entity.entityId,
+            phrase: entity.phrase
           });
         }
         continue;
@@ -517,6 +528,24 @@ var SemanticPipeline = class {
         (outer) => outer !== inner && outer.semanticType === "entity" && outer.start <= inner.start && outer.end >= inner.end && (outer.start < inner.start || outer.end > inner.end)
       );
     });
+    semanticCandidates = semanticCandidates.filter((candidate) => {
+      if (candidate.semanticType !== "entity") {
+        return true;
+      }
+      const conflicts = identityConflicts.filter(
+        (conflict) => conflict.entityId === candidate.canonicalKey && conflict.phrase === candidate.phrase && conflict.start <= candidate.start && conflict.end >= candidate.end
+      );
+      if (conflicts.length === 0) {
+        return true;
+      }
+      const otherSameTypeCandidates = semanticCandidates.filter(
+        (other) => other !== candidate && other.canonicalKey === candidate.canonicalKey
+      );
+      const safeToSuppress = otherSameTypeCandidates.length === 0 || otherSameTypeCandidates.some(
+        (other) => other.resolvedValue === candidate.resolvedValue
+      );
+      return !safeToSuppress;
+    });
     const resolvedEntitySpans = semanticCandidates.filter(
       (candidate) => candidate.semanticType === "entity"
     );
@@ -528,9 +557,14 @@ var SemanticPipeline = class {
         (entityCandidate) => entityCandidate.start <= candidate.start && entityCandidate.end >= candidate.end
       );
     });
-    const filteredIdentityAmbiguities = identityAmbiguities.filter(
+    const candidateSuppressedIdentityAmbiguities = identityAmbiguities.filter(
       (ambiguity) => !resolvedEntitySpans.some(
-        (candidate) => ambiguity.start <= candidate.end && candidate.start <= ambiguity.end
+        (candidate) => candidate.canonicalKey === ambiguity.result.entityId && ambiguity.start <= candidate.end && candidate.start <= ambiguity.end
+      )
+    );
+    const filteredIdentityAmbiguities = candidateSuppressedIdentityAmbiguities.filter(
+      (inner) => !candidateSuppressedIdentityAmbiguities.some(
+        (outer) => outer !== inner && outer.result.entityId === inner.result.entityId && outer.start <= inner.start && outer.end >= inner.end && (outer.start < inner.start || outer.end > inner.end)
       )
     );
     for (const candidate of semanticCandidates) {
@@ -620,7 +654,8 @@ var SemanticPipeline = class {
       matches: semanticCandidates,
       ...ambiguityError !== void 0 ? { ambiguityError } : {},
       ...unsupportedNegation ? { unsupportedNegation } : {},
-      ...filteredIdentityAmbiguities.length > 0 ? { identityAmbiguities: filteredIdentityAmbiguities.map((a) => a.result) } : {}
+      ...filteredIdentityAmbiguities.length > 0 ? { identityAmbiguities: filteredIdentityAmbiguities.map((a) => a.result) } : {},
+      ...temporalCandidates.length > 0 ? { temporalCandidates } : {}
     };
   }
 };
@@ -952,6 +987,33 @@ var ModifierDirectionResolver = class {
   }
 };
 
+// src/temporal/temporal-resolver.ts
+var MIN_YEAR = 1900;
+var MAX_YEAR = 2100;
+var TemporalResolver = class {
+  resolve(tokens) {
+    const candidates = [];
+    for (const token of tokens) {
+      if (token.value.length !== 4) {
+        continue;
+      }
+      const value = Number(token.value);
+      if (Number.isNaN(value) || !Number.isInteger(value)) {
+        continue;
+      }
+      if (value < MIN_YEAR || value > MAX_YEAR) {
+        continue;
+      }
+      candidates.push({
+        kind: "year",
+        value,
+        span: { start: token.position, end: token.position }
+      });
+    }
+    return candidates;
+  }
+};
+
 // src/create-semantic-resolver.ts
 function createSemanticResolver(registry, entityProvider) {
   const pipeline = new SemanticPipeline(
@@ -964,7 +1026,8 @@ function createSemanticResolver(registry, entityProvider) {
     new SemanticCandidateBuilder(),
     new Matcher(),
     new Ontology(registry),
-    new ModifierDirectionResolver()
+    new ModifierDirectionResolver(),
+    new TemporalResolver()
   );
   return new SemanticResolver(pipeline);
 }
@@ -1148,6 +1211,7 @@ export {
   SemanticRegistryBuilder,
   SemanticResolver,
   SemanticValidationEngine,
+  TemporalResolver,
   Tokenizer,
   createSemanticResolver
 };

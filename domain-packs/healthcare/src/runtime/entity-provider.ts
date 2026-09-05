@@ -264,9 +264,33 @@ export class HealthcareEntityProvider
     }
 
     // The qualifier matched none of the candidates - it did not
-    // legitimately narrow anything. Remain ambiguous with the original
-    // candidate set rather than silently guessing or reporting
-    // not_found (the name itself did resolve to real candidates).
+    // legitimately narrow anything.
+    //
+    // When more than one candidate originally existed, remain ambiguous
+    // with the original candidate set rather than silently guessing or
+    // reporting not_found (the name itself did resolve to more than one
+    // real candidate, and the caller deserves to see all of them, even
+    // though none matched the supplied qualifier).
+    //
+    // When exactly one candidate originally existed, there is no real
+    // ambiguity to report: only one facility was ever a possibility,
+    // and the user's own qualifier contradicts it. Reporting
+    // "ambiguous" here would be misleading (it implies a genuine choice
+    // among candidates) and - critically - risks the sole candidate
+    // being silently treated as the answer downstream once this
+    // "ambiguity" is later judged redundant. Report not_found instead,
+    // so the request fails honestly rather than silently resolving to
+    // the one candidate the user's own qualifier just contradicted.
+    if (candidates.length === 1) {
+      return {
+        found: false,
+        entityId: "hospital",
+        value: null,
+        phrase: hospitalName,
+        status: "not_found",
+      };
+    }
+
     return {
       found: false,
       entityId: "hospital",

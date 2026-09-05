@@ -1,0 +1,368 @@
+[
+  {
+    "proofId": "A",
+    "proofName": "Valid single metric",
+    "status": "PASS",
+    "evidence": {
+      "success": true,
+      "answerability": {
+        "status": "answerable"
+      },
+      "rowCount": 10,
+      "facilityIds": [
+        "020018",
+        "030103",
+        "39009F",
+        "390100",
+        "390048",
+        "390062",
+        "390049",
+        "39006F",
+        "390066",
+        "030119"
+      ]
+    },
+    "timing": {
+      "executionMs": 942
+    }
+  },
+  {
+    "proofId": "B",
+    "proofName": "Valid compound metric",
+    "status": "PASS",
+    "evidence": {
+      "success": true,
+      "answerability": {
+        "status": "answerable"
+      },
+      "rowCount": 10,
+      "facilityIds": [
+        "020018",
+        "030103",
+        "39009F",
+        "390100",
+        "390048",
+        "390062",
+        "390049",
+        "39006F",
+        "390066",
+        "030119"
+      ]
+    },
+    "timing": {
+      "executionMs": 1251
+    },
+    "notes": "Both metrics present in results"
+  },
+  {
+    "proofId": "C",
+    "proofName": "Entity-constrained compound",
+    "status": "PASS",
+    "evidence": {
+      "success": true,
+      "answerability": {
+        "status": "answerable"
+      },
+      "rowCount": 10,
+      "facilityIds": [
+        "450424",
+        "450475",
+        "450148",
+        "450358",
+        "450054",
+        "450465",
+        "450079",
+        "450128",
+        "450210",
+        "45060F"
+      ]
+    },
+    "timing": {
+      "executionMs": 1107
+    },
+    "notes": "All rows are Texas facilities"
+  },
+  {
+    "proofId": "D",
+    "proofName": "Duplicate entity clarification (2 turns)",
+    "status": "PASS",
+    "evidence": {
+      "success": true,
+      "rowCount": 1,
+      "facilityIds": [
+        "030085"
+      ],
+      "turn1": {
+        "pendingInteractionId": "2b02d2a0-0c04-42ec-b9e1-47ee3d169882",
+        "interactionKind": "clarification"
+      },
+      "turn2": {
+        "success": true,
+        "resolvedFacility": "030085 (Tucson, AZ)"
+      }
+    },
+    "timing": {
+      "executionMs": 2389
+    },
+    "notes": "Correctly resolved to Tucson facility"
+  },
+  {
+    "proofId": "E",
+    "proofName": "Multiple explicit entities",
+    "status": "PASS",
+    "evidence": {
+      "success": true,
+      "answerability": {
+        "status": "answerable"
+      },
+      "rowCount": 2,
+      "facilityIds": [
+        "100151",
+        "360180"
+      ]
+    },
+    "timing": {
+      "executionMs": 375
+    },
+    "notes": "Both Mayo Jacksonville (100151) and Cleveland Clinic (360180) returned"
+  },
+  {
+    "proofId": "F",
+    "proofName": "Unsupported capability",
+    "status": "PASS",
+    "evidence": {
+      "success": false,
+      "answerability": {
+        "status": "not_directly_answerable",
+        "reason": "capability-unavailable",
+        "alternatives": [
+          {
+            "capabilityId": "hospital-overall-rating"
+          },
+          {
+            "capabilityId": "mortality-rate"
+          },
+          {
+            "capabilityId": "readmission-rate"
+          },
+          {
+            "capabilityId": "patient-experience"
+          },
+          {
+            "capabilityId": "safety-performance"
+          }
+        ]
+      },
+      "rowCount": 0,
+      "errorMessage": "I can't answer this using the requested capability because it isn't currently available. I can help with Hospital Overall Rating, Mortality Rate, Readmission Rate, Patient Experience, or Safety Performance instead."
+    },
+    "timing": {
+      "executionMs": 4
+    },
+    "notes": "Correctly refused with capability-unavailable"
+  },
+  {
+    "proofId": "G",
+    "proofName": "Data unavailable",
+    "status": "PASS",
+    "evidence": {
+      "success": false,
+      "answerability": {
+        "status": "not_directly_answerable",
+        "reason": "data-unavailable"
+      },
+      "rowCount": 0,
+      "facilityIds": [],
+      "errorMessage": "No data is available for the requested entity and metric."
+    },
+    "timing": {
+      "executionMs": 367
+    },
+    "notes": "Data-unavailable classification working correctly"
+  },
+  {
+    "proofId": "H",
+    "proofName": "Guidance + continuation (2 turns)",
+    "status": "PASS",
+    "evidence": {
+      "success": true,
+      "rowCount": 10,
+      "facilityIds": [
+        "020018",
+        "030103",
+        "39009F",
+        "390100",
+        "390048",
+        "390062",
+        "390049",
+        "39006F",
+        "390066",
+        "030119"
+      ],
+      "turn1": {
+        "pendingInteractionId": "0cb02d94-0353-41be-b8d7-af31c8731db2",
+        "interactionKind": "guidance"
+      },
+      "turn2": {
+        "success": true,
+        "hasOverallRating": true
+      }
+    },
+    "timing": {
+      "executionMs": 2439
+    },
+    "notes": "Correctly reconstructed to overall rating query"
+  },
+  {
+    "proofId": "I",
+    "proofName": "Complete clarification loop (E2E)",
+    "status": "PASS",
+    "evidence": {
+      "success": true,
+      "rowCount": 1,
+      "facilityIds": [
+        "030085"
+      ],
+      "turn1": {
+        "pendingInteractionId": "584cdb6e-df36-48c9-a24a-e31cc07e4506",
+        "interactionKind": "clarification"
+      },
+      "turn2": {
+        "success": true,
+        "resolvedFacility": "030085 (Tucson, AZ)"
+      }
+    },
+    "timing": {
+      "executionMs": 2676
+    },
+    "notes": "Correctly resolved to Tucson facility | E2E verification: Turn 1 Ambiguity → Clarification → User Answer → Re-resolution → Re-validation → Execution"
+  },
+  {
+    "proofId": "J",
+    "proofName": "Atomic multi-metric failure",
+    "status": "PASS",
+    "evidence": {
+      "success": false,
+      "answerability": {
+        "status": "not_directly_answerable",
+        "reason": "capability-unavailable",
+        "alternatives": [
+          {
+            "capabilityId": "hospital-overall-rating"
+          },
+          {
+            "capabilityId": "mortality-rate"
+          },
+          {
+            "capabilityId": "readmission-rate"
+          },
+          {
+            "capabilityId": "patient-experience"
+          },
+          {
+            "capabilityId": "safety-performance"
+          }
+        ]
+      },
+      "rowCount": 0,
+      "errorMessage": "I can't answer this using the requested capability because it isn't currently available. I can help with Hospital Overall Rating, Mortality Rate, Readmission Rate, Patient Experience, or Safety Performance instead."
+    },
+    "timing": {
+      "executionMs": 738
+    },
+    "notes": "Correctly failed atomically - no partial execution"
+  },
+  {
+    "proofId": "K",
+    "proofName": "No-SQL ambiguity control (negative)",
+    "status": "PASS",
+    "evidence": {
+      "success": false,
+      "answerability": {
+        "status": "ambiguous",
+        "reason": "identity-ambiguous",
+        "candidates": [
+          {
+            "value": "010086",
+            "label": "WINFIELD, AL"
+          },
+          {
+            "value": "030085",
+            "label": "TUCSON, AZ"
+          }
+        ]
+      },
+      "rowCount": 0,
+      "sqlExecuted": false,
+      "errorMessage": "Which northwest medical center do you mean — WINFIELD, AL or TUCSON, AZ?"
+    },
+    "timing": {
+      "executionMs": 2
+    },
+    "notes": "SQL executor never called - ambiguity gate working"
+  },
+  {
+    "proofId": "L",
+    "proofName": "No-SQL capability control (negative)",
+    "status": "PASS",
+    "evidence": {
+      "success": false,
+      "answerability": {
+        "status": "not_directly_answerable",
+        "reason": "capability-unavailable",
+        "alternatives": [
+          {
+            "capabilityId": "hospital-overall-rating"
+          },
+          {
+            "capabilityId": "mortality-rate"
+          },
+          {
+            "capabilityId": "readmission-rate"
+          },
+          {
+            "capabilityId": "patient-experience"
+          },
+          {
+            "capabilityId": "safety-performance"
+          }
+        ]
+      },
+      "rowCount": 0,
+      "sqlExecuted": false,
+      "errorMessage": "I can't answer this using the requested capability because it isn't currently available. I can help with Hospital Overall Rating, Mortality Rate, Readmission Rate, Patient Experience, or Safety Performance instead."
+    },
+    "timing": {
+      "executionMs": 5
+    },
+    "notes": "SQL executor never called - capability gate working"
+  },
+  {
+    "proofId": "M",
+    "proofName": "Mayo/Rochester documented observation",
+    "status": "OBSERVE",
+    "evidence": {
+      "success": true,
+      "rowCount": 1,
+      "facilityIds": [
+        "100151"
+      ],
+      "turn1": {
+        "variant": "WITHOUT \"in\"",
+        "resolvedTo": "100151",
+        "expected": "Rochester facility",
+        "mayReturnJacksonville": "100151"
+      },
+      "turn2": {
+        "variant": "WITH \"in\"",
+        "status": "failure",
+        "rowCount": 0,
+        "notes": "Variant WITH 'in' failed (expected per v9 fix)"
+      }
+    },
+    "timing": {
+      "executionMs": 499
+    },
+    "notes": "OBSERVATIONAL ONLY. Variant WITHOUT \"in\" resolved to facility 100151. Known upstream qualifier segmentation limitation. Variant WITH \"in\" failed. This is documented, not a Phase 8 blocker."
+  }
+]

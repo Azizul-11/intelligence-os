@@ -53,6 +53,7 @@ import { LexicalRewriter } from "./rewriter";
 import { SemanticCandidateBuilder } from "./candidate";
 import { EntityResolver } from "./entity";
 import { ModifierDirectionResolver } from "./direction";
+import { TemporalResolver } from "./temporal";
 import type { EntityProvider } from "@intelligence/domain-sdk";
 export function createSemanticResolver(
   registry: SemanticRegistry,
@@ -69,6 +70,7 @@ const pipeline = new SemanticPipeline(
   new Matcher(),
   new Ontology(registry),
   new ModifierDirectionResolver(),
+  new TemporalResolver(),
 );
 
   return new SemanticResolver(pipeline);

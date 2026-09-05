@@ -47,4 +47,10 @@ LIMIT 10;
   deterministic: true,
 
   enabled: true,
+
+  // Phase 8.6C: this template's own WHERE clause already applies
+  // exactly the eligibility/presence conditions (`overall_rating IS
+  // NOT NULL`, the same `:state` scope) the companion coverage
+  // template independently re-measures without LIMIT/ORDER BY.
+  coverageTemplateId: "hospital-overall-rating-ranking-coverage",
 };

@@ -9,3 +9,4 @@ export * from "./normalization";
 export * from "./warehouse";
 export * from "./execution";
 export * from "./answerability";
+export * from "./continuation";

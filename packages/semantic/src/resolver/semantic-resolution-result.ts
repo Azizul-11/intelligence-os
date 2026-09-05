@@ -2,6 +2,7 @@ import type { SemanticType, EntityResolutionResult } from "@intelligence/domain-
 
 import type { SemanticMatch } from "../candidate/semantic-match";
 import type { SemanticCandidate } from "../candidate";
+import type { TemporalCandidate } from "../temporal";
 export interface SemanticResolutionResult {
   resolved: boolean;
 
@@ -53,4 +54,18 @@ export interface SemanticResolutionResult {
    * was ambiguous.
    */
   identityAmbiguities?: EntityResolutionResult[];
+
+  /**
+   * Phase 8.6A: literal point-year values recognized in the query (e.g.
+   * "2021"), kept entirely separate from `matches`/`SemanticCandidate` -
+   * a literal year has no Domain-registered `SemanticDefinition` and is
+   * never looked up in any registry. Absent (not merely an empty array)
+   * when no recognizable literal year is present. Structurally distinct
+   * from a "year"/"by year" grouping request, which continues to
+   * surface only as an ordinary `dimension`-typed entry in `matches`
+   * (see TemporalResolver). Diagnostic only: no gate in RuntimeEngine
+   * consumes this yet - reserved for a future Phase 8.6B data-
+   * availability mechanism.
+   */
+  temporalCandidates?: TemporalCandidate[];
 }

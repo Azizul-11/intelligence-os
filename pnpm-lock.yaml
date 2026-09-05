@@ -165,9 +165,15 @@ importers:
 
   packages/runtime-engine:
     dependencies:
+      '@intelligence/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@intelligence/domain-runtime':
         specifier: workspace:*
         version: link:../domain-runtime
+      '@intelligence/domain-sdk':
+        specifier: workspace:*
+        version: link:../domain-sdk
       '@intelligence/query-planner':
         specifier: workspace:*
         version: link:../query-planner

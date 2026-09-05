@@ -3,11 +3,124 @@ import type { QueryPlanner, ExecutionPlanMapper } from "@intelligence/query-plan
 import { assessPlanCompleteness, hasRelationshipWithoutBenchmark } from "@intelligence/query-planner";
 import type { SqlExecutor } from "@intelligence/sql-executor";
 import type { SemanticResolver } from "@intelligence/semantic";
+import type { ExecutionPlan, ExecutionFilter } from "@intelligence/contracts";
+import type { MetricDefinition, SqlTemplateParameter } from "@intelligence/domain-sdk";
 
 import type { RuntimeEngine } from "./runtime-engine";
 import type { RuntimeRequest } from "./runtime-request";
 import type { RuntimeResult } from "./runtime-result";
+import type { CoverageFact } from "./coverage-fact";
 import { buildClarificationMessage } from "./build-clarification-message";
+import { buildGuidanceMessage } from "./build-guidance-message";
+
+/**
+ * Phase 8.8: structural equality for a filter's resolved value against a
+ * candidate parameter's resolved value - deliberately not `===` alone,
+ * since Domain-owned parameter resolution (e.g. Healthcare's own
+ * "hospital" -> "hospitalId"/"facilityIds" renaming) may copy a filter's
+ * value under a different parameter name. Comparing by VALUE, not by
+ * NAME, is what lets this stay Domain-agnostic: Universal Core never
+ * needs to know any Domain's renaming convention, only that a filter's
+ * value must actually reach *some* parameter the selected template
+ * declares, under whatever name that Domain gave it.
+ */
+function valuesMatch(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((value, index) => value === b[index]);
+  }
+
+  return a === b;
+}
+
+/**
+ * Phase 8.8: a single filter is compatible with a candidate template when
+ * some parameter that template declares resolves (by value, see
+ * valuesMatch()) to that filter's value, and - for a multi-value "in"
+ * filter - that parameter is declared "array"-typed (the only shape
+ * SqlExecutor's array rendering is safe for). Factored out unchanged from
+ * the original Phase 8.8 gate so Phase 8.9's alternative discovery can
+ * reuse the exact same mechanism against a candidate metric's own
+ * template, rather than a second implementation of the same rule.
+ */
+function isFilterCompatibleWithTemplate(
+  filter: ExecutionFilter,
+  resolvedParameters: Record<string, unknown>,
+  templateParameters: SqlTemplateParameter[],
+): boolean {
+  const matchingParameter = templateParameters.find((parameter) =>
+    valuesMatch(resolvedParameters[parameter.name], filter.value),
+  );
+
+  if (!matchingParameter) {
+    return false;
+  }
+
+  return !(filter.operator === "in" && matchingParameter.type !== "array");
+}
+
+const ALTERNATIVE_OPERATION_FLAG = {
+  rank: "rankable",
+  aggregate: "aggregatable",
+  compare: "comparable",
+} as const;
+
+/**
+ * Phase 8.9: when the requested metric has no available execution
+ * capability, look for other real, currently-supported Domain-declared
+ * metrics that could execute this exact same request shape - same
+ * operation, same filters/scope - in its place. Not a new similarity or
+ * scoring model: a candidate qualifies only by satisfying the same three
+ * checks the rest of the runtime already applies to the requested metric
+ * itself (the operation-appropriate capability flag, Phase 8.5's
+ * found/enabled template-existence check, and Phase 8.8's own filter-
+ * compatibility check above) - "same category" is deliberately not one of
+ * them, since two metrics sharing a category may still query entirely
+ * different, independently-unavailable tables. Returns candidates in
+ * `runtime.domain.metrics`' own declaration order; never scored or
+ * ranked.
+ */
+function discoverAlternatives(
+  unavailableMetricId: string,
+  executionPlan: ExecutionPlan,
+  runtime: DomainRuntime,
+): { capabilityId: string }[] {
+  const requiredFlag = ALTERNATIVE_OPERATION_FLAG[executionPlan.operation as keyof typeof ALTERNATIVE_OPERATION_FLAG];
+
+  const { executionStrategy } = runtime.domain;
+
+  if (!requiredFlag || !executionStrategy.selectTemplateFromPlan || !executionStrategy.resolveParametersFromPlan) {
+    return [];
+  }
+
+  const parameters = executionStrategy.resolveParametersFromPlan(executionPlan);
+  const alternatives: { capabilityId: string }[] = [];
+
+  for (const candidate of runtime.domain.metrics as readonly MetricDefinition[]) {
+    if (candidate.id === unavailableMetricId || !candidate[requiredFlag]) {
+      continue;
+    }
+
+    const candidateTemplateId = executionStrategy.selectTemplateFromPlan(
+      { ...executionPlan, metric: candidate.id },
+    );
+
+    const candidateTemplate = runtime.sqlResolver.resolve(candidateTemplateId);
+    if (!candidateTemplate.found || !candidateTemplate.template || candidateTemplate.template.enabled === false) {
+      continue;
+    }
+
+    const candidateTemplateParameters = candidateTemplate.template.parameters ?? [];
+    const isCompatible = executionPlan.filters.every((filter) =>
+      isFilterCompatibleWithTemplate(filter, parameters, candidateTemplateParameters),
+    );
+
+    if (isCompatible) {
+      alternatives.push({ capabilityId: candidate.id });
+    }
+  }
+
+  return alternatives;
+}
 
 type CreateRuntimeEngineOptions = {
   runtime: DomainRuntime;
@@ -193,17 +306,27 @@ console.log("========================================");
 
 // Phase 8.2: a genuinely unaccounted-for metric-type discrepancy - one
 // that survived QueryPlanner's own legitimate filtering yet still never
-// reached the ExecutionPlan - is refused before any SQL executes. Every
-// other discrepancy type (concept/F12, category/F13, entity, dimension,
-// benchmark) remains detection-only, exactly as it was before Phase 8.2:
-// still reported via `completeness` below, never gated on here. Only the
-// metric reconciliation this phase specifically analyzed and resolved
-// is treated as a hard stop.
-const hasUnaccountedMetricLoss = completeness.discrepancies.some(
-  (discrepancy) => discrepancy.semanticType === "metric",
+// reached the ExecutionPlan - is refused before any SQL executes.
+//
+// Phase 8.8: a concept-type discrepancy is gated the same way. This is
+// not a new detector - assessPlanCompleteness() already computes a
+// concept-type discrepancy unconditionally for every concept candidate
+// (SemanticCollector never collects "concept" into QueryPlan.semantic
+// at all, so it can never legitimately reach the plan; unlike the
+// metric/entity/benchmark branches, this one has no legitimate-
+// suppression case to distinguish). Until now that evidence was
+// computed and attached to `completeness` but never gated on, letting a
+// recognized-but-unconsumed condition/topic (e.g. "...for heart attack
+// specifically") silently execute against the metric's full,
+// undifferentiated result. Category-type discrepancies (F13) remain
+// detection-only, unchanged - category has no comparable "always a
+// discrepancy" guarantee documented for its own branch, and gating on
+// it was not part of the approved Phase 8.8 scope.
+const hasUnaccountedMetricOrConceptLoss = completeness.discrepancies.some(
+  (discrepancy) => discrepancy.semanticType === "metric" || discrepancy.semanticType === "concept",
 );
 
-if (hasUnaccountedMetricLoss) {
+if (hasUnaccountedMetricOrConceptLoss) {
   return {
     success: false,
     rows: [],
@@ -247,12 +370,78 @@ if (template.template) {
   );
 }
 
+      // Phase 8.5: the semantic candidates resolved, planned, and mapped to
+      // an ExecutionPlan cleanly, but no deterministic execution mechanism
+      // exists for the requested shape at all (the Domain SDK never
+      // registered a template under this id - e.g. RCG-008's deliberately
+      // unregistered "-unsupported"/"-unbounded" ids). Distinct from every
+      // gate above: this is not an ambiguity or a candidate inconsistency,
+      // it is the simple absence of a capability. Refused honestly, before
+      // any parameter resolution or SQL execution - existing failure
+      // semantics (no SQL runs) are unchanged, only the classification is
+      // now structured instead of a bare string.
+      //
+      // Phase 8.10 Layer 1: when Phase 8.9 discovered supported
+      // alternatives, build a truthful guidance message from the Domain-
+      // owned metric labels rather than a bare technical error. The
+      // guidance renderer never executes SQL, never invents alternatives,
+      // never handles user choice - only presents what Phase 8.9 already
+      // proved exists.
       if (!template.found || !template.template) {
+        const alternatives = discoverAlternatives(primaryMetric!, executionPlan, runtime);
+        const guidanceMessage = buildGuidanceMessage(
+          {
+            status: "not_directly_answerable",
+            reason: "capability-unavailable",
+            ...(alternatives.length > 0 ? { alternatives } : {}),
+          },
+          runtime.domain.metrics,
+        );
+
         return {
           success: false,
           rows: [],
           rowCount: 0,
-          error: "SQL template not found.",
+          error: guidanceMessage ?? "SQL template not found.",
+          answerability: {
+            status: "not_directly_answerable",
+            reason: "capability-unavailable",
+            ...(alternatives.length > 0 ? { alternatives } : {}),
+          },
+        };
+      }
+
+      // Phase 8.5: a template was registered under the requested id, but
+      // the Domain SDK has explicitly marked it unusable
+      // (`SqlTemplateDefinition.enabled === false`) - a declared-but-
+      // unwired Universal contract field until now. Distinct from
+      // template-not-found above only in that a registration exists;
+      // the outcome (no SQL, capability-unavailable) is identical.
+      //
+      // Phase 8.10 Layer 1: same guidance behavior as template-not-found
+      // above - alternatives discovered by Phase 8.9, labels from Domain
+      // metrics, truthful presentation.
+      if (template.template.enabled === false) {
+        const alternatives = discoverAlternatives(primaryMetric!, executionPlan, runtime);
+        const guidanceMessage = buildGuidanceMessage(
+          {
+            status: "not_directly_answerable",
+            reason: "capability-unavailable",
+            ...(alternatives.length > 0 ? { alternatives } : {}),
+          },
+          runtime.domain.metrics,
+        );
+
+        return {
+          success: false,
+          rows: [],
+          rowCount: 0,
+          error: guidanceMessage ?? "This capability is not currently available.",
+          answerability: {
+            status: "not_directly_answerable",
+            reason: "capability-unavailable",
+            ...(alternatives.length > 0 ? { alternatives } : {}),
+          },
         };
       }
 
@@ -267,13 +456,180 @@ console.log("========== PARAMETERS ==========");
 console.log(parameters);
 console.log("================================");
 
+// Phase 8.8: the plan may already be complete (every resolved candidate
+// reached ExecutionPlan.filters, per assessPlanCompleteness() above)
+// while the template Domain execution strategy selected for THIS plan
+// shape still cannot honor one of those filters - e.g. a single named
+// entity's "=" filter reaching a generic, unscoped template that
+// declares no parameter backed by that value at all (F8), or a
+// multi-value "in" filter reaching a template parameter never declared
+// as an "array" type - the only shape SqlExecutor's array-rendering is
+// safe for (compare hospital-overall-rating-by-facility-ids.ts's own
+// `facilityIds: array` parameter, the existing, correct use of this
+// exact contract). Checked by VALUE (see valuesMatch()), not by name,
+// so this stays fully Domain-agnostic even though a Domain's own
+// parameter-resolution step may rename a filter's value onto a
+// differently-named parameter. Refused honestly, before any SQL runs;
+// no new answerability reason is invented, since none of the existing
+// six accurately describes a generic plan/template shape mismatch (the
+// same reasoning as the Phase 8.7 fallback for a raw executor failure).
+//
+// Scoped to "rank"/"aggregate" operations only - the same scoping
+// 8.6C's own coverage-collection gate already uses, and for the same
+// underlying reason: only a population-scoped operation can silently
+// change WHICH population gets queried when a filter is dropped. A
+// "lookup"/"compare" operation is already anchored to the specific
+// identity(ies) already resolved (via whatever Domain-owned parameter
+// name carries that identity - verified generically below by value,
+// not by name) - a redundant, coarser filter alongside it (e.g. a
+// "state" filter alongside a "hospital" filter that already uniquely
+// identifies one facility) changes nothing about which record that
+// template targets, so it is not a silent constraint loss. Confirmed
+// live: "What is the overall rating of Mayo Clinic in Jacksonville,
+// Florida?" resolves BOTH a "hospital" filter and a redundant "state"
+// filter (Florida also independently resolves as its own state
+// entity) - the single-entity lookup template has no "state" parameter
+// at all and was never meant to, since the hospital filter alone
+// already fully determines the one correct record.
+const templateParameters = template.template.parameters ?? [];
+
+const hasIncompatibleFilter =
+  (executionPlan.operation === "rank" || executionPlan.operation === "aggregate") &&
+  executionPlan.filters.some(
+    (filter) => !isFilterCompatibleWithTemplate(filter, parameters, templateParameters),
+  );
+
+if (hasIncompatibleFilter) {
+  return {
+    success: false,
+    rows: [],
+    rowCount: 0,
+    error: "This request's constraints cannot be safely represented by the available execution capability.",
+    answerability: {
+      status: "not_directly_answerable",
+    },
+  };
+}
+
 const primaryResult = await executor.execute(
   template.template,
   parameters,
 );
 
+// Phase 8.7: every prior gate above already attaches its own specific
+// AnswerabilityResult before returning. A primary execution failure
+// (e.g. a SQL-level parameter/adapter error) is the one remaining path
+// that reaches this function's caller with none - SqlExecutionResult
+// (packages/sql-executor) has no answerability field of its own.
+// Attached generically, with no reason: none of the existing reason
+// values accurately describes a raw executor-level rejection, and
+// inventing one here would be exactly the speculative taxonomy growth
+// the Phase 8.7 audit rejected. This never overwrites anything -
+// primaryResult never carries an answerability field to begin with.
 if (!primaryResult.success) {
-  return primaryResult;
+  return {
+    ...primaryResult,
+    answerability: { status: "not_directly_answerable" },
+  };
+}
+
+// Phase 8.6B: the request already passed every prior gate (capability
+// valid, parameters fully resolved) and genuinely executed - this is
+// POST-HOC reclassification of an already-successful, already-real
+// result, not a new query and not a new refusal mechanism. A zero-row
+// result is data-unavailable ONLY when all of the following hold, so
+// an ordinary, legitimate empty list/ranking/aggregate result (e.g.
+// "hospitals in Wyoming" matching nothing) is never misclassified:
+// (1) the operation is a single-record "lookup", not a list/ranking/
+// aggregate/comparison/trend; (2) exactly one entity was resolved -
+// not zero (no entity at all) and not more than one (Phase 7.5's
+// explicit multi-entity comparison is a different mechanism); (3) the
+// resolved template explicitly declares `singleEntityRecord: true` -
+// a Domain-owned fact that THIS template's result represents that one
+// entity's own record, never an enumeration of matching entities.
+if (primaryResult.rowCount === 0 && executionPlan.operation === "lookup") {
+  const resolvedEntityCandidates = semanticResult.matches.filter(
+    (candidate) => candidate.semanticType === "entity",
+  );
+
+  if (
+    resolvedEntityCandidates.length === 1 &&
+    template.template.singleEntityRecord === true
+  ) {
+    return {
+      ...primaryResult,
+      success: false,
+      error: "No data is available for the requested entity and metric.",
+      answerability: {
+        status: "not_directly_answerable",
+        reason: "data-unavailable",
+      },
+    };
+  }
+}
+
+// Phase 8.6C: purely evidentiary, policy-neutral population-coverage
+// measurement. Scoped narrowly to "rank"/"aggregate" operations only -
+// a "lookup" (8.6B's own territory) never reaches here with a
+// coverage-eligible shape, and every other operation is left
+// untouched. Computed from a Domain-declared companion query (see
+// SqlTemplateDefinition.coverageTemplateId), using the exact same
+// request-scope parameters already resolved for the primary
+// execution - never the primary result's own returned rows/identity
+// values, which would silently reintroduce a Top-N-shaped error (the
+// companion query has no LIMIT and must never be confused with how
+// many rows the primary query happened to return).
+const coverageFacts: CoverageFact[] = [];
+
+async function collectCoverageFact(
+  metric: string,
+  coverageTemplateId: string | undefined,
+): Promise<void> {
+  if (!coverageTemplateId) {
+    return;
+  }
+
+  const coverageTemplate = runtime.sqlResolver.resolve(coverageTemplateId);
+
+  if (!coverageTemplate.found || !coverageTemplate.template) {
+    console.log(
+      `========== PHASE 8.6C: coverage template "${coverageTemplateId}" not found - omitting coverage for "${metric}" ==========`,
+    );
+    return;
+  }
+
+  try {
+    const coverageResult = await executor.execute(coverageTemplate.template, parameters);
+
+    if (!coverageResult.success) {
+      console.log(
+        `========== PHASE 8.6C: coverage query for "${metric}" failed - omitting coverage: ${coverageResult.error ?? "unknown error"} ==========`,
+      );
+      return;
+    }
+
+    const coverageRow = (coverageResult.rows as Record<string, unknown>[])[0];
+
+    const eligibleCount = Number(coverageRow?.eligible_count);
+    const coveredCount = Number(coverageRow?.covered_count);
+
+    if (!Number.isFinite(eligibleCount) || !Number.isFinite(coveredCount)) {
+      console.log(
+        `========== PHASE 8.6C: coverage query for "${metric}" returned an unexpected shape - omitting coverage ==========`,
+      );
+      return;
+    }
+
+    coverageFacts.push({ metric, eligibleCount, coveredCount });
+  } catch (error) {
+    console.log(
+      `========== PHASE 8.6C: coverage query for "${metric}" threw - omitting coverage: ${error instanceof Error ? error.message : String(error)} ==========`,
+    );
+  }
+}
+
+if (executionPlan.operation === "rank" || executionPlan.operation === "aggregate") {
+  await collectCoverageFact(executionPlan.metric, template.template.coverageTemplateId);
 }
 
 // Phase 7: multi-metric secondary execution.
@@ -323,12 +679,57 @@ if (
       // A requested metric must never silently disappear from a
       // "successful" response - fail the whole request, naming exactly
       // which metric could not be resolved.
+      //
+      // Phase 8.7: this bespoke failure return, unlike the capability-
+      // unavailable gate above for the primary metric, never attached
+      // an AnswerabilityResult - attached generically here for the same
+      // reason as the primary-execution fallback above.
+      //
+      // Phase 8.9 (multi-metric sub-slice): the whole-request failure
+      // itself is completely unchanged - still atomic, still the same
+      // error text and status. The only addition is discovering
+      // alternatives for THIS secondary metric (never the primary, never
+      // any other secondary metric) via the exact same, unmodified
+      // discoverAlternatives() the primary capability-unavailable gate
+      // already uses - reused as-is, not reimplemented. The supported
+      // primary result already computed above is never returned; it is
+      // discarded along with the rest of this failure, exactly as before.
+      //
+      // Phase 8.10 Layer 1: when alternatives exist for the unavailable
+      // secondary metric, build a truthful guidance message. The whole
+      // request still fails atomically; guidance only makes the failure
+      // message more helpful by presenting alternatives.
+      const alternatives = discoverAlternatives(secondaryMetric.metric, executionPlan, runtime);
+      const guidanceMessage = buildGuidanceMessage(
+        {
+          status: "not_directly_answerable",
+          reason: "capability-unavailable",
+          ...(alternatives.length > 0 ? { alternatives } : {}),
+        },
+        runtime.domain.metrics,
+      );
+
       return {
         success: false,
         rows: [],
         rowCount: 0,
-        error: `SQL template not found for requested metric "${secondaryMetric.metric}".`,
+        error: guidanceMessage ?? `SQL template not found for requested metric "${secondaryMetric.metric}".`,
+        answerability: {
+          status: "not_directly_answerable",
+          reason: "capability-unavailable",
+          ...(alternatives.length > 0 ? { alternatives } : {}),
+        },
       };
+    }
+
+    // Phase 8.6C: this secondary metric's own coverage, if its template
+    // declares one, is computed against the SAME request-scope
+    // `parameters` used for the primary metric above - never the
+    // primary result's own `identityValues` (that subset is exactly
+    // what Section 15/16 of the Phase 8.6C design forbids using as a
+    // coverage denominator).
+    if (executionPlan.operation === "rank" || executionPlan.operation === "aggregate") {
+      await collectCoverageFact(secondaryMetric.metric, secondaryTemplate.template.coverageTemplateId);
     }
 
     const secondaryParameters = strategy.resolveSecondaryMetricParameters(
@@ -345,11 +746,15 @@ if (
     if (!secondaryResult.success) {
       // Same principle: a metric that was requested but failed to
       // execute must fail the whole request, not vanish quietly.
+      //
+      // Phase 8.7: same generic fallback as above - this path never
+      // attached an AnswerabilityResult before.
       return {
         success: false,
         rows: [],
         rowCount: 0,
         error: `Failed to execute requested metric "${secondaryMetric.metric}": ${secondaryResult.error ?? "unknown error"}`,
+        answerability: { status: "not_directly_answerable" },
       };
     }
 
@@ -379,7 +784,12 @@ if (
   }
 }
 
-return { ...primaryResult, completeness, answerability: { status: "answerable" } };
+return {
+  ...primaryResult,
+  completeness,
+  answerability: { status: "answerable" },
+  ...(coverageFacts.length > 0 ? { coverage: coverageFacts } : {}),
+};
     },
   };
 }

@@ -16,6 +16,7 @@ import type { RuntimeEngine } from "@intelligence/runtime-engine";
 import * as RuntimeEngineModule from "@intelligence/runtime-engine";
 
 let runtimeEngine: RuntimeEngine | undefined;
+let domainRuntime: ReturnType<typeof createDomainRuntime> | undefined;
 
 export function getRuntimeEngine(): RuntimeEngine {
   if (runtimeEngine) {
@@ -23,6 +24,7 @@ export function getRuntimeEngine(): RuntimeEngine {
   }
 
   const runtime = createDomainRuntime(healthcareDomain);
+  domainRuntime = runtime;
 
   const semantic = createSemanticResolver(
     runtime.registry,
@@ -49,4 +51,17 @@ export function getRuntimeEngine(): RuntimeEngine {
   });
 
   return runtimeEngine;
+}
+
+
+/**
+ * Get domain metrics for display name lookup.
+ * Phase 8.10 Layer 2: Used by guidance Turn 1 to map capability IDs to display names.
+ */
+export function getDomainMetrics(): readonly any[] {
+  // Ensure runtime is initialized
+  if (!domainRuntime) {
+    getRuntimeEngine();
+  }
+  return domainRuntime?.domain?.metrics || [];
 }

@@ -53,4 +53,10 @@ LIMIT 10;
   deterministic: true,
 
   enabled: true,
+
+  // Phase 8.6C: `facility_mort_measure_count > 0` (this template's own
+  // eligibility condition, alongside the same `:state` scope) is
+  // independently re-measured, without LIMIT/ORDER BY, by the
+  // companion coverage template.
+  coverageTemplateId: "mortality-rate-ranking-coverage",
 };

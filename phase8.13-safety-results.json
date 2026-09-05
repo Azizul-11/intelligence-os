@@ -1,0 +1,109 @@
+{
+  "timestamp": "2026-09-05T21:26:54.290Z",
+  "summary": {
+    "total": 11,
+    "passed": 11,
+    "failed": 0
+  },
+  "proofs": [
+    {
+      "proof": "A",
+      "query": "highest rated hospitals",
+      "validation": "ANSWERABLE",
+      "sqlCalls": 2,
+      "result": "PASS",
+      "evidence": "Answerability: answerable, SQL calls: 2, Success: true",
+      "executionTimeMs": 9
+    },
+    {
+      "proof": "B",
+      "query": "overall rating of Northwest Medical Center",
+      "validation": "AMBIGUOUS (identity-ambiguous)",
+      "sqlCalls": 0,
+      "result": "PASS",
+      "evidence": "Answerability: ambiguous/identity-ambiguous, SQL calls: 0, Candidates: 2",
+      "executionTimeMs": 6
+    },
+    {
+      "proof": "C",
+      "query": "hospitals ranked by length of stay",
+      "validation": "NOT_DIRECTLY_ANSWERABLE (capability-unavailable)",
+      "sqlCalls": 0,
+      "result": "PASS",
+      "evidence": "Answerability: not_directly_answerable/capability-unavailable, SQL calls: 0, Alternatives: 5",
+      "executionTimeMs": 6
+    },
+    {
+      "proof": "D",
+      "query": "mortality rate for Mountain View Hospital in Alabama",
+      "validation": "DATA_UNAVAILABLE (post-execution reclassification)",
+      "sqlCalls": -1,
+      "result": "PASS",
+      "evidence": "Answerability: not_directly_answerable/data-unavailable, RowCount: 0 (singleEntityRecord=true, lookup operation, 1 entity → data-unavailable)",
+      "executionTimeMs": 569
+    },
+    {
+      "proof": "E",
+      "query": "hospitals ranked by overall rating and length of stay",
+      "validation": "ATOMIC FAILURE (secondary capability-unavailable)",
+      "sqlCalls": 2,
+      "result": "PASS",
+      "evidence": "Answerability: not_directly_answerable/capability-unavailable, SQL calls: 2, Final result correctly rejected (rowCount=0)",
+      "executionTimeMs": 9
+    },
+    {
+      "proof": "F",
+      "query": "overall rating of Northwest Medical Center (Turn1 - clarification request)",
+      "validation": "AMBIGUOUS → Clarification",
+      "sqlCalls": 0,
+      "result": "PASS",
+      "evidence": "Turn1: Answerability: ambiguous, SQL calls: 0, Candidates offered: 2",
+      "executionTimeMs": 3
+    },
+    {
+      "proof": "G",
+      "query": "Northwest Medical Center (Turn1 ambiguous → Turn2 Tucson)",
+      "validation": "CLARIFICATION SAFETY (0 SQL → re-validation → SQL)",
+      "sqlCalls": 1,
+      "result": "PASS",
+      "evidence": "Turn1 SQL: 0, Turn2 SQL: 1, Turn2 Answerability: answerable",
+      "executionTimeMs": 11
+    },
+    {
+      "proof": "H",
+      "query": "hospitals ranked by length of stay (Turn1 - guidance with alternatives)",
+      "validation": "GUIDANCE (capability-unavailable with alternatives)",
+      "sqlCalls": 0,
+      "result": "PASS",
+      "evidence": "Answerability: not_directly_answerable/capability-unavailable, SQL calls: 0, Alternatives: 5",
+      "executionTimeMs": 5
+    },
+    {
+      "proof": "I",
+      "query": "length of stay (Turn1 guidance → Turn2 overall rating)",
+      "validation": "GUIDANCE SAFETY (0 SQL → alternative → SQL)",
+      "sqlCalls": 2,
+      "result": "PASS",
+      "evidence": "Turn1 SQL: 0 (alternatives: 5), Turn2 SQL: 2, Turn2 Answerability: answerable",
+      "executionTimeMs": 8
+    },
+    {
+      "proof": "J",
+      "query": "Northwest Medical Center in California (invalid qualifier)",
+      "validation": "INVALID CLARIFICATION (remains blocked)",
+      "sqlCalls": 0,
+      "result": "PASS",
+      "evidence": "Answerability: ambiguous, SQL calls: 0, Success: false",
+      "executionTimeMs": 6
+    },
+    {
+      "proof": "K",
+      "query": "best hospitals in Texas and California",
+      "validation": "MULTI-STATE CRASH PREVENTION (Phase 8.8)",
+      "sqlCalls": 0,
+      "result": "PASS",
+      "evidence": "Answerability: not_directly_answerable, SQL calls: 0, Phase 8.8 gate prevented multi-value state filter",
+      "executionTimeMs": 5
+    }
+  ]
+}

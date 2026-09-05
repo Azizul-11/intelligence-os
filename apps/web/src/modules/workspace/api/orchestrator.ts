@@ -13,6 +13,9 @@ export interface ChatRequest {
   domain: string;
   sessionId?: string;
   userId?: string;
+  // Phase 8.10 Layer 2: Continuation support
+  pendingInteractionId?: string;
+  continuationResponse?: string;
 }
 
 export interface ChatResponse {
@@ -23,6 +26,9 @@ export interface ChatResponse {
     rowCount?: number;
   };
   error?: string;
+  // Phase 8.10 Layer 2: Continuation support
+  pendingInteractionId?: string;
+  interactionKind?: "clarification" | "guidance";
 }
 
 const ORCHESTRATOR_URL = import.meta.env.VITE_ORCHESTRATOR_URL as
@@ -38,6 +44,8 @@ export class OrchestratorConfigError extends Error {}
 export async function askOrchestrator(
   question: string,
   domain: string,
+  pendingInteractionId?: string,
+  continuationResponse?: string,
 ): Promise<ChatResponse> {
   if (!ORCHESTRATOR_URL) {
     throw new OrchestratorConfigError(
@@ -57,7 +65,12 @@ export async function askOrchestrator(
     headers.Authorization = `Bearer ${SUPABASE_ANON_KEY}`;
   }
 
-  const request: ChatRequest = { question, domain };
+  const request: ChatRequest = { 
+    question, 
+    domain,
+    pendingInteractionId,
+    continuationResponse,
+  };
 
   const response = await fetch(ORCHESTRATOR_URL, {
     method: "POST",

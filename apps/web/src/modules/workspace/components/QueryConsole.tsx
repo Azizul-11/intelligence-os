@@ -27,50 +27,86 @@ const EXAMPLE_PROMPTS = [
 ];
 
 interface HistoryEntry {
-  id: number;
+  id: string;
   question: string;
   result: ChatResponse | { success: false; error: string; answer: "" };
+  // Phase 8.10 Layer 2: Track continuation state
+  pendingInteractionId?: string;
+  interactionKind?: "clarification" | "guidance";
 }
-
-let nextId = 0;
 
 export function QueryConsole() {
   const [question, setQuestion] = useState("");
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  // Phase 8.10 Layer 2: Track pending interaction for next turn
+  const [activePendingInteraction, setActivePendingInteraction] = useState<{
+    id: string;
+    kind: "clarification" | "guidance";
+  } | null>(null);
 
   const mutation = useMutation({
-    mutationFn: (q: string) => askOrchestrator(q, "healthcare"),
+    mutationFn: ({ q, pendingId, contResp }: { q: string; pendingId?: string; contResp?: string }) => 
+      askOrchestrator(q, "healthcare", pendingId, contResp),
   });
 
   function submit(q: string) {
     const trimmed = q.trim();
     if (!trimmed || mutation.isPending) return;
 
-    mutation.mutate(trimmed, {
-      onSuccess: (result) => {
-        setHistory((prev) => [
-          { id: nextId++, question: trimmed, result },
-          ...prev,
-        ]);
+    // Phase 8.10 Layer 2: Capture current pending state before mutation
+    const currentPendingId = activePendingInteraction?.id;
+    const isContinuation = activePendingInteraction !== null;
+
+    mutation.mutate(
+      { 
+        q: trimmed, 
+        pendingId: currentPendingId,
+        contResp: isContinuation ? trimmed : undefined,
       },
-      onError: (error) => {
-        setHistory((prev) => [
-          {
-            id: nextId++,
-            question: trimmed,
-            result: {
-              success: false,
-              answer: "",
-              error:
-                error instanceof Error
-                  ? error.message
-                  : "Request failed.",
+      {
+        onSuccess: (result) => {
+          setHistory((prev) => [
+            { 
+              id: crypto.randomUUID(), 
+              question: trimmed, 
+              result,
+              pendingInteractionId: result.pendingInteractionId,
+              interactionKind: result.interactionKind,
             },
-          },
-          ...prev,
-        ]);
-      },
-    });
+            ...prev,
+          ]);
+          
+          // Phase 8.10 Layer 2: Preserve pending interaction for Turn 2
+          if (result.pendingInteractionId && result.interactionKind) {
+            setActivePendingInteraction({
+              id: result.pendingInteractionId,
+              kind: result.interactionKind,
+            });
+          } else {
+            // Clear after Turn 2 or normal query
+            setActivePendingInteraction(null);
+          }
+        },
+        onError: (error) => {
+          setHistory((prev) => [
+            {
+              id: crypto.randomUUID(),
+              question: trimmed,
+              result: {
+                success: false,
+                answer: "",
+                error:
+                  error instanceof Error
+                    ? error.message
+                    : "Request failed.",
+              },
+            },
+            ...prev,
+          ]);
+          // Clear pending interaction on error
+          setActivePendingInteraction(null);
+        },
+      });
 
     setQuestion("");
   }
@@ -96,10 +132,30 @@ export function QueryConsole() {
         }}
         className="flex flex-col gap-3"
       >
+        {/* Phase 8.10 Layer 2: Show continuation context */}
+        {activePendingInteraction && (
+          <div className="rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950 p-3 text-sm">
+            <p className="font-semibold text-blue-900 dark:text-blue-100 flex items-center gap-2">
+              <span className="text-base">↪</span>
+              <span>
+                {activePendingInteraction.kind === "clarification"
+                  ? "Please clarify your previous question"
+                  : "Please select an alternative capability"}
+              </span>
+            </p>
+          </div>
+        )}
+        
         <textarea
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
-          placeholder="Ask a question, e.g. &quot;highest rated hospitals&quot;"
+          placeholder={
+            activePendingInteraction
+              ? activePendingInteraction.kind === "clarification"
+                ? "Enter the location or identifier..."
+                : "Enter your capability choice..."
+              : "Ask a question, e.g. &quot;highest rated hospitals&quot;"
+          }
           rows={3}
           className="w-full resize-none rounded-lg border border-border bg-background p-3 text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
           onKeyDown={(e) => {
@@ -111,22 +167,26 @@ export function QueryConsole() {
         />
 
         <div className="flex items-center justify-between gap-3">
-          <div className="flex flex-wrap gap-2">
-            {EXAMPLE_PROMPTS.map((prompt) => (
-              <button
-                key={prompt}
-                type="button"
-                onClick={() => setQuestion(prompt)}
-                className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                {prompt}
-              </button>
-            ))}
-          </div>
+          {/* Phase 8.10 Layer 2: Hide examples during continuation */}
+          {!activePendingInteraction && (
+            <div className="flex flex-wrap gap-2">
+              {EXAMPLE_PROMPTS.map((prompt) => (
+                <button
+                  key={prompt}
+                  type="button"
+                  onClick={() => setQuestion(prompt)}
+                  className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  {prompt}
+                </button>
+              ))}
+            </div>
+          )}
 
           <Button
             type="submit"
             disabled={mutation.isPending || !question.trim()}
+            className={activePendingInteraction ? "ml-auto" : ""}
           >
             {mutation.isPending ? "Sending…" : "Send"}
           </Button>
@@ -151,6 +211,10 @@ export function QueryConsole() {
 function ResultCard({ entry }: { entry: HistoryEntry }) {
   const { question, result } = entry;
   const success = result.success;
+  
+  // Phase 8.10 Layer 2: Treat continuation prompts differently from errors
+  const isContinuation = !success && "pendingInteractionId" in result && !!result.pendingInteractionId;
+  const isError = !success && !isContinuation;
 
   let rows: unknown = null;
   let parseError: string | null = null;
@@ -167,7 +231,7 @@ function ResultCard({ entry }: { entry: HistoryEntry }) {
     <div
       className={cn(
         "rounded-lg border p-4",
-        success ? "border-border" : "border-destructive/40 bg-destructive/5",
+        isError ? "border-destructive/40 bg-destructive/5" : "border-border",
       )}
     >
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -176,11 +240,13 @@ function ResultCard({ entry }: { entry: HistoryEntry }) {
           className={cn(
             "shrink-0 rounded-full px-2 py-0.5 text-xs font-medium",
             success
-              ? "bg-primary/10 text-primary"
-              : "bg-destructive/10 text-destructive",
+              ? "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300"
+              : isContinuation
+              ? "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+              : "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300",
           )}
         >
-          {success ? "success" : "failure"}
+          {success ? "success" : isContinuation ? "needs clarification" : "failure"}
         </span>
       </div>
 
@@ -191,8 +257,28 @@ function ResultCard({ entry }: { entry: HistoryEntry }) {
             ` · ${result.metadata.executionTimeMs}ms`}
         </p>
       )}
+      
+      {/* Phase 8.10 Layer 2: Show continuation prompt */}
+      {isContinuation && result.answer && (
+        <div className="mb-2 rounded-md border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950 p-3 text-sm">
+          <p className="font-semibold text-amber-900 dark:text-amber-100 mb-2 flex items-center gap-2">
+            {entry.interactionKind === "clarification" ? (
+              <>
+                <span className="text-base">📍</span>
+                <span>Clarification needed</span>
+              </>
+            ) : (
+              <>
+                <span className="text-base">💡</span>
+                <span>Alternative available</span>
+              </>
+            )}
+          </p>
+          <p className="text-amber-900 dark:text-amber-100">{result.answer}</p>
+        </div>
+      )}
 
-      {!success && (
+      {isError && (
         <p className="text-sm text-destructive">
           {"error" in result && result.error
             ? result.error

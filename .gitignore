@@ -106,3 +106,6 @@ data/raw/healthcare/cms/*.csv
 *Zone.Identifier
 
 docs
+.agents
+.kiro
+.claude
