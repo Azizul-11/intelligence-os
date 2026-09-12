@@ -64,6 +64,9 @@ var SemanticCollector = class {
       categories: matches.filter(
         (match) => match.semanticType === "category"
       ),
+      concepts: matches.filter(
+        (match) => match.semanticType === "concept"
+      ),
       benchmarks: matches.filter(
         (match) => match.semanticType === "benchmark"
       ),
@@ -118,7 +121,7 @@ var QueryPlanner = class _QueryPlanner {
   intentDetector = new QueryIntentDetector();
   collector = new SemanticCollector();
   entityParameterResolver = new EntityParameterResolver();
-  createPlan(semantic, domainMetrics = []) {
+  createPlan(semantic, domainMetrics = [], forcedIntent) {
     if (semantic.ambiguityError) {
       return {
         success: false,
@@ -136,21 +139,31 @@ var QueryPlanner = class _QueryPlanner {
       semantic.matches
     );
     let discoveredComparableMetrics = false;
+    let discoveredDefaultRanking = false;
     if (collections.metrics.length === 0) {
-      const discovered = this.discoverComparableMetrics(
+      const discoveredComparable = this.discoverComparableMetrics(
         collections.entities,
         domainMetrics
       );
-      if (discovered.length === 0) {
-        return {
-          success: false,
-          plan: null
-        };
+      if (discoveredComparable.length > 0) {
+        collections.metrics = discoveredComparable;
+        discoveredComparableMetrics = true;
+      } else {
+        const discoveredDefault = this.discoverDefaultRankableMetric(
+          collections.entities,
+          domainMetrics
+        );
+        if (discoveredDefault.length === 0) {
+          return {
+            success: false,
+            plan: null
+          };
+        }
+        collections.metrics = discoveredDefault;
+        discoveredDefaultRanking = true;
       }
-      collections.metrics = discovered;
-      discoveredComparableMetrics = true;
     }
-    let intent = discoveredComparableMetrics ? "comparison" : this.intentDetector.detect(
+    let intent = forcedIntent ? forcedIntent : discoveredComparableMetrics ? "comparison" : discoveredDefaultRanking ? "ranking" : this.intentDetector.detect(
       semantic.originalQuery
     );
     if (intent === "aggregation" && collections.relationships.length > 0) {
@@ -217,22 +230,21 @@ var QueryPlanner = class _QueryPlanner {
    * and never touches a query where every candidate already agrees (all
    * capable, or all incapable, for the relevant intent) - a standalone
    * query for an incapable metric is completely unaffected. An intent
-   * with no capability mapping and no other rule below (comparison,
-   * trend) is completely unaffected, exactly as before this
-   * generalization.
+   * with no capability mapping (including "lookup") is completely
+   * unaffected.
    *
-   * "lookup" intent (the remaining lookup-intent phantom-metric
-   * collision, e.g. "show hospitals with the strongest patient
-   * experience") has no single required capability the way ranking
-   * needs `rankable` or aggregation needs `aggregatable` - a lookup
-   * request can legitimately target any kind of metric. The
-   * disambiguating signal here is instead whether a candidate has ANY
-   * analytical capability at all (see isAnalyticallyCapable below),
-   * which distinguishes a genuine analytical metric (e.g.
-   * patient-experience) from a pure listing/utility placeholder (e.g.
-   * Healthcare's own `hospital-list`, which declares all three
-   * capability flags false) - reusing the exact same three existing,
-   * already-declared flags, not a new one.
+   * "lookup" intent used to also filter by "any analytical capability at
+   * all", to resolve a generic-listing-metric ("hospital-list"-style)
+   * phantom collision. Removed: it did not actually make its own
+   * motivating example work (a lookup request naming no specific entity
+   * has no viable single-record template for a non-listing metric
+   * either, filtered or not), and it broke a genuinely-intended case -
+   * "hospitals in Birmingham with their overall ratings" - by stripping
+   * the listing metric whenever another analytically-capable metric
+   * candidate was also present, even though the listing metric was the
+   * actual primary subject (extractPrimaryMetric() takes metrics[0], in
+   * original phrase order) and the other metric was only ever meant as
+   * a secondary, per-row enrichment (Phase 7's existing mechanism).
    */
   filterMetricsForIntent(metrics, intent) {
     const capabilityFlag = _QueryPlanner.INTENT_CAPABILITY_FLAG[intent];
@@ -241,10 +253,6 @@ var QueryPlanner = class _QueryPlanner {
       capable = metrics.filter(
         (metric) => metric.definition[capabilityFlag] === true
       );
-    } else if (intent === "lookup") {
-      capable = metrics.filter(
-        (metric) => this.isAnalyticallyCapable(metric.definition)
-      );
     } else {
       return metrics;
     }
@@ -252,19 +260,6 @@ var QueryPlanner = class _QueryPlanner {
       return metrics;
     }
     return capable;
-  }
-  /**
-   * True when a metric declares at least one of the existing, generic
-   * capability flags - i.e. it represents a genuine analytical value
-   * (rankable, benchmarkable, and/or aggregatable), as opposed to a
-   * pure listing/utility placeholder that declares none of them. Reads
-   * only flags every Domain SDK's metrics can already declare; adds no
-   * new MetricDefinition field and no domain-specific knowledge.
-   */
-  isAnalyticallyCapable(definition) {
-    return Boolean(
-      definition.rankable || definition.benchmarkable || definition.aggregatable
-    );
   }
   /**
    * Suppresses metric candidates whose phrase was introduced by a domain's
@@ -330,6 +325,52 @@ var QueryPlanner = class _QueryPlanner {
       end: 0,
       isFallback: true
     }));
+  }
+  /**
+   * Tier0 Task 5 (F12 Sub-Task A): discovers the active Domain SDK's
+   * declared default ranking metric (see MetricDefinition.defaultRankable)
+   * for a request that names at least one scope-filter entity (e.g.
+   * state, ownership) but no metric at all. Domain-agnostic: only ever
+   * consumes the generic `defaultRankable` flag and
+   * `EntityDefinition.identifiesUniqueRecord`, never a domain-specific
+   * entity id or metric id.
+   *
+   * Deliberately excludes a request naming an entity that identifies a
+   * single, specific record (e.g. a named hospital) - defaulting THAT
+   * to a nationwide ranking would silently reinterpret "tell me about
+   * Mayo Clinic" as "rank hospitals nationwide", dropping the named
+   * identity entirely - exactly the entity-drop shape Tier0 Task 2 (F8)
+   * already closed elsewhere. Only fires when every resolved entity is
+   * a scope-only filter.
+   */
+  discoverDefaultRankableMetric(entities, domainMetrics) {
+    if (entities.length === 0) {
+      return [];
+    }
+    const hasUniqueRecordEntity = entities.some(
+      (entity) => entity.definition.identifiesUniqueRecord === true
+    );
+    if (hasUniqueRecordEntity) {
+      return [];
+    }
+    const defaultMetric = domainMetrics.find(
+      (metric) => metric.defaultRankable === true
+    );
+    if (!defaultMetric) {
+      return [];
+    }
+    return [
+      {
+        phrase: defaultMetric.id,
+        canonicalKey: defaultMetric.id,
+        semanticType: "metric",
+        definition: defaultMetric,
+        confidence: 1,
+        start: 0,
+        end: 0,
+        isFallback: true
+      }
+    ];
   }
   /**
    * True when at least 2 resolved entities share the same execution
@@ -497,6 +538,23 @@ var ExecutionPlanMapper = class {
           operator: "in",
           value: values
         });
+      }
+    }
+    for (const concept of queryPlan.semantic.concepts) {
+      const definition = concept.definition;
+      const measureCodesByMetric = definition.measureCodesByMetric;
+      if (!measureCodesByMetric) {
+        continue;
+      }
+      for (const metric of queryPlan.semantic.metrics) {
+        const measureCode = measureCodesByMetric[metric.canonicalKey];
+        if (measureCode) {
+          filters.push({
+            field: "measureCode",
+            operator: "=",
+            value: measureCode
+          });
+        }
       }
     }
     return filters;
@@ -694,12 +752,19 @@ function assessPlanCompleteness(candidates, plan, plannedSemantic) {
       continue;
     }
     if (candidate.semanticType === "concept") {
-      discrepancies.push({
-        semanticType: candidate.semanticType,
-        phrase: candidate.phrase,
-        canonicalKey: candidate.canonicalKey,
-        reason: "Concept candidates are not collected by SemanticCollector and never reach the planner."
-      });
+      const definition = candidate.definition;
+      const measureCodesByMetric = definition.measureCodesByMetric;
+      const consumedAsMeasureCodeFilter = measureCodesByMetric !== void 0 && plan.filters.some(
+        (filter) => filter.field === "measureCode" && Object.values(measureCodesByMetric).includes(filter.value)
+      );
+      if (!consumedAsMeasureCodeFilter) {
+        discrepancies.push({
+          semanticType: candidate.semanticType,
+          phrase: candidate.phrase,
+          canonicalKey: candidate.canonicalKey,
+          reason: "Concept candidates are not collected by SemanticCollector and never reach the planner."
+        });
+      }
       continue;
     }
     if (candidate.semanticType === "benchmark") {
@@ -735,11 +800,55 @@ function hasRelationshipWithoutBenchmark(candidates) {
   );
   return hasRelationship && !hasBenchmark;
 }
+function detectSubsumedBenchmarkRisk(candidates, normalizedQuery, aliasDefinitions) {
+  const hasRelationship = candidates.some(
+    (candidate) => candidate.semanticType === "relationship"
+  );
+  if (!hasRelationship) {
+    return null;
+  }
+  const benchmarkCandidates = candidates.filter(
+    (candidate) => candidate.semanticType === "benchmark"
+  );
+  const queryWords = new Set(normalizedQuery.split(" ").filter(Boolean));
+  for (const candidate of benchmarkCandidates) {
+    const fallbackAlias = aliasDefinitions.find(
+      (alias) => alias.canonical === candidate.canonicalKey && alias.genericFallbackOf
+    );
+    if (!fallbackAlias?.genericFallbackOf) {
+      continue;
+    }
+    const parentAlreadyResolved = benchmarkCandidates.some(
+      (other) => other.canonicalKey === fallbackAlias.genericFallbackOf
+    );
+    if (parentAlreadyResolved) {
+      continue;
+    }
+    const parentAlias = aliasDefinitions.find(
+      (alias) => alias.canonical === fallbackAlias.genericFallbackOf
+    );
+    if (!parentAlias) {
+      continue;
+    }
+    const interruptedPhrase = parentAlias.aliases.find((phrase) => {
+      const words = phrase.toLowerCase().split(" ").filter(Boolean);
+      return words.length > 1 && words.every((word) => queryWords.has(word));
+    });
+    if (interruptedPhrase) {
+      return {
+        parentPhrase: interruptedPhrase,
+        fallbackPhrase: fallbackAlias.aliases[0] ?? candidate.phrase
+      };
+    }
+  }
+  return null;
+}
 export {
   ExecutionPlanMapper,
   QueryIntentDetector,
   QueryPlanner,
   SemanticCollector,
   assessPlanCompleteness,
+  detectSubsumedBenchmarkRisk,
   hasRelationshipWithoutBenchmark
 };

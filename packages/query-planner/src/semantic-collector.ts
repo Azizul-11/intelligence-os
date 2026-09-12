@@ -23,6 +23,10 @@ export class SemanticCollector {
         (match) => match.semanticType === "category",
       ),
 
+      concepts: matches.filter(
+        (match) => match.semanticType === "concept",
+      ),
+
       benchmarks: matches.filter(
         (match) => match.semanticType === "benchmark",
       ),

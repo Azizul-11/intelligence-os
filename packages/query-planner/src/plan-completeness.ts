@@ -1,5 +1,5 @@
 import type { SemanticCandidate } from "@intelligence/semantic";
-import type { EntityDefinition } from "@intelligence/domain-sdk";
+import type { EntityDefinition, ConceptDefinition } from "@intelligence/domain-sdk";
 import type { ExecutionPlan } from "@intelligence/contracts";
 import type { SemanticCollections } from "./semantic-collections";
 
@@ -181,16 +181,35 @@ export function assessPlanCompleteness(
     }
 
     if (candidate.semanticType === "concept") {
-      // Not bucketed by SemanticCollector.collect() at all - a concept
-      // candidate never reaches QueryPlan.semantic, let alone
-      // ExecutionPlan (F12).
-      discrepancies.push({
-        semanticType: candidate.semanticType,
-        phrase: candidate.phrase,
-        canonicalKey: candidate.canonicalKey,
-        reason:
-          "Concept candidates are not collected by SemanticCollector and never reach the planner.",
-      });
+      // Tier0 Task 5 (F12 Sub-Task B): a concept candidate whose own
+      // ConceptDefinition declares a `measureCodesByMetric` map, when
+      // that map's value for some resolved metric actually made it
+      // into `plan.filters` as a `measureCode` filter
+      // (ExecutionPlanMapper.buildFilters() above), is genuinely
+      // accounted for - not a discrepancy. A concept with no such map,
+      // or whose map's value never reached a filter (e.g. no matching
+      // metric resolved alongside it), remains unaccounted for exactly
+      // as before (F12's original finding).
+      const definition = candidate.definition as ConceptDefinition;
+      const measureCodesByMetric = definition.measureCodesByMetric;
+
+      const consumedAsMeasureCodeFilter =
+        measureCodesByMetric !== undefined &&
+        plan.filters.some(
+          (filter) =>
+            filter.field === "measureCode" &&
+            Object.values(measureCodesByMetric).includes(filter.value as string),
+        );
+
+      if (!consumedAsMeasureCodeFilter) {
+        discrepancies.push({
+          semanticType: candidate.semanticType,
+          phrase: candidate.phrase,
+          canonicalKey: candidate.canonicalKey,
+          reason:
+            "Concept candidates are not collected by SemanticCollector and never reach the planner.",
+        });
+      }
 
       continue;
     }

@@ -11,7 +11,7 @@ import type {
 
 import type { QueryPlan } from "./query-plan";
 import type { QueryIntent } from "./query-intent";
-import type { EntityDefinition } from "@intelligence/domain-sdk";
+import type { EntityDefinition, ConceptDefinition } from "@intelligence/domain-sdk";
 import { groupEntityValues } from "./group-entity-values";
 
 /**
@@ -196,6 +196,38 @@ export class ExecutionPlanMapper {
           operator: "in",
           value: values as string[] | number[],
         });
+      }
+    }
+
+    // Tier0 Task 5 (F12 Sub-Task B): a resolved `concept` candidate
+    // (e.g. "AMI") whose own ConceptDefinition declares a
+    // `measureCodesByMetric` map, matched against the plan's own
+    // resolved metric(s), becomes an opaque `measureCode` filter -
+    // Universal Core never inspects what any concept or metric means,
+    // only that the Domain's own declared map connects the two. A
+    // concept with no such map (or no matching metric resolved
+    // alongside it) contributes no filter here at all - it remains
+    // "unaccounted for" and is caught by the existing Phase 8.8
+    // completeness gate (assessPlanCompleteness()) instead of silently
+    // executing an unscoped request.
+    for (const concept of queryPlan.semantic.concepts) {
+      const definition = concept.definition as ConceptDefinition;
+      const measureCodesByMetric = definition.measureCodesByMetric;
+
+      if (!measureCodesByMetric) {
+        continue;
+      }
+
+      for (const metric of queryPlan.semantic.metrics) {
+        const measureCode = measureCodesByMetric[metric.canonicalKey];
+
+        if (measureCode) {
+          filters.push({
+            field: "measureCode",
+            operator: "=",
+            value: measureCode,
+          });
+        }
       }
     }
 

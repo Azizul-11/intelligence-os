@@ -9,6 +9,8 @@ export interface SemanticCollections {
 
   categories: SemanticCandidate[];
 
+  concepts: SemanticCandidate[];
+
   benchmarks: SemanticCandidate[];
 
   relationships: SemanticCandidate[];

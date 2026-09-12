@@ -22,6 +22,7 @@ export class QueryPlanner {
   createPlan(
     semantic: SemanticResolutionResult,
     domainMetrics: readonly MetricDefinition[] = [],
+    forcedIntent?: QueryIntent,
   ): QueryPlanResult {
     // RCG-010: a detected direction contradiction is reported as a
     // specific, natural-language failure rather than silently
@@ -60,22 +61,43 @@ export class QueryPlanner {
     // entities - falls through to the original, unchanged failure
     // below, exactly as before this cycle.
     let discoveredComparableMetrics = false;
+    let discoveredDefaultRanking = false;
 
     if (collections.metrics.length === 0) {
-      const discovered = this.discoverComparableMetrics(
+      const discoveredComparable = this.discoverComparableMetrics(
         collections.entities,
         domainMetrics,
       );
 
-      if (discovered.length === 0) {
-        return {
-          success: false,
-          plan: null,
-        };
-      }
+      if (discoveredComparable.length > 0) {
+        collections.metrics = discoveredComparable;
+        discoveredComparableMetrics = true;
+      } else {
+        // Tier0 Task 5 (F12 Sub-Task A): a request naming a scope filter
+        // (e.g. "non-profit hospitals") but no metric at all is not
+        // rejected outright the way a truly empty request is - it is
+        // offered the active Domain SDK's own declared default ranking
+        // metric (see MetricDefinition.defaultRankable), the same
+        // generic, Domain-flag-driven discovery pattern
+        // discoverComparableMetrics() above already established for the
+        // comparison case. A domain that declares no default ranking
+        // metric, or a request with no scope entity at all, falls
+        // through to the original, unchanged failure below.
+        const discoveredDefault = this.discoverDefaultRankableMetric(
+          collections.entities,
+          domainMetrics,
+        );
 
-      collections.metrics = discovered;
-      discoveredComparableMetrics = true;
+        if (discoveredDefault.length === 0) {
+          return {
+            success: false,
+            plan: null,
+          };
+        }
+
+        collections.metrics = discoveredDefault;
+        discoveredDefaultRanking = true;
+      }
     }
 
     // Discovery above already establishes this is a comparison request
@@ -84,11 +106,25 @@ export class QueryPlanner {
     // "which is better" matches RANKING_KEYWORDS, "what are the
     // differences between" matches no keyword at all), so the intent is
     // set directly rather than inferred from the original text.
-    let intent: QueryIntent = discoveredComparableMetrics
-      ? "comparison"
-      : this.intentDetector.detect(
-          semantic.originalQuery,
-        );
+    //
+    // Tier0 Task 6 (F8 own-choice extension): a caller that already knows
+    // exactly what shape of answer this request must produce (e.g. a
+    // Layer 2 continuation re-executing an already-disambiguated "own
+    // rating" choice, where the original text's ranking word - "best" -
+    // is no longer meaningful once a single entity is already pinned
+    // down) may pass `forcedIntent` to skip keyword detection entirely.
+    // Domain-agnostic: never inspects which metric/entity/domain is
+    // involved, only overrides which of the fixed, Universal `QueryIntent`
+    // values downstream planning uses.
+    let intent: QueryIntent = forcedIntent
+      ? forcedIntent
+      : discoveredComparableMetrics
+        ? "comparison"
+        : discoveredDefaultRanking
+          ? "ranking"
+          : this.intentDetector.detect(
+              semantic.originalQuery,
+            );
 
     // RCG-009b: QueryIntentDetector's own rule ("average"/"count"/
     // "total" -> aggregation) is correct in isolation, but the same
@@ -193,22 +229,21 @@ export class QueryPlanner {
    * and never touches a query where every candidate already agrees (all
    * capable, or all incapable, for the relevant intent) - a standalone
    * query for an incapable metric is completely unaffected. An intent
-   * with no capability mapping and no other rule below (comparison,
-   * trend) is completely unaffected, exactly as before this
-   * generalization.
+   * with no capability mapping (including "lookup") is completely
+   * unaffected.
    *
-   * "lookup" intent (the remaining lookup-intent phantom-metric
-   * collision, e.g. "show hospitals with the strongest patient
-   * experience") has no single required capability the way ranking
-   * needs `rankable` or aggregation needs `aggregatable` - a lookup
-   * request can legitimately target any kind of metric. The
-   * disambiguating signal here is instead whether a candidate has ANY
-   * analytical capability at all (see isAnalyticallyCapable below),
-   * which distinguishes a genuine analytical metric (e.g.
-   * patient-experience) from a pure listing/utility placeholder (e.g.
-   * Healthcare's own `hospital-list`, which declares all three
-   * capability flags false) - reusing the exact same three existing,
-   * already-declared flags, not a new one.
+   * "lookup" intent used to also filter by "any analytical capability at
+   * all", to resolve a generic-listing-metric ("hospital-list"-style)
+   * phantom collision. Removed: it did not actually make its own
+   * motivating example work (a lookup request naming no specific entity
+   * has no viable single-record template for a non-listing metric
+   * either, filtered or not), and it broke a genuinely-intended case -
+   * "hospitals in Birmingham with their overall ratings" - by stripping
+   * the listing metric whenever another analytically-capable metric
+   * candidate was also present, even though the listing metric was the
+   * actual primary subject (extractPrimaryMetric() takes metrics[0], in
+   * original phrase order) and the other metric was only ever meant as
+   * a secondary, per-row enrichment (Phase 7's existing mechanism).
    */
   private filterMetricsForIntent(
     metrics: SemanticCandidate[],
@@ -222,11 +257,10 @@ export class QueryPlanner {
       capable = metrics.filter(
         (metric) => (metric.definition as MetricDefinition)[capabilityFlag] === true,
       );
-    } else if (intent === "lookup") {
-      capable = metrics.filter((metric) =>
-        this.isAnalyticallyCapable(metric.definition as MetricDefinition),
-      );
     } else {
+      // "lookup" (and any other intent with no capability mapping) is
+      // left unfiltered - see this method's own doc comment above for
+      // why the previous "lookup"-specific filtering branch was removed.
       return metrics;
     }
 
@@ -235,20 +269,6 @@ export class QueryPlanner {
     }
 
     return capable;
-  }
-
-  /**
-   * True when a metric declares at least one of the existing, generic
-   * capability flags - i.e. it represents a genuine analytical value
-   * (rankable, benchmarkable, and/or aggregatable), as opposed to a
-   * pure listing/utility placeholder that declares none of them. Reads
-   * only flags every Domain SDK's metrics can already declare; adds no
-   * new MetricDefinition field and no domain-specific knowledge.
-   */
-  private isAnalyticallyCapable(definition: MetricDefinition): boolean {
-    return Boolean(
-      definition.rankable || definition.benchmarkable || definition.aggregatable,
-    );
   }
 
   /**
@@ -326,6 +346,61 @@ export class QueryPlanner {
       end: 0,
       isFallback: true,
     }));
+  }
+
+  /**
+   * Tier0 Task 5 (F12 Sub-Task A): discovers the active Domain SDK's
+   * declared default ranking metric (see MetricDefinition.defaultRankable)
+   * for a request that names at least one scope-filter entity (e.g.
+   * state, ownership) but no metric at all. Domain-agnostic: only ever
+   * consumes the generic `defaultRankable` flag and
+   * `EntityDefinition.identifiesUniqueRecord`, never a domain-specific
+   * entity id or metric id.
+   *
+   * Deliberately excludes a request naming an entity that identifies a
+   * single, specific record (e.g. a named hospital) - defaulting THAT
+   * to a nationwide ranking would silently reinterpret "tell me about
+   * Mayo Clinic" as "rank hospitals nationwide", dropping the named
+   * identity entirely - exactly the entity-drop shape Tier0 Task 2 (F8)
+   * already closed elsewhere. Only fires when every resolved entity is
+   * a scope-only filter.
+   */
+  private discoverDefaultRankableMetric(
+    entities: SemanticCandidate[],
+    domainMetrics: readonly MetricDefinition[],
+  ): SemanticCandidate[] {
+    if (entities.length === 0) {
+      return [];
+    }
+
+    const hasUniqueRecordEntity = entities.some(
+      (entity) => (entity.definition as EntityDefinition).identifiesUniqueRecord === true,
+    );
+
+    if (hasUniqueRecordEntity) {
+      return [];
+    }
+
+    const defaultMetric = domainMetrics.find(
+      (metric) => metric.defaultRankable === true,
+    );
+
+    if (!defaultMetric) {
+      return [];
+    }
+
+    return [
+      {
+        phrase: defaultMetric.id,
+        canonicalKey: defaultMetric.id,
+        semanticType: "metric",
+        definition: defaultMetric,
+        confidence: 1,
+        start: 0,
+        end: 0,
+        isFallback: true,
+      },
+    ];
   }
 
   /**
