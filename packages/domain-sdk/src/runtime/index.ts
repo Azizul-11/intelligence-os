@@ -3,3 +3,4 @@ export * from "./entity-provider";
 export * from "./entity-resolution-result";
 export * from "./entity-resolution-status";
 export * from "./ambiguous-candidate";
+export * from "./suggestion-context";

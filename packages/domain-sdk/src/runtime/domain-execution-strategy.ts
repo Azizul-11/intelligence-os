@@ -1,10 +1,31 @@
 import type { ExecutionPlan, ExecutionPlanMetric } from "@intelligence/contracts";
+import type { EntityResolutionResult } from "./entity-resolution-result";
+import type { SuggestionContext } from "./suggestion-context";
 
 export interface DomainExecutionStrategy {
   selectTemplate(
     metricId: string,
     intent: string,
   ): string;
+
+  /**
+   * Pre-Phase 9 Tier0: report a plan-level ambiguity a Domain SDK can only
+   * detect once every filter in the ExecutionPlan is known - e.g. a
+   * geographic scope filter (county/city) whose value exists in more than
+   * one state, with no state filter present to disambiguate it. Returning
+   * a non-empty array here is Universal Core's cue to refuse the request
+   * with the same Phase 8.3 `ambiguous`/`identity-ambiguous` clarification
+   * gate already used for entity-identity ambiguity, reusing the exact
+   * same `EntityResolutionResult`/`AmbiguousCandidate` shape - never a
+   * synthetic/unregistered template id, and never a raw "not found" error.
+   *
+   * Optional and additive: a Domain SDK that has no such plan-level
+   * ambiguity to report (or hasn't implemented this yet) simply omits it;
+   * Universal Core skips the check entirely when undefined.
+   */
+  checkPlanAmbiguity?(
+    executionPlan: ExecutionPlan,
+  ): EntityResolutionResult[] | undefined;
 
   resolveParameters(
     entities: Record<string, unknown>,
@@ -63,4 +84,16 @@ export interface DomainExecutionStrategy {
     executionPlan: ExecutionPlan,
     identityValues: readonly unknown[],
   ): Record<string, unknown>;
+
+  /**
+   * Tier1 Task 6: optional, Domain-owned generator of candidate
+   * follow-up (success) or recovery (failure) question strings for the
+   * request that just completed - see SuggestionContext. Return more
+   * than the 2-3 that will ultimately be surfaced; Universal Core
+   * dry-run validates each candidate in order (re-executes it end-to-end
+   * and keeps only those that succeed with rows) before ever surfacing
+   * one, and never inspects candidate text itself. A domain that omits
+   * this hook simply gets no `suggestions` field on its responses.
+   */
+  generateSuggestions?(context: SuggestionContext): string[];
 }

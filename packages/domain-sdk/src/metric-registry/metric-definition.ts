@@ -32,4 +32,16 @@ export interface MetricDefinition {
    * generically; it has no knowledge of what any specific metric means.
    */
   comparable?: boolean;
+
+  /**
+   * True when this metric is the Domain's own declared "default" choice
+   * for a ranking request that names a scope filter (e.g. a state,
+   * ownership category, ...) but no metric at all - e.g. "non-profit
+   * hospitals" with no metric named. Universal Core only ever consumes
+   * this flag generically (see QueryPlanner.discoverDefaultRankableMetric());
+   * it never guesses which metric a Domain considers its own default.
+   * At most one metric should declare this per Domain - if more than
+   * one does, QueryPlanner uses whichever `domainMetrics` lists first.
+   */
+  defaultRankable?: boolean;
 }
