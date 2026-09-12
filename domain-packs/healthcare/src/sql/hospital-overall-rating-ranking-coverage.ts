@@ -27,8 +27,9 @@ SELECT
     COUNT(overall_rating) AS covered_count
 FROM warehouse_hospitals
 WHERE
-    :state IS NULL
-    OR state = :state;
+    (:state IS NULL OR UPPER(state) = UPPER(:state))
+    AND (:county IS NULL OR UPPER(county) = UPPER(:county))
+    AND (:city IS NULL OR UPPER(city) = UPPER(:city));
 `.trim(),
 
   type: "aggregation",
@@ -39,6 +40,18 @@ WHERE
       type: "string",
       required: false,
       description: "Filter hospitals by state",
+    },
+    {
+      name: "county",
+      type: "string",
+      required: false,
+      description: "Filter hospitals by county (Pre-Phase 9 Tier0 Task 1)",
+    },
+    {
+      name: "city",
+      type: "string",
+      required: false,
+      description: "Filter hospitals by city (Pre-Phase 9 Tier0 Task 1)",
     },
   ],
 

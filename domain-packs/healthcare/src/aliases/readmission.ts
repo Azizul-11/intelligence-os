@@ -9,6 +9,11 @@ export const readmissionAlias: AliasDefinition = {
     "Readmission",
     "Readmission Rate",
     "30-Day Readmission",
+    // Tier1 Task 1: plural forms - AliasResolver is exact-match only
+    // (see packages/semantic/src/alias/alias-resolver.ts), so a plural
+    // mention resolves only if explicitly registered here.
+    "Readmissions",
+    "Readmission Rates",
   ],
 
   type: "metric",

@@ -20,4 +20,9 @@ export const hospitalOverallRatingMetric: MetricDefinition = {
   aggregatable: false,
 
   comparable: true,
+
+  // Tier0 Task 5 (F12 Sub-Task A): Healthcare's own default ranking
+  // metric when a request names a scope filter (state, ownership, ...)
+  // but no metric at all (e.g. "non-profit hospitals").
+  defaultRankable: true,
 };

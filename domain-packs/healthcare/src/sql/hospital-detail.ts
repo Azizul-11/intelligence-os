@@ -8,21 +8,58 @@ export const hospitalDetailSqlTemplate: SqlTemplateDefinition = {
   displayName: "Hospital Detail",
 
   description:
-    "Returns identity/profile information for a single hospital - the same deterministic column set already used by hospital-list-by-state, filtered to one facility instead of one state.",
+    "Returns a full cross-table profile for a single hospital: identity fields plus the same mortality/readmission/safety/patient-experience measure columns the multi-hospital compare path already fetches via its -by-facility-ids templates.",
 
   template: `
 SELECT
-    facility_id,
-    hospital_name,
-    city,
-    state,
-    county,
-    hospital_type,
-    ownership,
-    overall_rating,
-    emergency_services
-FROM warehouse_hospitals
-WHERE facility_id = :hospitalId;
+    h.facility_id,
+    h.hospital_name,
+    h.city,
+    h.state,
+    h.county,
+    h.hospital_type,
+    h.ownership,
+    h.overall_rating,
+    h.emergency_services,
+    h.mort_measures_better,
+    h.mort_measures_no_different,
+    h.mort_measures_worse,
+    h.facility_mort_measure_count,
+    h.readm_measures_better,
+    h.readm_measures_no_different,
+    h.readm_measures_worse,
+    h.facility_readm_measure_count,
+    h.safety_measures_better,
+    h.safety_measures_no_different,
+    h.safety_measures_worse,
+    h.facility_safety_measure_count,
+    CAST(AVG(hc.linear_mean_value) AS NUMERIC(10,2)) AS avg_patient_satisfaction
+FROM warehouse_hospitals h
+LEFT JOIN warehouse_hospital_hcahps hc
+    ON h.facility_id = hc.facility_id
+WHERE h.facility_id = :hospitalId
+GROUP BY
+    h.facility_id,
+    h.hospital_name,
+    h.city,
+    h.state,
+    h.county,
+    h.hospital_type,
+    h.ownership,
+    h.overall_rating,
+    h.emergency_services,
+    h.mort_measures_better,
+    h.mort_measures_no_different,
+    h.mort_measures_worse,
+    h.facility_mort_measure_count,
+    h.readm_measures_better,
+    h.readm_measures_no_different,
+    h.readm_measures_worse,
+    h.facility_readm_measure_count,
+    h.safety_measures_better,
+    h.safety_measures_no_different,
+    h.safety_measures_worse,
+    h.facility_safety_measure_count
 `.trim(),
 
   type: "lookup",

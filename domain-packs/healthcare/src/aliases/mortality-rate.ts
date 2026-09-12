@@ -10,6 +10,11 @@ export const mortalityRateAlias: AliasDefinition = {
     "mortality rate",
     "death rate",
     "hospital mortality",
+    // Tier1 Task 1: plural forms - AliasResolver is exact-match only
+    // (see packages/semantic/src/alias/alias-resolver.ts), so a plural
+    // mention resolves only if explicitly registered here.
+    "mortalities",
+    "mortality rates",
   ],
 
   type: "metric",

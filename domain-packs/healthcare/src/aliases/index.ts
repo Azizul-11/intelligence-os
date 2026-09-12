@@ -26,6 +26,11 @@ export * from "./operations";
 export * from "./experience";
 export * from "./clinical-outcomes";
 export * from "./hospital-detail";
+export * from "./cabg";
+export * from "./copd";
+export * from "./hip-knee";
+export * from "./heart-failure";
+export * from "./pneumonia";
 
 import { acuteMyocardialInfarctionAlias } from "./acute-myocardial-infarction";
 import { cmsAlias } from "./cms";
@@ -55,6 +60,11 @@ import { operationsAliases } from "./operations";
 import { experienceAliases } from "./experience";
 import { clinicalOutcomesAliases } from "./clinical-outcomes";
 import { hospitalDetailAlias } from "./hospital-detail";
+import { cabgAlias } from "./cabg";
+import { copdAlias } from "./copd";
+import { hipKneeAlias } from "./hip-knee";
+import { heartFailureAlias } from "./heart-failure";
+import { pneumoniaAlias } from "./pneumonia";
 
 export const healthcareAliases = [
   acuteMyocardialInfarctionAlias,
@@ -85,4 +95,9 @@ export const healthcareAliases = [
   experienceAliases,
   clinicalOutcomesAliases,
   hospitalDetailAlias,
+  cabgAlias,
+  copdAlias,
+  hipKneeAlias,
+  heartFailureAlias,
+  pneumoniaAlias,
 ] as const;

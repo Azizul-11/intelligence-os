@@ -22,6 +22,7 @@ SELECT
   higher_estimate
 FROM warehouse_hospital_clinical_outcomes
 WHERE facility_id = :hospitalId
+  AND (:measureCode IS NULL OR measure_code = :measureCode)
 ORDER BY measure_code;
 `.trim(),
 
@@ -33,6 +34,12 @@ ORDER BY measure_code;
       type: "string",
       required: true,
       description: "Hospital identifier",
+    },
+    {
+      name: "measureCode",
+      type: "string",
+      required: false,
+      description: "Optional CMS condition-specific measure code (Tier0 Task 5) - scopes the result to one named condition instead of every measure this hospital reports.",
     },
   ],
 

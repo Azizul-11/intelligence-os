@@ -17,3 +17,9 @@ export const locationCategory: EntityCategory = {
   name: "Location",
   description: "Geographic locations used in healthcare analytics.",
 };
+
+export const ratingCategory: EntityCategory = {
+  id: "rating",
+  name: "Rating",
+  description: "Quality/rating values used to filter healthcare analytics.",
+};

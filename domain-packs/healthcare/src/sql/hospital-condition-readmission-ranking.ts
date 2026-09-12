@@ -1,14 +1,14 @@
 import type { SqlTemplateDefinition } from "@intelligence/domain-sdk";
 
-export const readmissionRateRankingSqlTemplate: SqlTemplateDefinition = {
-  id: "readmission-rate-ranking",
+export const hospitalConditionReadmissionRankingSqlTemplate: SqlTemplateDefinition = {
+  id: "hospital-condition-readmission-ranking",
 
-  name: "readmission-rate-ranking",
+  name: "hospital-condition-readmission-ranking",
 
-  displayName: "Readmission Performance Ranking",
+  displayName: "Condition-Specific Readmission Ranking",
 
   description:
-    "Returns hospitals with best readmission performance based on CMS measure classifications (count of measures better than national average). Tier1 Task 5 balanced-limits fix: top 10 overall for a single-state/nationwide request; top 5 PER named state for a multi-state request (ROW_NUMBER() OVER PARTITION BY state), so no single state's tied hospitals crowd out another's.",
+    "Returns hospitals ranked by a specific CMS condition/procedure readmission measure (e.g. AMI, CABG, COPD, Hip/Knee, Heart Failure, Pneumonia readmission), scoped by :measureCode. Tier1 Task 5 balanced-limits fix: top 10 overall for a single-state/nationwide request; top 5 PER named state for a multi-state request (ROW_NUMBER() OVER PARTITION BY state), so no single state's tied hospitals crowd out another's.",
 
   template: `
 WITH ranked_facilities AS (
@@ -19,25 +19,25 @@ WITH ranked_facilities AS (
         h.city,
         h.county,
         h.ownership,
-        h.readm_measures_better,
-        h.readm_measures_no_different,
-        h.readm_measures_worse,
-        h.facility_readm_measure_count,
+        r.measure_code,
+        r.predicted_readmission_rate,
+        r.expected_readmission_rate,
+        r.excess_readmission_ratio,
         ROW_NUMBER() OVER (
             PARTITION BY (CASE WHEN :multiState = true THEN h.state ELSE 'ALL' END)
-            ORDER BY
-                CASE WHEN :direction = 'ASC' THEN h.readm_measures_worse ELSE h.readm_measures_better END DESC NULLS LAST,
-                CASE WHEN :direction = 'ASC' THEN h.readm_measures_better ELSE h.readm_measures_worse END ASC NULLS LAST,
-                h.hospital_name ASC
+            ORDER BY (CASE WHEN :direction = 'ASC' THEN -1 ELSE 1 END) * r.excess_readmission_ratio ASC NULLS LAST, h.hospital_name ASC
         ) AS rank_within_scope
     FROM warehouse_hospitals h
+    JOIN warehouse_hospital_readmissions r ON h.facility_id = r.facility_id
     WHERE
-        h.facility_readm_measure_count > 0
+        r.measure_code = :measureCode
+        AND r.excess_readmission_ratio IS NOT NULL
         AND (:state IS NULL OR UPPER(h.state) = UPPER(:state))
         AND (:multiState = false OR UPPER(h.state) IN (:states))
         AND (:county IS NULL OR UPPER(h.county) = UPPER(:county))
         AND (:city IS NULL OR UPPER(h.city) = UPPER(:city))
         AND (:ownership IS NULL OR UPPER(h.ownership) LIKE UPPER(:ownership))
+        AND (:overallRating IS NULL OR h.overall_rating = :overallRating)
 )
 SELECT
     facility_id,
@@ -46,23 +46,28 @@ SELECT
     city,
     county,
     ownership,
-    readm_measures_better,
-    readm_measures_no_different,
-    readm_measures_worse,
-    facility_readm_measure_count
+    measure_code,
+    predicted_readmission_rate,
+    expected_readmission_rate,
+    excess_readmission_ratio
 FROM ranked_facilities
 WHERE
     (:multiState = true AND rank_within_scope <= 5)
     OR (:multiState = false AND rank_within_scope <= 10)
 ORDER BY
-    CASE WHEN :direction = 'ASC' THEN readm_measures_worse ELSE readm_measures_better END DESC NULLS LAST,
-    CASE WHEN :direction = 'ASC' THEN readm_measures_better ELSE readm_measures_worse END ASC NULLS LAST,
+    (CASE WHEN :direction = 'ASC' THEN -1 ELSE 1 END) * excess_readmission_ratio ASC NULLS LAST,
     state ASC, hospital_name ASC
 `.trim(),
 
   type: "ranking",
 
   parameters: [
+    {
+      name: "measureCode",
+      type: "string",
+      required: true,
+      description: "CMS condition-specific readmission measure code (e.g. READM-30-AMI-HRRP) - see domain-packs/healthcare/src/concepts/*.ts's own measureCodesByMetric map.",
+    },
     {
       name: "states",
       type: "array",
@@ -85,26 +90,32 @@ ORDER BY
       name: "county",
       type: "string",
       required: false,
-      description: "Filter hospitals by county (Pre-Phase 9 Tier0 Task 1)",
+      description: "Filter hospitals by county",
     },
     {
       name: "city",
       type: "string",
       required: false,
-      description: "Filter hospitals by city (Pre-Phase 9 Tier0 Task 1)",
+      description: "Filter hospitals by city",
     },
     {
       name: "ownership",
       type: "string",
       required: false,
-      description: "Filter hospitals by ownership category, as a SQL LIKE pattern (Pre-Phase 9 Tier0 Task 5)",
+      description: "Filter hospitals by ownership category, as a SQL LIKE pattern",
+    },
+    {
+      name: "overallRating",
+      type: "string",
+      required: false,
+      description: "Filter hospitals by exact overall_rating value 1-5 (Pre-Phase 9 Tier1 Task 2)",
     },
     {
       name: "direction",
       type: "string",
       required: false,
       description:
-        "DESC (default): best performance first, ranked by most measures better-than-national, tied hospitals broken by fewest worse-than-national. ASC: worst performance first - the primary and tiebreak columns swap (most measures worse-than-national first, tied hospitals broken by fewest better-than-national), not merely a reversed sort of the DESC ordering. Declared as type \"string\" (compared against a literal in the ORDER BY CASE expression below), not type \"direction\" - this template never uses :direction as a bare trailing ORDER BY keyword, so the RCG-019 bare-keyword rendering does not apply here.",
+        "DESC (default): best performance first, lowest excess readmission ratio (fewer than expected readmissions). ASC: worst performance first, highest ratio.",
     },
   ],
 

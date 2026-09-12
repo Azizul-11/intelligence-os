@@ -11,4 +11,7 @@ export const hospitalEntity: EntityDefinition = {
     execution: {
   parameter: "hospital",
 },
+  // Tier0 Task 5 (F12 Sub-Task A): a hospital identifies one specific
+  // facility, never a scope-only filter - see EntityDefinition.identifiesUniqueRecord.
+  identifiesUniqueRecord: true,
 };
