@@ -18,6 +18,7 @@ import type { RuntimeResult } from "@intelligence/runtime-engine";
 
 export async function executeRuntime(
   request: ChatRequest,
+  requestId?: string,
 ): Promise<RuntimeResult> {
   console.log(">>> executeRuntime");
 
@@ -28,5 +29,10 @@ export async function executeRuntime(
   return engine.execute({
     question: request.question,
     parameters: {},
+    requestId,
+    // Tier1 Task 6: the real, top-level Turn 1 entry point - the one
+    // place a fresh user question should get dry-run-validated
+    // suggestions attached (see RuntimeRequest.includeSuggestions).
+    includeSuggestions: true,
   });
 }

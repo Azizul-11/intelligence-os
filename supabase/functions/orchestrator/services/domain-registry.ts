@@ -17,6 +17,7 @@ import * as RuntimeEngineModule from "@intelligence/runtime-engine";
 
 let runtimeEngine: RuntimeEngine | undefined;
 let domainRuntime: ReturnType<typeof createDomainRuntime> | undefined;
+let sharedExecutor: SqlExecutor | undefined;
 
 export function getRuntimeEngine(): RuntimeEngine {
   if (runtimeEngine) {
@@ -36,6 +37,7 @@ export function getRuntimeEngine(): RuntimeEngine {
   const executor = new SqlExecutor(
     new SupabaseDatabaseAdapter(supabase),
   );
+  sharedExecutor = executor;
 
   console.log(
   "Runtime Engine Module:",
@@ -64,4 +66,29 @@ export function getDomainMetrics(): readonly any[] {
     getRuntimeEngine();
   }
   return domainRuntime?.domain?.metrics || [];
+}
+
+/**
+ * Tier0 Task 2 (F8): direct, deterministic single-hospital rating lookup
+ * by facility_id - used by the hospital-ranking clarification's "lookup"
+ * Turn 2 (see reconstruct-hospital-choice.ts). Deliberately bypasses the
+ * full NL semantic pipeline: re-typing a hospital's own stored name and
+ * re-resolving it is not guaranteed to round-trip to the same facility
+ * (see reconstruct-hospital-choice.ts's own comment), whereas the
+ * facility_id captured at Turn 1 is unambiguous already. Reuses the
+ * existing, already-registered `hospital-overall-rating` template
+ * verbatim - no new SQL template.
+ */
+export async function lookupHospitalOverallRating(facilityId: string) {
+  if (!domainRuntime || !sharedExecutor) {
+    getRuntimeEngine();
+  }
+
+  const template = domainRuntime!.sqlResolver.resolve("hospital-overall-rating");
+
+  if (!template.found || !template.template) {
+    return { success: false, rows: [], rowCount: 0, error: "Lookup template unavailable" };
+  }
+
+  return sharedExecutor!.execute(template.template, { hospitalId: facilityId });
 }
