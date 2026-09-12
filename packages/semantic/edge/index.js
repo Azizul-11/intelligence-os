@@ -494,6 +494,14 @@ var SemanticPipeline = class {
             end: phrase.end,
             result: entity
           });
+          if (entity.entityId && entity.phrase) {
+            identityConflicts.push({
+              start: phrase.start,
+              end: phrase.end,
+              entityId: entity.entityId,
+              phrase: entity.phrase
+            });
+          }
         } else if (entity.status === "not_found" && entity.entityId && entity.phrase) {
           identityConflicts.push({
             start: phrase.start,

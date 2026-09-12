@@ -115,6 +115,21 @@ export class SemanticPipeline {
     // Never populated for a phrase the Domain SDK never recognized at
     // all (`entityId: null`), only for a named entity type whose
     // qualifier genuinely conflicted.
+    //
+    // Tier0 Task 3 Full Fix: also populated for a longer attempt
+    // reported "ambiguous" (not just "not_found") sharing the same
+    // `phrase` - a brand-aliasing expansion (Healthcare's
+    // expandByBrandIfContradicted()) can legitimately re-narrow a
+    // contradicted bare name to a genuine multi-candidate choice
+    // instead of an outright failure (e.g. "Mayo Clinic Minnesota"
+    // narrows the brand's MN facilities to several real candidates),
+    // and that discovery is exactly as disqualifying for the shorter
+    // bare candidate as a "not_found" would have been - both mean the
+    // bare candidate alone is not a safe answer. The existing
+    // "other same-type candidates" check below (a multi-entity
+    // comparison, e.g. "Compare Mayo Clinic and Cleveland Clinic in
+    // Florida...") already prevents this from over-suppressing an
+    // independent, correctly-resolved entity elsewhere in the query.
     const identityConflicts: {
       start: number;
       end: number;
@@ -154,6 +169,15 @@ export class SemanticPipeline {
             end: phrase.end,
             result: entity,
           });
+
+          if (entity.entityId && entity.phrase) {
+            identityConflicts.push({
+              start: phrase.start,
+              end: phrase.end,
+              entityId: entity.entityId,
+              phrase: entity.phrase,
+            });
+          }
         } else if (entity.status === "not_found" && entity.entityId && entity.phrase) {
           identityConflicts.push({
             start: phrase.start,
