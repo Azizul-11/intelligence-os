@@ -36,6 +36,7 @@ interface CmsRow {
   "Facility Name": string;
   State: string;
   "City/Town": string;
+  "County/Parish": string;
 }
 
 const raw = readFileSync(SOURCE_CSV, "utf-8");
@@ -52,6 +53,7 @@ const records = rows
     hospitalName: row["Facility Name"]?.trim() ?? "",
     state: row["State"]?.trim() ?? "",
     city: row["City/Town"]?.trim() ?? "",
+    county: row["County/Parish"]?.trim() ?? "",
   }))
   .filter((r) => r.facilityId && r.hospitalName);
 
@@ -74,6 +76,7 @@ export interface HospitalIdentityRecord {
   hospitalName: string;
   state: string;
   city: string;
+  county: string;
 }
 
 export const hospitalIdentityDirectory: HospitalIdentityRecord[] = ${JSON.stringify(records, null, 2)};

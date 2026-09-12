@@ -123,13 +123,21 @@ async function run() {
       question: "Was Mayo Clinic's overall rating better five years ago?",
       parameters: {},
     });
+    // Tier0 Task 2 (F8): upgraded from a bare `not_directly_answerable`
+    // capability-mismatch refusal to a targeted `ambiguous` clarification
+    // (subject/lookup vs reference-point/similar) per the approved F8
+    // product design decision - the safety property this test guards
+    // (no nationwide top-10 silently reaches the caller, sqlCalled===false)
+    // is unchanged; only the classification/message improved.
     const pass =
       result.success === false &&
-      result.answerability?.status === "not_directly_answerable" &&
+      result.answerability?.status === "ambiguous" &&
+      result.answerability?.reason === "identity-ambiguous" &&
+      (result.answerability?.candidates?.length ?? 0) === 2 &&
       flag.called === false;
     check(
       "3-F8-PROTECTION",
-      "SPY EXECUTOR: F8 case refused, sqlCalled=false - no nationwide top-10 result reaches the caller",
+      "SPY EXECUTOR: F8 case now a targeted clarification, sqlCalled=false - no nationwide top-10 result reaches the caller",
       pass,
       { success: result.success, answerability: result.answerability, sqlCalled: flag.called },
     );
@@ -143,64 +151,91 @@ async function run() {
       question: "Is Cleveland Clinic's overall rating better than average?",
       parameters: {},
     });
+    // Tier0 Task 2 (F8): same upgrade as test 3 above - now a targeted
+    // clarification rather than a bare refusal.
     const pass =
       result.success === false &&
-      result.answerability?.status === "not_directly_answerable" &&
+      result.answerability?.status === "ambiguous" &&
+      result.answerability?.reason === "identity-ambiguous" &&
+      (result.answerability?.candidates?.length ?? 0) === 2 &&
       flag.called === false;
-    check("4-F8-ADDITIONAL-WORDING", "SPY EXECUTOR: same F8 safety behavior, different phrasing", pass, {
+    check("4-F8-ADDITIONAL-WORDING", "SPY EXECUTOR: same F8 safety behavior (now a targeted clarification), different phrasing", pass, {
       success: result.success,
       answerability: result.answerability,
       sqlCalled: flag.called,
     });
   }
 
-  // 5 - Multi-state crash prevention (spy executor)
+  // 5 - Multi-state crash prevention (spy executor). Tier1 Task 5
+  // (2026-09-12): previously asserted a safe refusal (the only option
+  // before Task 5 added real `states` array-parameter support to the
+  // ranking templates + the Phase 1 gate generalization that makes it
+  // safe to reach them at all). Now asserts the stronger, intended
+  // outcome - a real, successful multi-state answer - while the
+  // original protection this test name describes (no raw Postgres
+  // crash reaching the caller) still holds by construction: `flag.called`
+  // being true here means SQL genuinely executed and returned rows, not
+  // that a crash was merely swallowed.
   {
     const flag = { called: false };
     const engine = makeSpyEngine(flag);
     const result = await engine.execute({ question: "Best hospitals in Texas and California.", parameters: {} });
     const pass =
-      result.success === false &&
-      result.answerability?.status === "not_directly_answerable" &&
-      flag.called === false;
+      result.success === true &&
+      result.answerability?.status === "answerable" &&
+      flag.called === true;
     check(
       "5-MULTI-STATE-CRASH-PREVENTION",
-      "SPY EXECUTOR: multi-state filter refused before execution, sqlCalled=false - no raw Postgres crash reaches the caller",
+      "SPY EXECUTOR: multi-state filter now genuinely answerable (Tier1 Task 5) - no raw Postgres crash, real data instead of a refusal",
       pass,
       { success: result.success, answerability: result.answerability, sqlCalled: flag.called },
     );
   }
 
-  // 6 - Multi-state, REAL executor: confirm no crash reaches this level either
+  // 6 - Multi-state, REAL executor: Tier1 Task 5 (2026-09-12) - now
+  // genuinely answerable against the live warehouse (see test 5's own
+  // updated comment); confirm real rows come back and no raw Postgres
+  // error ever reaches `result.error`.
   {
     const engine = makeRealEngine();
     const result = await engine.execute({ question: "Best hospitals in Texas and California.", parameters: {} });
-    const pass = result.success === false && result.answerability?.status === "not_directly_answerable";
+    const pass = result.success === true && result.answerability?.status === "answerable" && (result.rowCount ?? 0) > 0;
     check(
       "6-MULTI-STATE-REAL-EXECUTOR",
-      "REAL WAREHOUSE: multi-state filter refused, no raw Postgres error propagates",
+      "REAL WAREHOUSE: multi-state filter now genuinely answerable (Tier1 Task 5), no raw Postgres error propagates",
       pass,
       { success: result.success, error: result.error, answerability: result.answerability },
     );
   }
 
-  // 7 - Concept loss (spy executor)
+  // 7 - Concept loss protection, updated by Tier0 Task 5 (F12 Sub-Task
+  // B, B-full): "heart attack" (AMI) is no longer merely detected and
+  // refused - it is now genuinely consumed. `ExecutionPlanMapper.
+  // buildFilters()` turns the resolved concept into a `measureCode`
+  // filter (via the concept's own declared `measureCodesByMetric` map),
+  // and `mortality-rate.ts`'s single-hospital lookup template now
+  // accepts an optional `:measureCode` parameter, scoping its result to
+  // exactly the requested condition instead of every measure the
+  // hospital reports. The original protection this test proved
+  // (a resolved concept must never be silently dropped) is preserved by
+  // a STRONGER guarantee: the concept is not just accounted for, it
+  // actually narrows the answer to the single, precisely-requested row.
   {
-    const flag = { called: false };
-    const engine = makeSpyEngine(flag);
+    const engine = makeRealEngine();
     const result = await engine.execute({
       question: "What is Mayo Clinic's mortality rate for heart attack specifically?",
       parameters: {},
     });
+    const rows = (result.rows ?? []) as any[];
     const pass =
-      result.success === false &&
-      result.answerability?.status === "not_directly_answerable" &&
-      flag.called === false;
+      result.success === true &&
+      result.rowCount === 1 &&
+      rows[0]?.measure_code === "MORT_30_AMI";
     check(
-      "7-CONCEPT-LOSS-PROTECTION",
-      'SPY EXECUTOR: "...for heart attack specifically" (singular, produces a real concept candidate) refused, sqlCalled=false',
+      "7-CONCEPT-LOSS-PROTECTION-NOW-B-FULL",
+      'REAL ENGINE: "...for heart attack specifically" now resolves precisely to the single MORT_30_AMI row (Tier0 Task 5 B-full), not merely refused',
       pass,
-      { success: result.success, answerability: result.answerability, sqlCalled: flag.called },
+      { success: result.success, rowCount: result.rowCount, measureCode: rows[0]?.measure_code },
     );
   }
 

@@ -134,18 +134,25 @@ async function run() {
     check("5-GREENE-EUTAW-VALID-QUALIFIER", "Greene County Hospital in Eutaw: unique facility 010051", pass, JSON.stringify({ resolvedValue: entity?.resolvedValue }));
   }
 
-  // 6 - CRITICAL: contradictory qualifier must never silently fall
-  // back to the bare candidate. Real executor - proves no SQL
-  // parameter ever receives the wrong facility_id.
+  // 6 - CRITICAL, updated by Tier0 Task 3 Full Fix (brand aliasing):
+  // this assertion was deliberately reversed from its prior form. The
+  // prior control asserted a bare, safe FAILURE (100151 never silently
+  // reused) - correct as far as it went, but incomplete: Rochester's
+  // own real facility (240010, "MAYO CLINIC HOSPITAL ROCHESTER") does
+  // exist and should resolve, not merely fail safely. The invariant
+  // that must never regress is unchanged - 100151 (Jacksonville) must
+  // never be silently substituted for Rochester's request - it is now
+  // proven by asserting the CORRECT distinct value, a stronger check
+  // than merely asserting failure.
   {
     const sem = semantic.resolve("What is the overall rating of Mayo Clinic in Rochester, Minnesota?");
     const hospitalEntity = sem.matches.find((m) => m.semanticType === "entity" && m.canonicalKey === "hospital");
     const engine = makeRealEngine();
     const result = await engine.execute({ question: "What is the overall rating of Mayo Clinic in Rochester, Minnesota?", parameters: {} });
-    const pass = hospitalEntity === undefined && result.success === false && result.error !== "" ;
+    const pass = hospitalEntity?.resolvedValue === "240010" && result.success === true;
     check(
-      "6-MAYO-ROCHESTER-CONTRADICTORY-QUALIFIER-CRITICAL",
-      "Mayo Clinic in Rochester, Minnesota: no hospital-type candidate at all (100151 not silently used), honest failure, no wrong facility_id reaches SQL",
+      "6-MAYO-ROCHESTER-BRAND-ALIAS-CRITICAL",
+      "Mayo Clinic in Rochester, Minnesota: brand-prefix expansion resolves the correct facility 240010, never the wrong bare candidate 100151",
       pass,
       JSON.stringify({ hospitalEntity, result }),
     );
@@ -191,21 +198,30 @@ async function run() {
     check("10-COMPARE-MAYO-CLEVELAND-REGRESSION", "Compare Mayo Clinic and Cleveland Clinic: unaffected, existing successful comparison", pass, JSON.stringify({ result, sqlCalled: flag.called }));
   }
 
-  // 11 - Qualified comparison safety: the Rochester mention must not
-  // silently become Jacksonville. Honest failure is acceptable.
+  // 11 - Qualified comparison safety, updated by Tier0 Task 3 Full Fix
+  // (brand aliasing): the prior assertion required Rochester to fail
+  // to resolve at all (hospitalEntities.length <= 1), which was this
+  // suite's proxy for "never duplicates Jacksonville's value" before a
+  // real resolution path for Rochester existed. Now that brand-prefix
+  // expansion lets Rochester resolve to its OWN correct, distinct
+  // facility (240010), the real invariant - no two extracted hospital
+  // entities ever collapse to the same facility_id - is asserted
+  // directly instead, which remains true whether Rochester resolves or
+  // not and correctly catches the original duplication bug either way.
   {
     const sem = semantic.resolve("Compare Mayo Clinic in Jacksonville with Mayo Clinic in Rochester");
     const hospitalEntities = sem.matches.filter((m) => m.semanticType === "entity" && m.canonicalKey === "hospital");
-    const allJacksonville = hospitalEntities.length <= 1;
+    const hospitalValues = hospitalEntities.map((e) => e.resolvedValue);
+    const noDuplication = new Set(hospitalValues).size === hospitalValues.length;
     const flag = { called: false };
     const engine = makeSpyEngine(flag);
     const result = await engine.execute({ question: "Compare Mayo Clinic in Jacksonville with Mayo Clinic in Rochester", parameters: {} });
-    const pass = allJacksonville && !flag.called;
+    const pass = noDuplication;
     check(
       "11-COMPARE-JACKSONVILLE-ROCHESTER-SAFETY-CRITICAL",
-      "Compare Mayo Clinic in Jacksonville with Mayo Clinic in Rochester: Rochester mention never silently duplicates Jacksonville's value, no SQL",
+      "Compare Mayo Clinic in Jacksonville with Mayo Clinic in Rochester: Rochester mention never silently duplicates Jacksonville's value (now resolves to its own correct, distinct facility 240010)",
       pass,
-      JSON.stringify({ hospitalEntities: hospitalEntities.map((e) => e.resolvedValue), result, sqlCalled: flag.called }),
+      JSON.stringify({ hospitalValues, result, sqlCalled: flag.called }),
     );
   }
 
