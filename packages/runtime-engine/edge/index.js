@@ -1,5 +1,5 @@
 // src/create-runtime-engine.ts
-import { assessPlanCompleteness, hasRelationshipWithoutBenchmark } from "@intelligence/query-planner";
+import { assessPlanCompleteness, hasRelationshipWithoutBenchmark, detectSubsumedBenchmarkRisk } from "@intelligence/query-planner";
 
 // src/build-clarification-message.ts
 function isAmbiguousCandidate(value) {
@@ -46,6 +46,46 @@ function buildGuidanceMessage(answerability, metrics) {
   return `I can't answer this using the requested capability because it isn't currently available. I can help with ${alternativesList} instead.`;
 }
 
+// src/phase-gate-tracker.ts
+var PhaseGateTracker = class {
+  requestId;
+  query;
+  gates = [];
+  constructor(requestId, query) {
+    this.requestId = requestId;
+    this.query = query;
+  }
+  enter(phase) {
+    this.gates.push({ phase, timestamp: Date.now(), status: "enter", sqlCalls: 0 });
+  }
+  exit(phase, status, sqlCalls, answerability) {
+    this.gates.push({
+      phase,
+      timestamp: Date.now(),
+      status,
+      sqlCalls,
+      ...answerability !== void 0 ? { answerability } : {}
+    });
+  }
+  /**
+   * Checks that every phase in `required` was visited at least once.
+   * `required` is caller-supplied rather than hardcoded: which gates a
+   * given request *should* visit depends on what kind of request it is
+   * (e.g. a Layer 2 continuation visits "layer2-continuation"; an
+   * ordinary Turn 1 query never does) and on which phases are actually
+   * built yet (Phase 9-11 "memory"/"insight" gates don't exist in the
+   * codebase yet and are never asserted here - asserting them
+   * unconditionally would make every current query "fail" a check for a
+   * phase that cannot possibly run, which proves nothing).
+   */
+  verifyAllPhasesVisited(required) {
+    return required.every((phase) => this.gates.some((gate) => gate.phase === phase));
+  }
+  totalSqlCalls() {
+    return this.gates.reduce((sum, gate) => sum + gate.sqlCalls, 0);
+  }
+};
+
 // src/create-runtime-engine.ts
 function valuesMatch(a, b) {
   if (Array.isArray(a) && Array.isArray(b)) {
@@ -54,13 +94,13 @@ function valuesMatch(a, b) {
   return a === b;
 }
 function isFilterCompatibleWithTemplate(filter, resolvedParameters, templateParameters) {
+  if (filter.operator !== "in") {
+    return true;
+  }
   const matchingParameter = templateParameters.find(
     (parameter) => valuesMatch(resolvedParameters[parameter.name], filter.value)
   );
-  if (!matchingParameter) {
-    return false;
-  }
-  return !(filter.operator === "in" && matchingParameter.type !== "array");
+  return matchingParameter?.type === "array";
 }
 var ALTERNATIVE_OPERATION_FLAG = {
   rank: "rankable",
@@ -103,342 +143,498 @@ function createRuntimeEngine({
   executionPlanMapper,
   executor
 }) {
-  return {
+  const engine = {
     async execute(request) {
-      console.log(">>> RuntimeEngine.execute()");
-      const semanticResult = semantic.resolve(request.question);
-      console.log("========== SEMANTIC RESULT ==========");
-      console.log(
-        JSON.stringify(semanticResult, null, 2)
+      const tracker = new PhaseGateTracker(
+        request.requestId ?? crypto.randomUUID(),
+        request.question
       );
-      console.log("=====================================");
-      if (semanticResult.identityAmbiguities && semanticResult.identityAmbiguities.length > 0) {
-        return {
-          success: false,
-          rows: [],
-          rowCount: 0,
-          error: buildClarificationMessage(semanticResult.identityAmbiguities),
-          answerability: {
-            status: "ambiguous",
-            reason: "identity-ambiguous",
-            candidates: semanticResult.identityAmbiguities.flatMap(
-              (ambiguity) => ambiguity.candidates ?? []
-            )
-          }
-        };
-      }
-      if (!semanticResult.resolved) {
-        return {
-          success: false,
-          rows: [],
-          rowCount: 0,
-          error: "Unable to resolve question.",
-          answerability: { status: "not_directly_answerable" }
-        };
-      }
-      if (semanticResult.unsupportedNegation) {
-        return {
-          success: false,
-          rows: [],
-          rowCount: 0,
-          error: 'This question includes an exclusion or negation (e.g. "excluding", "without", "except", "not") that IntelligenceOS cannot yet safely represent. Please rephrase without excluding/negating a value.',
-          answerability: { status: "not_directly_answerable" }
-        };
-      }
-      if (hasRelationshipWithoutBenchmark(semanticResult.matches)) {
-        return {
-          success: false,
-          rows: [],
-          rowCount: 0,
-          error: 'This question compares against a reference value (e.g. "above", "below") but does not name one IntelligenceOS recognizes (e.g. "national average", "state average"). Please include the specific reference value you mean.',
-          answerability: {
-            status: "ambiguous",
-            reason: "candidate-inconsistent"
-          }
-        };
-      }
-      const plan = planner.createPlan(semanticResult, runtime.domain.metrics);
-      if (!plan.success || !plan.plan || plan.plan.semantic.metrics.length === 0) {
-        return {
-          success: false,
-          rows: [],
-          rowCount: 0,
-          // RCG-010: prefer a specific, natural-language reason (e.g. a
-          // detected direction contradiction) when the planner supplied one.
-          error: plan.error ?? "Unable to create query plan.",
-          // Phase 8.1: plan.error is set only by RCG-010's direction-
-          // contradiction check inside QueryPlanner.createPlan() - its presence
-          // is the existing, generic signal distinguishing "the semantic
-          // candidates contradict each other" from "there was nothing to plan
-          // at all" (e.g. zero resolved metrics, even after Fix Cycle 018's
-          // comparable-metric discovery).
-          answerability: plan.error ? { status: "ambiguous", reason: "candidate-inconsistent" } : { status: "not_directly_answerable", reason: "semantic-incomplete" }
-        };
-      }
-      const executionPlan = executionPlanMapper.map(plan.plan);
-      console.log("========== EXECUTION PLAN ==========");
-      console.log(JSON.stringify(executionPlan, null, 2));
-      console.log("====================================");
-      const completeness = assessPlanCompleteness(
-        semanticResult.matches,
-        executionPlan,
-        plan.plan.semantic
-      );
-      console.log("========== PLAN COMPLETENESS ==========");
-      console.log(JSON.stringify(completeness, null, 2));
-      console.log("========================================");
-      const hasUnaccountedMetricOrConceptLoss = completeness.discrepancies.some(
-        (discrepancy) => discrepancy.semanticType === "metric" || discrepancy.semanticType === "concept"
-      );
-      if (hasUnaccountedMetricOrConceptLoss) {
-        return {
-          success: false,
-          rows: [],
-          rowCount: 0,
-          error: "This question resolved a measurement that could not be carried through to planning, so I can't safely answer it.",
-          completeness,
-          answerability: {
-            status: "not_directly_answerable",
-            reason: "plan-incomplete"
-          }
-        };
-      }
-      const primaryMetric = plan.plan.semantic.metrics[0]?.canonicalKey;
-      const templateId = runtime.domain.executionStrategy.selectTemplateFromPlan ? runtime.domain.executionStrategy.selectTemplateFromPlan(executionPlan) : runtime.domain.executionStrategy.selectTemplate(
-        primaryMetric,
-        plan.plan.intent
-      );
-      const template = runtime.sqlResolver.resolve(
-        templateId
-      );
-      console.log("========== RUNTIME ==========");
-      console.log("Metrics:", plan.plan.semantic.metrics);
-      console.log("Primary Metric:", primaryMetric);
-      console.log("Requested Template:", templateId);
-      if (template.template) {
-        console.log("Resolved Template:", template.template.id);
+      let capturedExecutionPlan;
+      const runPipeline = async () => {
+        console.log(">>> RuntimeEngine.execute()");
+        tracker.enter("semantic-candidate-resolution");
+        const semanticResult = semantic.resolve(request.question);
+        tracker.exit(
+          "semantic-candidate-resolution",
+          semanticResult.resolved ? "ok" : "unresolved",
+          0
+        );
+        console.log("========== SEMANTIC RESULT ==========");
         console.log(
-          "Parameters:",
-          template.template.parameters
+          JSON.stringify(semanticResult, null, 2)
         );
-      }
-      if (!template.found || !template.template) {
-        const alternatives = discoverAlternatives(primaryMetric, executionPlan, runtime);
-        const guidanceMessage = buildGuidanceMessage(
-          {
-            status: "not_directly_answerable",
-            reason: "capability-unavailable",
-            ...alternatives.length > 0 ? { alternatives } : {}
-          },
-          runtime.domain.metrics
-        );
-        return {
-          success: false,
-          rows: [],
-          rowCount: 0,
-          error: guidanceMessage ?? "SQL template not found.",
-          answerability: {
-            status: "not_directly_answerable",
-            reason: "capability-unavailable",
-            ...alternatives.length > 0 ? { alternatives } : {}
+        console.log("=====================================");
+        if (request.forcedIdentityCandidate && semanticResult.identityAmbiguities) {
+          const forcedValue = request.forcedIdentityCandidate.value;
+          const matchIndex = semanticResult.identityAmbiguities.findIndex(
+            (ambiguity) => (ambiguity.candidates ?? []).some(
+              (candidate) => valuesMatch(candidate, forcedValue) || valuesMatch(candidate?.value, forcedValue)
+            )
+          );
+          if (matchIndex !== -1) {
+            const resolvedAmbiguity = semanticResult.identityAmbiguities.splice(matchIndex, 1)[0];
+            const entityDefinition = resolvedAmbiguity.entityId ? runtime.registry.getEntity(resolvedAmbiguity.entityId) : void 0;
+            if (entityDefinition) {
+              semanticResult.matches.push({
+                phrase: resolvedAmbiguity.phrase ?? "",
+                canonicalKey: resolvedAmbiguity.entityId,
+                semanticType: "entity",
+                definition: entityDefinition,
+                confidence: 1,
+                start: 0,
+                end: 0,
+                resolvedValue: forcedValue
+              });
+            }
           }
-        };
-      }
-      if (template.template.enabled === false) {
-        const alternatives = discoverAlternatives(primaryMetric, executionPlan, runtime);
-        const guidanceMessage = buildGuidanceMessage(
-          {
-            status: "not_directly_answerable",
-            reason: "capability-unavailable",
-            ...alternatives.length > 0 ? { alternatives } : {}
-          },
-          runtime.domain.metrics
-        );
-        return {
-          success: false,
-          rows: [],
-          rowCount: 0,
-          error: guidanceMessage ?? "This capability is not currently available.",
-          answerability: {
-            status: "not_directly_answerable",
-            reason: "capability-unavailable",
-            ...alternatives.length > 0 ? { alternatives } : {}
-          }
-        };
-      }
-      const parameters = runtime.domain.executionStrategy.resolveParametersFromPlan ? runtime.domain.executionStrategy.resolveParametersFromPlan(executionPlan) : runtime.domain.executionStrategy.resolveParameters(
-        plan.plan.parameters
-      );
-      console.log("========== PARAMETERS ==========");
-      console.log(parameters);
-      console.log("================================");
-      const templateParameters = template.template.parameters ?? [];
-      const hasIncompatibleFilter = (executionPlan.operation === "rank" || executionPlan.operation === "aggregate") && executionPlan.filters.some(
-        (filter) => !isFilterCompatibleWithTemplate(filter, parameters, templateParameters)
-      );
-      if (hasIncompatibleFilter) {
-        return {
-          success: false,
-          rows: [],
-          rowCount: 0,
-          error: "This request's constraints cannot be safely represented by the available execution capability.",
-          answerability: {
-            status: "not_directly_answerable"
-          }
-        };
-      }
-      const primaryResult = await executor.execute(
-        template.template,
-        parameters
-      );
-      if (!primaryResult.success) {
-        return {
-          ...primaryResult,
-          answerability: { status: "not_directly_answerable" }
-        };
-      }
-      if (primaryResult.rowCount === 0 && executionPlan.operation === "lookup") {
-        const resolvedEntityCandidates = semanticResult.matches.filter(
-          (candidate) => candidate.semanticType === "entity"
-        );
-        if (resolvedEntityCandidates.length === 1 && template.template.singleEntityRecord === true) {
+        }
+        tracker.enter("entity-identity-ambiguity");
+        if (semanticResult.identityAmbiguities && semanticResult.identityAmbiguities.length > 0) {
           return {
-            ...primaryResult,
             success: false,
-            error: "No data is available for the requested entity and metric.",
+            rows: [],
+            rowCount: 0,
+            error: buildClarificationMessage(semanticResult.identityAmbiguities),
             answerability: {
-              status: "not_directly_answerable",
-              reason: "data-unavailable"
+              status: "ambiguous",
+              reason: "identity-ambiguous",
+              candidates: semanticResult.identityAmbiguities.flatMap(
+                (ambiguity) => ambiguity.candidates ?? []
+              )
+            },
+            // Tier0 Task 6: carries this Turn's already-resolved metric/
+            // concept/etc candidates (never the ambiguous entity itself)
+            // forward, so a Layer 2 continuation's pending interaction can
+            // store real reconstruction context in `originalSemanticResult`
+            // instead of an empty placeholder.
+            semanticMatches: semanticResult.matches
+          };
+        }
+        if (!semanticResult.resolved) {
+          return {
+            success: false,
+            rows: [],
+            rowCount: 0,
+            error: "Unable to resolve question.",
+            answerability: { status: "not_directly_answerable" }
+          };
+        }
+        if (semanticResult.unsupportedNegation) {
+          return {
+            success: false,
+            rows: [],
+            rowCount: 0,
+            error: 'This question includes an exclusion or negation (e.g. "excluding", "without", "except", "not") that IntelligenceOS cannot yet safely represent. Please rephrase without excluding/negating a value.',
+            answerability: { status: "not_directly_answerable" }
+          };
+        }
+        if (hasRelationshipWithoutBenchmark(semanticResult.matches)) {
+          return {
+            success: false,
+            rows: [],
+            rowCount: 0,
+            error: 'This question compares against a reference value (e.g. "above", "below") but does not name one IntelligenceOS recognizes (e.g. "national average", "state average"). Please include the specific reference value you mean.',
+            answerability: {
+              status: "ambiguous",
+              reason: "candidate-inconsistent"
             }
           };
         }
-      }
-      const coverageFacts = [];
-      async function collectCoverageFact(metric, coverageTemplateId) {
-        if (!coverageTemplateId) {
-          return;
-        }
-        const coverageTemplate = runtime.sqlResolver.resolve(coverageTemplateId);
-        if (!coverageTemplate.found || !coverageTemplate.template) {
-          console.log(
-            `========== PHASE 8.6C: coverage template "${coverageTemplateId}" not found - omitting coverage for "${metric}" ==========`
-          );
-          return;
-        }
-        try {
-          const coverageResult = await executor.execute(coverageTemplate.template, parameters);
-          if (!coverageResult.success) {
-            console.log(
-              `========== PHASE 8.6C: coverage query for "${metric}" failed - omitting coverage: ${coverageResult.error ?? "unknown error"} ==========`
-            );
-            return;
-          }
-          const coverageRow = coverageResult.rows[0];
-          const eligibleCount = Number(coverageRow?.eligible_count);
-          const coveredCount = Number(coverageRow?.covered_count);
-          if (!Number.isFinite(eligibleCount) || !Number.isFinite(coveredCount)) {
-            console.log(
-              `========== PHASE 8.6C: coverage query for "${metric}" returned an unexpected shape - omitting coverage ==========`
-            );
-            return;
-          }
-          coverageFacts.push({ metric, eligibleCount, coveredCount });
-        } catch (error) {
-          console.log(
-            `========== PHASE 8.6C: coverage query for "${metric}" threw - omitting coverage: ${error instanceof Error ? error.message : String(error)} ==========`
-          );
-        }
-      }
-      if (executionPlan.operation === "rank" || executionPlan.operation === "aggregate") {
-        await collectCoverageFact(executionPlan.metric, template.template.coverageTemplateId);
-      }
-      const strategy = runtime.domain.executionStrategy;
-      const identityField = strategy.resultIdentityField;
-      if (executionPlan.metrics && executionPlan.metrics.length > 1 && identityField && strategy.selectSecondaryMetricTemplate && strategy.resolveSecondaryMetricParameters) {
-        const primaryRows = primaryResult.rows;
-        const identityValues = primaryRows.map((row) => row[identityField]).filter((value) => value !== void 0 && value !== null);
-        const secondaryMetrics = executionPlan.metrics.filter(
-          (metric) => metric.metric !== executionPlan.metric
+        const subsumedBenchmarkRisk = detectSubsumedBenchmarkRisk(
+          semanticResult.matches,
+          semanticResult.normalizedQuery,
+          runtime.domain.aliases
         );
-        console.log("========== PHASE 7: SECONDARY METRICS ==========");
-        console.log("Identity field:", identityField);
-        console.log("Identity values:", identityValues);
-        console.log("Secondary metrics:", secondaryMetrics);
-        console.log("==================================================");
-        for (const secondaryMetric of secondaryMetrics) {
-          const secondaryTemplateId = strategy.selectSecondaryMetricTemplate(
-            secondaryMetric,
-            executionPlan
-          );
-          const secondaryTemplate = runtime.sqlResolver.resolve(secondaryTemplateId);
-          if (!secondaryTemplate.found || !secondaryTemplate.template) {
-            const alternatives = discoverAlternatives(secondaryMetric.metric, executionPlan, runtime);
-            const guidanceMessage = buildGuidanceMessage(
-              {
-                status: "not_directly_answerable",
-                reason: "capability-unavailable",
-                ...alternatives.length > 0 ? { alternatives } : {}
-              },
-              runtime.domain.metrics
-            );
+        if (subsumedBenchmarkRisk) {
+          return {
+            success: false,
+            rows: [],
+            rowCount: 0,
+            error: `This question mentions "${subsumedBenchmarkRisk.parentPhrase}", but the words aren't placed together, so I can't confirm you meant that specific comparison rather than a plain "${subsumedBenchmarkRisk.fallbackPhrase}". Please rephrase so "${subsumedBenchmarkRisk.parentPhrase}" appears together (e.g. "above the ${subsumedBenchmarkRisk.parentPhrase}").`,
+            answerability: {
+              status: "ambiguous",
+              reason: "candidate-inconsistent"
+            }
+          };
+        }
+        const plan = planner.createPlan(semanticResult, runtime.domain.metrics, request.forcedIntent);
+        if (!plan.success || !plan.plan || plan.plan.semantic.metrics.length === 0) {
+          return {
+            success: false,
+            rows: [],
+            rowCount: 0,
+            // RCG-010: prefer a specific, natural-language reason (e.g. a
+            // detected direction contradiction) when the planner supplied one.
+            error: plan.error ?? "Unable to create query plan.",
+            // Phase 8.1: plan.error is set only by RCG-010's direction-
+            // contradiction check inside QueryPlanner.createPlan() - its presence
+            // is the existing, generic signal distinguishing "the semantic
+            // candidates contradict each other" from "there was nothing to plan
+            // at all" (e.g. zero resolved metrics, even after Fix Cycle 018's
+            // comparable-metric discovery).
+            answerability: plan.error ? { status: "ambiguous", reason: "candidate-inconsistent" } : { status: "not_directly_answerable", reason: "semantic-incomplete" }
+          };
+        }
+        tracker.enter("execution-plan-building");
+        const executionPlan = executionPlanMapper.map(plan.plan);
+        capturedExecutionPlan = executionPlan;
+        console.log("========== EXECUTION PLAN ==========");
+        console.log(JSON.stringify(executionPlan, null, 2));
+        console.log("====================================");
+        tracker.enter("plan-ambiguity-check");
+        if (!request.identityAlreadyResolved && runtime.domain.executionStrategy.checkPlanAmbiguity) {
+          const planAmbiguities = runtime.domain.executionStrategy.checkPlanAmbiguity(executionPlan);
+          if (planAmbiguities && planAmbiguities.length > 0) {
             return {
               success: false,
               rows: [],
               rowCount: 0,
-              error: guidanceMessage ?? `SQL template not found for requested metric "${secondaryMetric.metric}".`,
+              error: buildClarificationMessage(planAmbiguities),
+              answerability: {
+                status: "ambiguous",
+                reason: "identity-ambiguous",
+                candidates: planAmbiguities.flatMap((ambiguity) => ambiguity.candidates ?? [])
+              },
+              // Tier0 Task 6 (F8 own-choice extension): same carry-forward as the
+              // entity-identity-ambiguity gate above - this Turn's already-
+              // resolved metric/concept candidates (e.g. "mortality-rate" +
+              // "acute-myocardial-infarction" for "Mayo Clinic best AMI
+              // mortality"), so a Layer 2 continuation's "own" choice can tell
+              // whether a specific metric/condition was named at all.
+              semanticMatches: semanticResult.matches
+            };
+          }
+        }
+        const completeness = assessPlanCompleteness(
+          semanticResult.matches,
+          executionPlan,
+          plan.plan.semantic
+        );
+        console.log("========== PLAN COMPLETENESS ==========");
+        console.log(JSON.stringify(completeness, null, 2));
+        console.log("========================================");
+        const hasUnaccountedMetricOrConceptLoss = completeness.discrepancies.some(
+          (discrepancy) => discrepancy.semanticType === "metric" || discrepancy.semanticType === "concept"
+        );
+        if (hasUnaccountedMetricOrConceptLoss) {
+          return {
+            success: false,
+            rows: [],
+            rowCount: 0,
+            error: "This question resolved a measurement that could not be carried through to planning, so I can't safely answer it.",
+            completeness,
+            answerability: {
+              status: "not_directly_answerable",
+              reason: "plan-incomplete"
+            }
+          };
+        }
+        const primaryMetric = plan.plan.semantic.metrics[0]?.canonicalKey;
+        const templateId = runtime.domain.executionStrategy.selectTemplateFromPlan ? runtime.domain.executionStrategy.selectTemplateFromPlan(executionPlan) : runtime.domain.executionStrategy.selectTemplate(
+          primaryMetric,
+          plan.plan.intent
+        );
+        tracker.enter("capability-template-availability");
+        const template = runtime.sqlResolver.resolve(
+          templateId
+        );
+        console.log("========== RUNTIME ==========");
+        console.log("Metrics:", plan.plan.semantic.metrics);
+        console.log("Primary Metric:", primaryMetric);
+        console.log("Requested Template:", templateId);
+        if (template.template) {
+          console.log("Resolved Template:", template.template.id);
+          console.log(
+            "Parameters:",
+            template.template.parameters
+          );
+        }
+        if (!template.found || !template.template) {
+          const alternatives = discoverAlternatives(primaryMetric, executionPlan, runtime);
+          const guidanceMessage = buildGuidanceMessage(
+            {
+              status: "not_directly_answerable",
+              reason: "capability-unavailable",
+              ...alternatives.length > 0 ? { alternatives } : {}
+            },
+            runtime.domain.metrics
+          );
+          return {
+            success: false,
+            rows: [],
+            rowCount: 0,
+            error: guidanceMessage ?? "SQL template not found.",
+            answerability: {
+              status: "not_directly_answerable",
+              reason: "capability-unavailable",
+              ...alternatives.length > 0 ? { alternatives } : {}
+            }
+          };
+        }
+        if (template.template.enabled === false) {
+          const alternatives = discoverAlternatives(primaryMetric, executionPlan, runtime);
+          const guidanceMessage = buildGuidanceMessage(
+            {
+              status: "not_directly_answerable",
+              reason: "capability-unavailable",
+              ...alternatives.length > 0 ? { alternatives } : {}
+            },
+            runtime.domain.metrics
+          );
+          return {
+            success: false,
+            rows: [],
+            rowCount: 0,
+            error: guidanceMessage ?? "This capability is not currently available.",
+            answerability: {
+              status: "not_directly_answerable",
+              reason: "capability-unavailable",
+              ...alternatives.length > 0 ? { alternatives } : {}
+            }
+          };
+        }
+        const parameters = runtime.domain.executionStrategy.resolveParametersFromPlan ? runtime.domain.executionStrategy.resolveParametersFromPlan(executionPlan) : runtime.domain.executionStrategy.resolveParameters(
+          plan.plan.parameters
+        );
+        console.log("========== PARAMETERS ==========");
+        console.log(parameters);
+        console.log("================================");
+        const templateParameters = template.template.parameters ?? [];
+        tracker.enter("parameter-filter-compatibility");
+        const hasIncompatibleFilter = executionPlan.filters.some(
+          (filter) => !isFilterCompatibleWithTemplate(filter, parameters, templateParameters)
+        );
+        if (hasIncompatibleFilter) {
+          return {
+            success: false,
+            rows: [],
+            rowCount: 0,
+            error: "This request's constraints cannot be safely represented by the available execution capability.",
+            answerability: {
+              status: "not_directly_answerable"
+            }
+          };
+        }
+        const missingRequiredParameter = templateParameters.some(
+          (parameter) => parameter.required && (parameters[parameter.name] === void 0 || parameters[parameter.name] === null)
+        );
+        if (missingRequiredParameter) {
+          return {
+            success: false,
+            rows: [],
+            rowCount: 0,
+            error: "I don't have enough specific information to identify exactly which record this question refers to. Please include more identifying detail (such as a full name or location) and try again.",
+            answerability: {
+              status: "not_directly_answerable"
+            }
+          };
+        }
+        tracker.enter("deterministic-warehouse-execution");
+        if (request.dryRun) {
+          return {
+            success: true,
+            rows: [],
+            rowCount: 1,
+            answerability: { status: "answerable" }
+          };
+        }
+        const primaryResult = await executor.execute(
+          template.template,
+          parameters
+        );
+        if (!primaryResult.success) {
+          return {
+            ...primaryResult,
+            answerability: { status: "not_directly_answerable" }
+          };
+        }
+        if (primaryResult.rowCount === 0 && executionPlan.operation === "lookup") {
+          const resolvedEntityCandidates = semanticResult.matches.filter(
+            (candidate) => candidate.semanticType === "entity"
+          );
+          if (resolvedEntityCandidates.length === 1 && template.template.singleEntityRecord === true) {
+            return {
+              ...primaryResult,
+              success: false,
+              error: "No data is available for the requested entity and metric.",
               answerability: {
                 status: "not_directly_answerable",
-                reason: "capability-unavailable",
-                ...alternatives.length > 0 ? { alternatives } : {}
+                reason: "data-unavailable"
               }
             };
           }
-          if (executionPlan.operation === "rank" || executionPlan.operation === "aggregate") {
-            await collectCoverageFact(secondaryMetric.metric, secondaryTemplate.template.coverageTemplateId);
+        }
+        const coverageFacts = [];
+        async function collectCoverageFact(metric, coverageTemplateId) {
+          if (!coverageTemplateId) {
+            return;
           }
-          const secondaryParameters = strategy.resolveSecondaryMetricParameters(
-            secondaryMetric,
-            executionPlan,
-            identityValues
+          const coverageTemplate = runtime.sqlResolver.resolve(coverageTemplateId);
+          if (!coverageTemplate.found || !coverageTemplate.template) {
+            console.log(
+              `========== PHASE 8.6C: coverage template "${coverageTemplateId}" not found - omitting coverage for "${metric}" ==========`
+            );
+            return;
+          }
+          try {
+            const coverageResult = await executor.execute(coverageTemplate.template, parameters);
+            if (!coverageResult.success) {
+              console.log(
+                `========== PHASE 8.6C: coverage query for "${metric}" failed - omitting coverage: ${coverageResult.error ?? "unknown error"} ==========`
+              );
+              return;
+            }
+            const coverageRow = coverageResult.rows[0];
+            const eligibleCount = Number(coverageRow?.eligible_count);
+            const coveredCount = Number(coverageRow?.covered_count);
+            if (!Number.isFinite(eligibleCount) || !Number.isFinite(coveredCount)) {
+              console.log(
+                `========== PHASE 8.6C: coverage query for "${metric}" returned an unexpected shape - omitting coverage ==========`
+              );
+              return;
+            }
+            coverageFacts.push({ metric, eligibleCount, coveredCount });
+          } catch (error) {
+            console.log(
+              `========== PHASE 8.6C: coverage query for "${metric}" threw - omitting coverage: ${error instanceof Error ? error.message : String(error)} ==========`
+            );
+          }
+        }
+        if (executionPlan.operation === "rank" || executionPlan.operation === "aggregate") {
+          await collectCoverageFact(executionPlan.metric, template.template.coverageTemplateId);
+        }
+        const strategy = runtime.domain.executionStrategy;
+        const identityField = strategy.resultIdentityField;
+        if (executionPlan.metrics && executionPlan.metrics.length > 1 && identityField && strategy.selectSecondaryMetricTemplate && strategy.resolveSecondaryMetricParameters) {
+          const primaryRows = primaryResult.rows;
+          const identityValues = primaryRows.map((row) => row[identityField]).filter((value) => value !== void 0 && value !== null);
+          const secondaryMetrics = executionPlan.metrics.filter(
+            (metric) => metric.metric !== executionPlan.metric
           );
-          const secondaryResult = await executor.execute(
-            secondaryTemplate.template,
-            secondaryParameters
-          );
-          if (!secondaryResult.success) {
-            return {
-              success: false,
-              rows: [],
-              rowCount: 0,
-              error: `Failed to execute requested metric "${secondaryMetric.metric}": ${secondaryResult.error ?? "unknown error"}`,
-              answerability: { status: "not_directly_answerable" }
-            };
-          }
-          const secondaryRows = secondaryResult.rows;
-          const secondaryIndex = /* @__PURE__ */ new Map();
-          for (const row of secondaryRows) {
-            secondaryIndex.set(row[identityField], row);
-          }
-          for (const row of primaryRows) {
-            const match = secondaryIndex.get(row[identityField]);
-            if (match) {
-              for (const [key, value] of Object.entries(match)) {
-                if (key !== identityField) {
-                  row[key] = value;
+          console.log("========== PHASE 7: SECONDARY METRICS ==========");
+          console.log("Identity field:", identityField);
+          console.log("Identity values:", identityValues);
+          console.log("Secondary metrics:", secondaryMetrics);
+          console.log("==================================================");
+          for (const secondaryMetric of secondaryMetrics) {
+            const secondaryTemplateId = strategy.selectSecondaryMetricTemplate(
+              secondaryMetric,
+              executionPlan
+            );
+            const secondaryTemplate = runtime.sqlResolver.resolve(secondaryTemplateId);
+            if (!secondaryTemplate.found || !secondaryTemplate.template) {
+              const alternatives = discoverAlternatives(secondaryMetric.metric, executionPlan, runtime);
+              const guidanceMessage = buildGuidanceMessage(
+                {
+                  status: "not_directly_answerable",
+                  reason: "capability-unavailable",
+                  ...alternatives.length > 0 ? { alternatives } : {}
+                },
+                runtime.domain.metrics
+              );
+              return {
+                success: false,
+                rows: [],
+                rowCount: 0,
+                error: guidanceMessage ?? `SQL template not found for requested metric "${secondaryMetric.metric}".`,
+                answerability: {
+                  status: "not_directly_answerable",
+                  reason: "capability-unavailable",
+                  ...alternatives.length > 0 ? { alternatives } : {}
+                }
+              };
+            }
+            if (executionPlan.operation === "rank" || executionPlan.operation === "aggregate") {
+              await collectCoverageFact(secondaryMetric.metric, secondaryTemplate.template.coverageTemplateId);
+            }
+            const secondaryParameters = strategy.resolveSecondaryMetricParameters(
+              secondaryMetric,
+              executionPlan,
+              identityValues
+            );
+            const secondaryResult = await executor.execute(
+              secondaryTemplate.template,
+              secondaryParameters
+            );
+            if (!secondaryResult.success) {
+              return {
+                success: false,
+                rows: [],
+                rowCount: 0,
+                error: "I couldn't retrieve one of the requested measures right now. Please try again or ask about a single measure.",
+                answerability: { status: "not_directly_answerable" }
+              };
+            }
+            const secondaryRows = secondaryResult.rows;
+            const secondaryIndex = /* @__PURE__ */ new Map();
+            for (const row of secondaryRows) {
+              secondaryIndex.set(row[identityField], row);
+            }
+            for (const row of primaryRows) {
+              const match = secondaryIndex.get(row[identityField]);
+              if (match) {
+                for (const [key, value] of Object.entries(match)) {
+                  if (key !== identityField) {
+                    row[key] = value;
+                  }
                 }
               }
             }
           }
         }
-      }
-      return {
-        ...primaryResult,
-        completeness,
-        answerability: { status: "answerable" },
-        ...coverageFacts.length > 0 ? { coverage: coverageFacts } : {}
+        return {
+          ...primaryResult,
+          completeness,
+          answerability: { status: "answerable" },
+          ...coverageFacts.length > 0 ? { coverage: coverageFacts } : {}
+        };
       };
+      const result = await runPipeline();
+      tracker.exit(
+        "response",
+        result.success ? "ok" : "refused",
+        result.rowCount ?? 0,
+        result.answerability?.status
+      );
+      const finalResult = { ...result, trace: tracker.gates };
+      if (!request.includeSuggestions || !runtime.domain.executionStrategy.generateSuggestions) {
+        return finalResult;
+      }
+      const suggestionContext = {
+        question: request.question,
+        success: finalResult.success,
+        rowCount: finalResult.rowCount,
+        rows: finalResult.rows,
+        ...capturedExecutionPlan ? { executionPlan: capturedExecutionPlan } : {},
+        ...finalResult.answerability ? { answerability: finalResult.answerability } : {}
+      };
+      const candidateQuestions = runtime.domain.executionStrategy.generateSuggestions(
+        suggestionContext
+      );
+      const isIdentityAmbiguous = finalResult.answerability?.status === "ambiguous" && finalResult.answerability?.reason === "identity-ambiguous";
+      if (isIdentityAmbiguous) {
+        return { ...finalResult, suggestions: candidateQuestions.slice(0, 3) };
+      }
+      const suggestions = [];
+      for (const candidate of candidateQuestions) {
+        if (suggestions.length >= 3) {
+          break;
+        }
+        if (suggestions.includes(candidate) || candidate === request.question) {
+          continue;
+        }
+        const trial = await engine.execute({
+          question: candidate,
+          dryRun: true
+        });
+        if (trial.success) {
+          suggestions.push(candidate);
+        }
+      }
+      return { ...finalResult, suggestions };
     }
   };
+  return engine;
 }
 
 // src/continuation/create-pending-interaction.ts
@@ -580,6 +776,28 @@ function reconstructGuidanceRequest(interaction, selectedOption) {
     originalSemanticResult: interaction.originalSemanticResult
   };
 }
+
+// src/continuation/reconstruct-hospital-choice.ts
+function reconstructHospitalChoice(selectedOption) {
+  const choice = selectedOption.facility_id;
+  if (!choice || typeof choice !== "object" || !choice.choice || !choice.hospitalName) {
+    return null;
+  }
+  if (choice.choice === "similar") {
+    return {
+      kind: "guidance",
+      message: `We don't have similarity ranking yet. You can compare ${choice.hospitalName} with another hospital explicitly (e.g. "Compare ${choice.hospitalName} and Cleveland Clinic"), or ask for the highest-rated hospitals in a specific state.`
+    };
+  }
+  if (choice.choice === "lookup" && choice.facilityId) {
+    return {
+      kind: "lookup",
+      facilityId: choice.facilityId,
+      hospitalName: choice.hospitalName
+    };
+  }
+  return null;
+}
 export {
   buildClarificationMessage,
   buildGuidanceMessage,
@@ -590,5 +808,6 @@ export {
   matchGuidanceResponse,
   reconstructClarificationRequest,
   reconstructGuidanceRequest,
+  reconstructHospitalChoice,
   retrievePendingInteraction
 };

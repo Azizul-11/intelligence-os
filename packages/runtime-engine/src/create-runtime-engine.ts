@@ -1,10 +1,10 @@
 import type { DomainRuntime } from "@intelligence/domain-runtime";
 import type { QueryPlanner, ExecutionPlanMapper } from "@intelligence/query-planner";
-import { assessPlanCompleteness, hasRelationshipWithoutBenchmark } from "@intelligence/query-planner";
+import { assessPlanCompleteness, hasRelationshipWithoutBenchmark, detectSubsumedBenchmarkRisk } from "@intelligence/query-planner";
 import type { SqlExecutor } from "@intelligence/sql-executor";
 import type { SemanticResolver } from "@intelligence/semantic";
 import type { ExecutionPlan, ExecutionFilter } from "@intelligence/contracts";
-import type { MetricDefinition, SqlTemplateParameter } from "@intelligence/domain-sdk";
+import type { MetricDefinition, SqlTemplateParameter, SuggestionContext } from "@intelligence/domain-sdk";
 
 import type { RuntimeEngine } from "./runtime-engine";
 import type { RuntimeRequest } from "./runtime-request";
@@ -12,6 +12,7 @@ import type { RuntimeResult } from "./runtime-result";
 import type { CoverageFact } from "./coverage-fact";
 import { buildClarificationMessage } from "./build-clarification-message";
 import { buildGuidanceMessage } from "./build-guidance-message";
+import { PhaseGateTracker } from "./phase-gate-tracker";
 
 /**
  * Phase 8.8: structural equality for a filter's resolved value against a
@@ -41,21 +42,32 @@ function valuesMatch(a: unknown, b: unknown): boolean {
  * the original Phase 8.8 gate so Phase 8.9's alternative discovery can
  * reuse the exact same mechanism against a candidate metric's own
  * template, rather than a second implementation of the same rule.
+ *
+ * Tier1 Task 5 (Phase 1): only an "in"-operator filter can ever be
+ * incompatible. A scalar "=" filter with no matching template parameter
+ * is left alone (return true) - this is deliberately unconditional,
+ * unrelated to operation type, so a redundant, coarser scalar filter
+ * alongside an already-resolved identity (e.g. a "state" filter beside a
+ * "hospital" filter that already uniquely determines the record) is
+ * never treated as incompatible, exactly as before. This is what makes
+ * it safe to apply this same check to every operation - previously the
+ * caller had to scope it to "rank"/"aggregate" only to avoid that exact
+ * false positive on "lookup"/"compare".
  */
 function isFilterCompatibleWithTemplate(
   filter: ExecutionFilter,
   resolvedParameters: Record<string, unknown>,
   templateParameters: SqlTemplateParameter[],
 ): boolean {
+  if (filter.operator !== "in") {
+    return true;
+  }
+
   const matchingParameter = templateParameters.find((parameter) =>
     valuesMatch(resolvedParameters[parameter.name], filter.value),
   );
 
-  if (!matchingParameter) {
-    return false;
-  }
-
-  return !(filter.operator === "in" && matchingParameter.type !== "array");
+  return matchingParameter?.type === "array";
 }
 
 const ALTERNATIVE_OPERATION_FLAG = {
@@ -136,16 +148,90 @@ export function createRuntimeEngine({
   executionPlanMapper,
   executor,
 }: CreateRuntimeEngineOptions): RuntimeEngine {
-  return {
+  // Tier1 Task 6: `engine` is declared before `execute` runs so the
+  // suggestion dry-run loop below can recursively call `engine.execute`
+  // on itself (self-reference via closure, resolved by the time any
+  // request actually arrives).
+  const engine: RuntimeEngine = {
     async execute(request: RuntimeRequest): Promise<RuntimeResult> {
+      // Tier0 Task 2 (F8) Phase 2: Query Tracer Observability. Wraps the
+      // entire, unchanged pipeline below so every response - whichever
+      // gate it stops at - carries a `trace` of exactly which gates this
+      // specific request actually visited. The tracker only ever records
+      // what already happened; it changes no control flow.
+      const tracker = new PhaseGateTracker(
+        request.requestId ?? crypto.randomUUID(),
+        request.question,
+      );
+
+      // Tier1 Task 6: captured as a side effect at the single point
+      // below where execution-plan-mapper builds it, so the suggestion
+      // generator can use the same plan this request already built
+      // without threading it through every one of runPipeline()'s many
+      // return statements.
+      let capturedExecutionPlan: ExecutionPlan | undefined;
+
+      const runPipeline = async (): Promise<RuntimeResult> => {
       console.log(">>> RuntimeEngine.execute()");
+      tracker.enter("semantic-candidate-resolution");
       const semanticResult = semantic.resolve(request.question);
+      tracker.exit(
+        "semantic-candidate-resolution",
+        semanticResult.resolved ? "ok" : "unresolved",
+        0,
+      );
 
 console.log("========== SEMANTIC RESULT ==========");
 console.log(
   JSON.stringify(semanticResult, null, 2),
 );
 console.log("=====================================");
+
+      // Tier0 Task 6: Layer 2 continuation structural identity
+      // injection. A Turn 2 continuation whose request carries a
+      // `forcedIdentityCandidate` already pinned down exactly which
+      // candidate the user meant in Turn 1 - re-deriving that same
+      // identity from the reconstructed question's text alone is not
+      // safe to assume (see RuntimeRequest.forcedIdentityCandidate's own
+      // doc comment): it can re-trigger the identical ambiguity Turn 1
+      // already resolved. Matches the forced candidate's opaque `value`
+      // against every ambiguity's own `candidates` list, by value only
+      // (never by name or domain vocabulary, mirroring valuesMatch()'s
+      // own by-value philosophy) - never trusting a value the offered
+      // candidates didn't actually contain. Only ever resolves an
+      // ambiguity that still exists on this fresh resolution; an entity
+      // that already resolved (successfully or not) through the
+      // ordinary text pipeline is left untouched.
+      if (request.forcedIdentityCandidate && semanticResult.identityAmbiguities) {
+        const forcedValue = request.forcedIdentityCandidate.value;
+        const matchIndex = semanticResult.identityAmbiguities.findIndex((ambiguity) =>
+          (ambiguity.candidates ?? []).some(
+            (candidate) =>
+              valuesMatch(candidate, forcedValue) ||
+              valuesMatch((candidate as { value?: unknown } | null)?.value, forcedValue),
+          ),
+        );
+
+        if (matchIndex !== -1) {
+          const resolvedAmbiguity = semanticResult.identityAmbiguities.splice(matchIndex, 1)[0]!;
+          const entityDefinition = resolvedAmbiguity.entityId
+            ? runtime.registry.getEntity(resolvedAmbiguity.entityId)
+            : undefined;
+
+          if (entityDefinition) {
+            semanticResult.matches.push({
+              phrase: resolvedAmbiguity.phrase ?? "",
+              canonicalKey: resolvedAmbiguity.entityId!,
+              semanticType: "entity",
+              definition: entityDefinition,
+              confidence: 1,
+              start: 0,
+              end: 0,
+              resolvedValue: forcedValue,
+            });
+          }
+        }
+      }
 
       // Phase 8.1: an entity mention resolved to more than one legitimate
       // candidate identity (e.g. two real hospitals sharing the same
@@ -173,6 +259,7 @@ console.log("=====================================");
       // unrelated part of semantic resolution also failed. The gate
       // itself (this check's condition, its whole-request-refusal
       // granularity) is otherwise unchanged from Phase 8.1/8.3.
+      tracker.enter("entity-identity-ambiguity");
       if (semanticResult.identityAmbiguities && semanticResult.identityAmbiguities.length > 0) {
         return {
           success: false,
@@ -186,6 +273,12 @@ console.log("=====================================");
               (ambiguity) => ambiguity.candidates ?? [],
             ),
           },
+          // Tier0 Task 6: carries this Turn's already-resolved metric/
+          // concept/etc candidates (never the ambiguous entity itself)
+          // forward, so a Layer 2 continuation's pending interaction can
+          // store real reconstruction context in `originalSemanticResult`
+          // instead of an empty placeholder.
+          semanticMatches: semanticResult.matches,
         };
       }
 
@@ -242,12 +335,44 @@ console.log("=====================================");
         };
       }
 
+      // Tier0 Task 4 (F1): a more specific benchmark alias (e.g.
+      // "national average") can be silently broken by a word inserted
+      // between its own words (e.g. "national mortality average") -
+      // PhraseExtractor only matches contiguous spans, so only a
+      // generic fallback alias (e.g. bare "average" -> median) resolves
+      // instead, and the query would otherwise execute successfully
+      // against the wrong benchmark with no signal anything went wrong.
+      // Refused honestly here, before any planning or SQL execution,
+      // reusing the same "candidate-inconsistent" reason as the two
+      // checks above - all three represent the same underlying state: a
+      // semantic candidate set that does not safely cohere into one
+      // interpretation.
+      const subsumedBenchmarkRisk = detectSubsumedBenchmarkRisk(
+        semanticResult.matches,
+        semanticResult.normalizedQuery,
+        runtime.domain.aliases,
+      );
+
+      if (subsumedBenchmarkRisk) {
+        return {
+          success: false,
+          rows: [],
+          rowCount: 0,
+          error:
+            `This question mentions "${subsumedBenchmarkRisk.parentPhrase}", but the words aren't placed together, so I can't confirm you meant that specific comparison rather than a plain "${subsumedBenchmarkRisk.fallbackPhrase}". Please rephrase so "${subsumedBenchmarkRisk.parentPhrase}" appears together (e.g. "above the ${subsumedBenchmarkRisk.parentPhrase}").`,
+          answerability: {
+            status: "ambiguous",
+            reason: "candidate-inconsistent",
+          },
+        };
+      }
+
       // Fix Cycle 018 (Option A): pass the active domain's full,
       // already-declared metric list through opaquely, so QueryPlanner
       // can discover a domain-declared `comparable` set for a
       // metric-less multi-entity request. Universal Core never inspects
       // this list beyond the generic `comparable` flag.
-      const plan = planner.createPlan(semanticResult, runtime.domain.metrics);
+      const plan = planner.createPlan(semanticResult, runtime.domain.metrics, request.forcedIntent);
 
     if (
   !plan.success ||
@@ -274,11 +399,55 @@ console.log("=====================================");
 }
 
 // Phase 5.3: Create ExecutionPlan from QueryPlan
+tracker.enter("execution-plan-building");
 const executionPlan = executionPlanMapper.map(plan.plan);
+capturedExecutionPlan = executionPlan;
 
 console.log("========== EXECUTION PLAN ==========");
 console.log(JSON.stringify(executionPlan, null, 2));
 console.log("====================================");
+
+// Pre-Phase 9 Tier0: a Domain SDK may only be able to detect certain
+// ambiguities once every filter in the ExecutionPlan is known (e.g. a
+// geographic scope filter whose value collides across states, with no
+// state filter present to disambiguate it) - impossible to catch earlier,
+// since identity ambiguity above is checked per-phrase, before filters
+// are ever assembled together. Reuses the exact same Phase 8.3 targeted-
+// clarification shape as the identityAmbiguities gate above: refused
+// honestly, before any template selection or SQL execution (Phase 8.13:
+// SQL_calls = 0), never a synthetic/unregistered template id.
+tracker.enter("plan-ambiguity-check");
+// Tier0 Task 2 (F8) frontend fix: a Layer 2 continuation Turn 2 that
+// already resolved which specific identity the user meant (see
+// RuntimeRequest.identityAlreadyResolved's own doc comment) must not
+// chain into a further plan-level ambiguity clarification about that
+// same, already-resolved identity - pending_interactions are bounded
+// two-turn only. Every other gate below (metric/template/parameter)
+// still runs normally for this request.
+if (!request.identityAlreadyResolved && runtime.domain.executionStrategy.checkPlanAmbiguity) {
+  const planAmbiguities = runtime.domain.executionStrategy.checkPlanAmbiguity(executionPlan);
+
+  if (planAmbiguities && planAmbiguities.length > 0) {
+    return {
+      success: false,
+      rows: [],
+      rowCount: 0,
+      error: buildClarificationMessage(planAmbiguities),
+      answerability: {
+        status: "ambiguous",
+        reason: "identity-ambiguous",
+        candidates: planAmbiguities.flatMap((ambiguity) => ambiguity.candidates ?? []),
+      },
+      // Tier0 Task 6 (F8 own-choice extension): same carry-forward as the
+      // entity-identity-ambiguity gate above - this Turn's already-
+      // resolved metric/concept candidates (e.g. "mortality-rate" +
+      // "acute-myocardial-infarction" for "Mayo Clinic best AMI
+      // mortality"), so a Layer 2 continuation's "own" choice can tell
+      // whether a specific metric/condition was named at all.
+      semanticMatches: semanticResult.matches,
+    };
+  }
+}
 
 // Pre-Phase 8: observe (never correct) whether every semantically
 // resolved candidate ended up represented in the plan just built.
@@ -352,6 +521,7 @@ const templateId = runtime.domain.executionStrategy.selectTemplateFromPlan
       plan.plan.intent,
     );
 
+tracker.enter("capability-template-availability");
 const template =
   runtime.sqlResolver.resolve(
     templateId,
@@ -474,30 +644,32 @@ console.log("================================");
 // six accurately describes a generic plan/template shape mismatch (the
 // same reasoning as the Phase 8.7 fallback for a raw executor failure).
 //
-// Scoped to "rank"/"aggregate" operations only - the same scoping
-// 8.6C's own coverage-collection gate already uses, and for the same
-// underlying reason: only a population-scoped operation can silently
-// change WHICH population gets queried when a filter is dropped. A
-// "lookup"/"compare" operation is already anchored to the specific
-// identity(ies) already resolved (via whatever Domain-owned parameter
-// name carries that identity - verified generically below by value,
-// not by name) - a redundant, coarser filter alongside it (e.g. a
-// "state" filter alongside a "hospital" filter that already uniquely
-// identifies one facility) changes nothing about which record that
-// template targets, so it is not a silent constraint loss. Confirmed
+// Tier1 Task 5 (Phase 1): previously scoped to "rank"/"aggregate"
+// operations only, to avoid a false positive on a "lookup"/"compare"
+// request's own redundant, coarser scalar filter alongside an already-
+// resolved identity (e.g. a "state" filter alongside a "hospital"
+// filter that already uniquely identifies one facility - confirmed
 // live: "What is the overall rating of Mayo Clinic in Jacksonville,
-// Florida?" resolves BOTH a "hospital" filter and a redundant "state"
-// filter (Florida also independently resolves as its own state
-// entity) - the single-entity lookup template has no "state" parameter
-// at all and was never meant to, since the hospital filter alone
-// already fully determines the one correct record.
+// Florida?" - the single-entity lookup template has no "state"
+// parameter at all and was never meant to). isFilterCompatibleWithTemplate()
+// itself now only ever flags an "in"-operator filter (an unrepresented
+// scalar "=" filter is unconditionally left alone, regardless of
+// operation - see its own updated comment), so that same redundant-
+// filter case remains unaffected here with no operation-based scoping
+// needed at all: applying this check uniformly to every operation is
+// what now lets a genuinely unsafe multi-value "in" filter (e.g. 2+
+// resolved "state" entities reaching a template with no array-typed
+// parameter to hold them) be caught before any SQL runs for a
+// "lookup"/"compare" request too, closing a live Phase 8.13 invariant
+// violation where such a request previously reached SqlExecutor
+// unguarded and leaked a raw database error with sqlCalls>0 despite a
+// `not_directly_answerable` classification.
 const templateParameters = template.template.parameters ?? [];
 
-const hasIncompatibleFilter =
-  (executionPlan.operation === "rank" || executionPlan.operation === "aggregate") &&
-  executionPlan.filters.some(
-    (filter) => !isFilterCompatibleWithTemplate(filter, parameters, templateParameters),
-  );
+tracker.enter("parameter-filter-compatibility");
+const hasIncompatibleFilter = executionPlan.filters.some(
+  (filter) => !isFilterCompatibleWithTemplate(filter, parameters, templateParameters),
+);
 
 if (hasIncompatibleFilter) {
   return {
@@ -508,6 +680,52 @@ if (hasIncompatibleFilter) {
     answerability: {
       status: "not_directly_answerable",
     },
+  };
+}
+
+// Tier0 Task 3 Full Fix ("Gate 6"): a required template parameter with
+// no resolved value (e.g. an entity that never resolved at all, or
+// resolved to an ambiguity Universal Core already reported elsewhere)
+// must never reach SqlExecutor, whose own required-parameter guard
+// throws a raw, internal string (e.g. "Missing required parameter:
+// hospitalId") - accurate for debugging, meaningless and un-actionable
+// for a user. Checked generically by declared template shape, not by
+// any Domain-specific parameter name, so this stays Domain-agnostic.
+const missingRequiredParameter = templateParameters.some(
+  (parameter) =>
+    parameter.required &&
+    (parameters[parameter.name] === undefined || parameters[parameter.name] === null),
+);
+
+if (missingRequiredParameter) {
+  return {
+    success: false,
+    rows: [],
+    rowCount: 0,
+    error:
+      "I don't have enough specific information to identify exactly which record this question refers to. Please include more identifying detail (such as a full name or location) and try again.",
+    answerability: {
+      status: "not_directly_answerable",
+    },
+  };
+}
+
+tracker.enter("deterministic-warehouse-execution");
+
+// Tier1 Task 6 regression fix (bug 3 - production latency): a dry-run
+// request (suggestion candidate validation only) never touches the
+// warehouse. Every gate above this line has already run for real
+// (semantic resolution, planning, template/capability selection, filter
+// compatibility) - reaching this point means the candidate cleared every
+// one of those checks, i.e. it "would be answerable." Returns a
+// synthetic successful result instead of calling the executor - see
+// RuntimeRequest.dryRun's own doc comment for the accepted trade-off.
+if (request.dryRun) {
+  return {
+    success: true,
+    rows: [],
+    rowCount: 1,
+    answerability: { status: "answerable" },
   };
 }
 
@@ -749,11 +967,20 @@ if (
       //
       // Phase 8.7: same generic fallback as above - this path never
       // attached an AnswerabilityResult before.
+      //
+      // Tier1 Task 6: this is a genuine execution-time failure (the
+      // template exists and was found, unlike the capability-unavailable
+      // gates above) - `secondaryResult.error` is a raw error string from
+      // the SQL executor/database adapter and must never reach the user
+      // verbatim (exactly the "raw SQL error on frontend" risk this task
+      // closes). Replaced with a generic, non-leaking message; the raw
+      // detail remains available server-side via logging/tracing, never
+      // in this user-facing field.
       return {
         success: false,
         rows: [],
         rowCount: 0,
-        error: `Failed to execute requested metric "${secondaryMetric.metric}": ${secondaryResult.error ?? "unknown error"}`,
+        error: "I couldn't retrieve one of the requested measures right now. Please try again or ask about a single measure.",
         answerability: { status: "not_directly_answerable" },
       };
     }
@@ -790,6 +1017,101 @@ return {
   answerability: { status: "answerable" },
   ...(coverageFacts.length > 0 ? { coverage: coverageFacts } : {}),
 };
+      };
+
+      const result = await runPipeline();
+
+      tracker.exit(
+        "response",
+        result.success ? "ok" : "refused",
+        result.rowCount ?? 0,
+        result.answerability?.status,
+      );
+
+      const finalResult: RuntimeResult = { ...result, trace: tracker.gates };
+
+      // Tier1 Task 6: opt-in only (see RuntimeRequest.includeSuggestions's
+      // own doc comment for why) - a request that doesn't ask for
+      // suggestions (every pre-existing caller, and the dry-run
+      // validation call below on each candidate) gets none, unchanged
+      // from pre-Tier1-T6 behavior. Also requires the domain to have
+      // implemented the optional hook at all.
+      if (!request.includeSuggestions || !runtime.domain.executionStrategy.generateSuggestions) {
+        return finalResult;
+      }
+
+      const suggestionContext: SuggestionContext = {
+        question: request.question,
+        success: finalResult.success,
+        rowCount: finalResult.rowCount,
+        rows: finalResult.rows as readonly Record<string, unknown>[],
+        ...(capturedExecutionPlan ? { executionPlan: capturedExecutionPlan } : {}),
+        ...(finalResult.answerability ? { answerability: finalResult.answerability } : {}),
+      };
+
+      const candidateQuestions = runtime.domain.executionStrategy.generateSuggestions(
+        suggestionContext,
+      );
+
+      // Tier1 T6 regression fix (bug 1): an identity-ambiguous
+      // candidate is a CONTINUATION TOKEN (e.g. a bare city name), not a
+      // standalone question - it is only meaningful when matched against
+      // THIS response's own `answerability.candidates` by
+      // matchClarificationResponse() (see continuation.ts), and running
+      // it through a fresh top-level execute() would almost always fail
+      // semantic resolution on its own, dropping every candidate. The
+      // Domain's own generator already proved uniqueness against the
+      // same candidates[] before returning these (see
+      // suggestion-generator.ts's own doc comment) - trusted directly,
+      // no dry-run.
+      const isIdentityAmbiguous =
+        finalResult.answerability?.status === "ambiguous" &&
+        finalResult.answerability?.reason === "identity-ambiguous";
+
+      if (isIdentityAmbiguous) {
+        return { ...finalResult, suggestions: candidateQuestions.slice(0, 3) };
+      }
+
+      const suggestions: string[] = [];
+
+      for (const candidate of candidateQuestions) {
+        if (suggestions.length >= 3) {
+          break;
+        }
+
+        if (suggestions.includes(candidate) || candidate === request.question) {
+          continue;
+        }
+
+        // Tier1 T6 regression fix (bug 3 - production latency): validates
+        // each candidate with `dryRun: true`, which runs the full
+        // pipeline (semantic resolution, planning, template/capability
+        // selection, filter compatibility) but returns BEFORE the actual
+        // SQL execution gate (see the `request.dryRun` short-circuit
+        // above `deterministic-warehouse-execution`) - proving the
+        // candidate is answerable without a live warehouse round-trip.
+        // `includeSuggestions` is deliberately omitted so a candidate
+        // never recursively spawns suggestions of its own. Accepted
+        // trade-off: this proves "would be answerable," not "does
+        // return 1+ real rows" the way an actual execution would -
+        // mitigated by candidates only ever being drawn from patterns
+        // already known to have real data (nationwide/major-state
+        // phrasings, or the Domain's own pre-verified fallback strings),
+        // and independently spot-checked with real execution by
+        // scripts/verify-tier1-t6-suggestions-fix.ts.
+        const trial = await engine.execute({
+          question: candidate,
+          dryRun: true,
+        });
+
+        if (trial.success) {
+          suggestions.push(candidate);
+        }
+      }
+
+      return { ...finalResult, suggestions };
     },
   };
+
+  return engine;
 }

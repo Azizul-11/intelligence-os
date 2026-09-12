@@ -5,3 +5,5 @@ export { matchClarificationResponse } from "./match-clarification";
 export { matchGuidanceResponse } from "./match-guidance";
 export { reconstructClarificationRequest } from "./reconstruct-clarification";
 export { reconstructGuidanceRequest } from "./reconstruct-guidance";
+export { reconstructHospitalChoice } from "./reconstruct-hospital-choice";
+export type { HospitalChoiceReconstruction } from "./reconstruct-hospital-choice";
