@@ -7,7 +7,26 @@ import { cn } from "@/shared/lib/utils";
 import {
   askOrchestrator,
   type ChatResponse,
+  type PhaseGateTraceEntry,
 } from "../api/orchestrator";
+
+/**
+ * Tier0 Task 2 (F8) Phase 2: the same 7 gates
+ * packages/runtime-engine/src/phase-gate-tracker.ts declares, mirrored
+ * here only as display labels/order - this component never decides
+ * anything from these, it only renders whatever `trace` the backend
+ * response already carries for that exact request.
+ */
+const GATE_LABELS: Record<string, string> = {
+  "semantic-candidate-resolution": "Semantic Extraction",
+  "entity-identity-ambiguity": "Entity Resolution",
+  "execution-plan-building": "Plan Building",
+  "plan-ambiguity-check": "Ambiguity Check",
+  "capability-template-availability": "Capability Check",
+  "parameter-filter-compatibility": "Filter Compatibility",
+  "deterministic-warehouse-execution": "Execution",
+};
+const GATE_ORDER = Object.keys(GATE_LABELS);
 
 /**
  * Example prompts covering already-verified capabilities only, per the
@@ -201,14 +220,20 @@ export function QueryConsole() {
         )}
 
         {history.map((entry) => (
-          <ResultCard key={entry.id} entry={entry} />
+          <ResultCard key={entry.id} entry={entry} onSuggestionClick={submit} />
         ))}
       </div>
     </div>
   );
 }
 
-function ResultCard({ entry }: { entry: HistoryEntry }) {
+function ResultCard({
+  entry,
+  onSuggestionClick,
+}: {
+  entry: HistoryEntry;
+  onSuggestionClick: (question: string) => void;
+}) {
   const { question, result } = entry;
   const success = result.success;
   
@@ -249,6 +274,10 @@ function ResultCard({ entry }: { entry: HistoryEntry }) {
           {success ? "success" : isContinuation ? "needs clarification" : "failure"}
         </span>
       </div>
+
+      {"trace" in result && result.trace && result.trace.length > 0 && (
+        <PhasePipeline trace={result.trace} />
+      )}
 
       {"metadata" in result && result.metadata?.rowCount !== undefined && (
         <p className="mb-2 text-xs text-muted-foreground">
@@ -310,6 +339,86 @@ function ResultCard({ entry }: { entry: HistoryEntry }) {
           {JSON.stringify(rows, null, 2)}
         </pre>
       )}
+
+      {/* Tier1 Task 6: every response (success, clarification, guidance,
+          or plain failure) can carry 2-3 already-verified-answerable
+          follow-up chips - reuses the exact same submit() path a manual
+          question or an EXAMPLE_PROMPTS click already uses, so clicking
+          one sends it immediately, no special-casing. */}
+      {"suggestions" in result && result.suggestions && result.suggestions.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2 border-t border-border/50 pt-3">
+          {result.suggestions.map((suggestion) => (
+            <button
+              key={suggestion}
+              type="button"
+              onClick={() => onSuggestionClick(suggestion)}
+              className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              {suggestion}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Tier0 Task 2 (F8) Phase 2: renders the ordered gate trace this exact
+ * response carried, proving live (per response, not as a general claim)
+ * which of the 7 gates this specific query actually visited before
+ * stopping - a query refused at gate 4 shows gates 5-7 as never reached,
+ * which is the correct, expected shape for a refusal, not a rendering
+ * bug. A gate present in `trace` under a name this component doesn't
+ * recognize (e.g. a future gate) still renders, generically, rather than
+ * being silently dropped - this view must never hide evidence.
+ */
+function PhasePipeline({ trace }: { trace: PhaseGateTraceEntry[] }) {
+  const lastByPhase = new Map<string, PhaseGateTraceEntry>();
+  const seenOrder: string[] = [];
+
+  for (const entry of trace) {
+    if (!lastByPhase.has(entry.phase)) {
+      seenOrder.push(entry.phase);
+    }
+    lastByPhase.set(entry.phase, entry);
+  }
+
+  const orderedPhases = [
+    ...GATE_ORDER.filter((phase) => seenOrder.includes(phase)),
+    ...seenOrder.filter((phase) => !GATE_ORDER.includes(phase)),
+  ];
+  const unreached = GATE_ORDER.filter((phase) => !seenOrder.includes(phase));
+
+  return (
+    <div className="mb-2 flex flex-wrap items-center gap-1.5 text-xs">
+      {orderedPhases.map((phase) => {
+        const last = lastByPhase.get(phase)!;
+        const stopped = last.status !== "enter" && last.status !== "ok";
+        return (
+          <span
+            key={phase}
+            title={`${phase}: ${last.status}${last.answerability ? ` (${last.answerability})` : ""}`}
+            className={cn(
+              "rounded-full px-2 py-0.5 font-medium",
+              stopped
+                ? "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+                : "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300",
+            )}
+          >
+            {stopped ? "⏸" : "✅"} {GATE_LABELS[phase] ?? phase}
+          </span>
+        );
+      })}
+      {unreached.map((phase) => (
+        <span
+          key={phase}
+          title={`${phase}: not reached`}
+          className="rounded-full bg-muted px-2 py-0.5 font-medium text-muted-foreground"
+        >
+          — {GATE_LABELS[phase]}
+        </span>
+      ))}
     </div>
   );
 }

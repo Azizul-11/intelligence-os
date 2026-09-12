@@ -18,6 +18,14 @@ export interface ChatRequest {
   continuationResponse?: string;
 }
 
+export interface PhaseGateTraceEntry {
+  phase: string;
+  timestamp: number;
+  status: string;
+  sqlCalls: number;
+  answerability?: string;
+}
+
 export interface ChatResponse {
   success: boolean;
   answer: string;
@@ -29,6 +37,12 @@ export interface ChatResponse {
   // Phase 8.10 Layer 2: Continuation support
   pendingInteractionId?: string;
   interactionKind?: "clarification" | "guidance";
+  // Tier0 Task 2 (F8) Phase 2: Query Tracer Observability
+  requestId?: string;
+  answerability?: { status: string; reason?: string };
+  trace?: PhaseGateTraceEntry[];
+  // Tier1 Task 6: 2-3 already-verified-answerable follow-up/recovery chips
+  suggestions?: string[];
 }
 
 const ORCHESTRATOR_URL = import.meta.env.VITE_ORCHESTRATOR_URL as
