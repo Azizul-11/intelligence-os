@@ -17,7 +17,7 @@ import type { SemanticCandidate } from "../candidate";
 import { EntityResolver } from "../entity";
 import { ModifierDirectionResolver } from "../direction";
 import { TemporalResolver } from "../temporal";
-import type { EntityResolutionResult } from "@intelligence/domain-sdk";
+import type { EntityResolutionResult, EntityDefinition } from "@intelligence/domain-sdk";
 export class SemanticPipeline {
   constructor(
     private readonly normalizer: Normalizer,
@@ -218,25 +218,51 @@ export class SemanticPipeline {
     // resolve to a real, but different, entity. A contained span is
     // never a separate user mention - it's an artifact of exhaustive
     // extraction - so it is dropped in favor of the larger match that
-    // strictly contains it. Scoped to entity-vs-entity containment only
-    // (never crosses semantic types, never inspects entity identity or
-    // domain vocabulary), and fires only on proven strict containment -
-    // never a blanket "longest span wins" rule - so a genuinely
-    // separate, non-overlapping entity mention elsewhere in the same
-    // query is left untouched.
-    semanticCandidates = semanticCandidates.filter((inner) => {
-      if (inner.semanticType !== "entity") {
+    // strictly contains it. Bug B extension: not just strict containment,
+    // but ANY overlapping spans of the same execution-parameter type
+    // (e.g. "adventist health howard memorial" tokens 0-3 and "howard
+    // memorial hospital" tokens 2-4 both resolve but share tokens 2-3)
+    // - prefer the LONGER more-specific span. Scoped to entity-vs-entity
+    // overlap only (never crosses semantic types, never inspects entity
+    // identity or domain vocabulary), geometry-driven suppression, so a
+    // genuinely separate non-overlapping entity mention elsewhere in the
+    // same query is left untouched.
+    semanticCandidates = semanticCandidates.filter((candidateA) => {
+      if (candidateA.semanticType !== "entity") {
         return true;
       }
 
-      return !semanticCandidates.some(
-        (outer) =>
-          outer !== inner &&
-          outer.semanticType === "entity" &&
-          outer.start <= inner.start &&
-          outer.end >= inner.end &&
-          (outer.start < inner.start || outer.end > inner.end),
-      );
+      return !semanticCandidates.some((candidateB) => {
+        if (candidateB === candidateA || candidateB.semanticType !== "entity") {
+          return false;
+        }
+
+        // Check if spans overlap (share any token index)
+        const spansOverlap = !(candidateA.end <= candidateB.start || candidateB.end <= candidateA.start);
+        
+        if (!spansOverlap) {
+          return false;
+        }
+
+        // Bug B: Overlapping same execution-parameter type - prefer longer span
+        const candidateADef = candidateA.definition as EntityDefinition;
+        const candidateBDef = candidateB.definition as EntityDefinition;
+        
+        if (candidateADef.execution?.parameter === candidateBDef.execution?.parameter) {
+          const lengthA = candidateA.end - candidateA.start;
+          const lengthB = candidateB.end - candidateB.start;
+          
+          // Suppress A if B is longer (or equal length but B comes first)
+          return lengthB > lengthA || (lengthB === lengthA && candidateB.start < candidateA.start);
+        }
+
+        // Original strict containment check for different parameter types
+        return (
+          candidateB.start <= candidateA.start &&
+          candidateB.end >= candidateA.end &&
+          (candidateB.start < candidateA.start || candidateB.end > candidateA.end)
+        );
+      });
     });
 
     // Qualifier-safety: a resolved entity candidate whose span is

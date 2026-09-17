@@ -16,6 +16,7 @@ export const locationCategory: EntityCategory = {
   id: "location",
   name: "Location",
   description: "Geographic locations used in healthcare analytics.",
+  isGeographicScope: true,
 };
 
 export const ratingCategory: EntityCategory = {

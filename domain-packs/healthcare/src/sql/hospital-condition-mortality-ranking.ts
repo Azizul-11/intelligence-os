@@ -8,7 +8,8 @@ export const hospitalConditionMortalityRankingSqlTemplate: SqlTemplateDefinition
   displayName: "Condition-Specific Mortality Ranking",
 
   description:
-    "Returns hospitals ranked by a specific CMS condition/procedure outcome measure (e.g. AMI, CABG, COPD, Heart Failure, Pneumonia mortality; Hip/Knee complications), scoped by :measureCode. Tier1 Task 5 balanced-limits fix: top 10 overall for a single-state/nationwide request; top 5 PER named state for a multi-state request (ROW_NUMBER() OVER PARTITION BY state), so no single state's tied hospitals crowd out another's.",
+    "Returns hospitals ranked by a specific CMS condition/procedure outcome measure (e.g. AMI, CABG, COPD, Heart Failure, Pneumonia mortality; Hip/Knee complications), scoped by :measureCode. Tier1 Task 5 balanced-limits fix: top 10 overall for a single-state/nationwide request; top 5 PER named state for a multi-state request (ROW_NUMBER() OVER PARTITION BY state), so no single state's tied hospitals crowd out another's. " +
+    "PrePhase 9.5 Round 3: `co.score` is a raw badness value (a death rate) - lower is always better. The ORDER BY is unconditionally ascending (lowest/best first) regardless of `:direction`, which used to flip it via a CASE expression - that CASE was wrong: Universal Core's direction lexicon buckets \"lowest\"/\"worst\" into the SAME generic \"asc\" signal (see packages/semantic/src/direction/modifier-direction-lexicon.ts), so \"lowest death rate\" (meaning: show me the best) and a genuine \"worst death rate\" request were indistinguishable by the time they reached this template, and the old CASE resolved that ambiguity the wrong way for the far more common \"lowest/best\" case (confirmed live: 17.1% - the worst score in the result set - was appearing first). ponytail: known ceiling - a genuine \"show me the worst-performing hospitals\" request for this measure is not supported (always returns best-first); upgrade path is a metric-aware direction resolver upstream (already tracked as a separate, larger pre-existing gap, not part of this fix) that can tell \"worst\" apart from \"lowest\" before it reaches here.",
 
   template: `
 WITH ranked_facilities AS (
@@ -25,7 +26,7 @@ WITH ranked_facilities AS (
         co.compared_to_national,
         ROW_NUMBER() OVER (
             PARTITION BY (CASE WHEN :multiState = true THEN h.state ELSE 'ALL' END)
-            ORDER BY (CASE WHEN :direction = 'ASC' THEN -1 ELSE 1 END) * co.score ASC NULLS LAST, h.hospital_name ASC
+            ORDER BY co.score ASC NULLS LAST, h.hospital_name ASC
         ) AS rank_within_scope
     FROM warehouse_hospitals h
     JOIN warehouse_hospital_clinical_outcomes co ON h.facility_id = co.facility_id
@@ -55,7 +56,7 @@ WHERE
     (:multiState = true AND rank_within_scope <= 5)
     OR (:multiState = false AND rank_within_scope <= 10)
 ORDER BY
-    (CASE WHEN :direction = 'ASC' THEN -1 ELSE 1 END) * score ASC NULLS LAST,
+    score ASC NULLS LAST,
     state ASC, hospital_name ASC
 `.trim(),
 
@@ -115,7 +116,7 @@ ORDER BY
       type: "string",
       required: false,
       description:
-        "DESC (default): best performance first, lowest measure score (fewest adverse events). ASC: worst performance first, highest measure score.",
+        "PrePhase 9.5 Round 3: no longer consumed by this template's ORDER BY - see the ponytail comment on the template string itself for why.",
     },
   ],
 

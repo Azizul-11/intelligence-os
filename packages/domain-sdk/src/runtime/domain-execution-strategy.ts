@@ -94,6 +94,14 @@ export interface DomainExecutionStrategy {
    * and keeps only those that succeed with rows) before ever surfacing
    * one, and never inspects candidate text itself. A domain that omits
    * this hook simply gets no `suggestions` field on its responses.
+   *
+   * LLM Integration Layer 2: async (not just Promise-compatible - Domain
+   * SDKs are expected to actually await an optional LLM rephrasing call
+   * here) so a Domain can optionally vary the wording of its own
+   * already-decided candidates via an LLM co-pilot before Universal
+   * Core's dry-run validation runs - Universal Core itself never knows
+   * or cares whether a candidate came from a deterministic rule or an
+   * LLM rephrase.
    */
-  generateSuggestions?(context: SuggestionContext): string[];
+  generateSuggestions?(context: SuggestionContext): Promise<string[]>;
 }

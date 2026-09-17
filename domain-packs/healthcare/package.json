@@ -15,7 +15,8 @@
   },
   "dependencies": {
     "@intelligence/contracts": "workspace:*",
-    "@intelligence/domain-sdk": "workspace:*"
+    "@intelligence/domain-sdk": "workspace:*",
+    "@intelligence/llm-model-gateway": "workspace:*"
   },
   "devDependencies": {
     "esbuild": "^0.28.1",

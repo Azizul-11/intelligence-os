@@ -39,6 +39,17 @@ export const OWNERSHIP = new Map<string, OwnershipValue>([
   ["government", { label: "government", likePattern: "Government%" }],
   ["government owned", { label: "government", likePattern: "Government%" }],
   ["public", { label: "government", likePattern: "Government%" }],
+  // Bug L Part A (2026-09-15): common misspellings of "government" -
+  // confirmed live that these previously matched nothing at all (exact-
+  // match only, no fuzzy correction anywhere in this map), so the
+  // ownership filter was silently absent rather than merely mis-typed -
+  // the request fell back to a bare geographic/default-ranking shape
+  // with no ownership scoping. Same finite, hand-maintained, exact-match
+  // convention as every other entry in this map.
+  ["goverment", { label: "government", likePattern: "Government%" }],
+  ["govt", { label: "government", likePattern: "Government%" }],
+  ["gov", { label: "government", likePattern: "Government%" }],
+  ["govenment", { label: "government", likePattern: "Government%" }],
 
   ["proprietary", { label: "proprietary", likePattern: "Proprietary%" }],
   ["for profit", { label: "proprietary", likePattern: "Proprietary%" }],

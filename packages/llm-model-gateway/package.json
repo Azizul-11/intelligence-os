@@ -1,0 +1,22 @@
+{
+  "name": "@intelligence/llm-model-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Multi-vendor bounded LLM co-pilot gateway for IntelligenceOS - single-file provider abstraction with free-tier failover. Deterministic warehouse data remains the sole analytical truth; this package only rewrites, rephrases, or restates, never decides or invents.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "build:edge": "pnpm run build && pnpm exec esbuild src/index.ts --bundle --platform=neutral --format=esm --packages=external --outfile=edge/index.js",
+    "clean": "rm -rf dist edge"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "esbuild": "^0.28.1",
+    "typescript": "^5.9.2"
+  }
+}

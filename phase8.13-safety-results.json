@@ -1,9 +1,9 @@
 {
-  "timestamp": "2026-09-05T21:26:54.290Z",
+  "timestamp": "2026-09-16T22:40:19.137Z",
   "summary": {
     "total": 11,
-    "passed": 11,
-    "failed": 0
+    "passed": 9,
+    "failed": 2
   },
   "proofs": [
     {
@@ -13,7 +13,7 @@
       "sqlCalls": 2,
       "result": "PASS",
       "evidence": "Answerability: answerable, SQL calls: 2, Success: true",
-      "executionTimeMs": 9
+      "executionTimeMs": 12
     },
     {
       "proof": "B",
@@ -22,7 +22,7 @@
       "sqlCalls": 0,
       "result": "PASS",
       "evidence": "Answerability: ambiguous/identity-ambiguous, SQL calls: 0, Candidates: 2",
-      "executionTimeMs": 6
+      "executionTimeMs": 7
     },
     {
       "proof": "C",
@@ -31,16 +31,16 @@
       "sqlCalls": 0,
       "result": "PASS",
       "evidence": "Answerability: not_directly_answerable/capability-unavailable, SQL calls: 0, Alternatives: 5",
-      "executionTimeMs": 6
+      "executionTimeMs": 8
     },
     {
       "proof": "D",
       "query": "mortality rate for Mountain View Hospital in Alabama",
       "validation": "DATA_UNAVAILABLE (post-execution reclassification)",
       "sqlCalls": -1,
-      "result": "PASS",
-      "evidence": "Answerability: not_directly_answerable/data-unavailable, RowCount: 0 (singleEntityRecord=true, lookup operation, 1 entity → data-unavailable)",
-      "executionTimeMs": 569
+      "result": "FAIL",
+      "evidence": "Answerability: answerable/undefined, RowCount: 0 (singleEntityRecord=true, lookup operation, 1 entity → data-unavailable)",
+      "executionTimeMs": 794
     },
     {
       "proof": "E",
@@ -58,7 +58,7 @@
       "sqlCalls": 0,
       "result": "PASS",
       "evidence": "Turn1: Answerability: ambiguous, SQL calls: 0, Candidates offered: 2",
-      "executionTimeMs": 3
+      "executionTimeMs": 4
     },
     {
       "proof": "G",
@@ -67,7 +67,7 @@
       "sqlCalls": 1,
       "result": "PASS",
       "evidence": "Turn1 SQL: 0, Turn2 SQL: 1, Turn2 Answerability: answerable",
-      "executionTimeMs": 11
+      "executionTimeMs": 10
     },
     {
       "proof": "H",
@@ -94,15 +94,15 @@
       "sqlCalls": 0,
       "result": "PASS",
       "evidence": "Answerability: ambiguous, SQL calls: 0, Success: false",
-      "executionTimeMs": 6
+      "executionTimeMs": 5
     },
     {
       "proof": "K",
       "query": "best hospitals in Texas and California",
       "validation": "MULTI-STATE CRASH PREVENTION (Phase 8.8)",
-      "sqlCalls": 0,
-      "result": "PASS",
-      "evidence": "Answerability: not_directly_answerable, SQL calls: 0, Phase 8.8 gate prevented multi-value state filter",
+      "sqlCalls": 2,
+      "result": "FAIL",
+      "evidence": "Answerability: answerable, SQL calls: 2, Phase 8.8 gate prevented multi-value state filter",
       "executionTimeMs": 5
     }
   ]

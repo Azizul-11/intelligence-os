@@ -141,10 +141,13 @@ function createRuntimeEngine({
   semantic,
   planner,
   executionPlanMapper,
-  executor
+  executor,
+  llmFallback,
+  preprocessQuestion
 }) {
   const engine = {
-    async execute(request) {
+    async execute(incomingRequest) {
+      const request = preprocessQuestion ? { ...incomingRequest, question: preprocessQuestion(incomingRequest.question) } : incomingRequest;
       const tracker = new PhaseGateTracker(
         request.requestId ?? crypto.randomUUID(),
         request.question
@@ -188,6 +191,24 @@ function createRuntimeEngine({
             }
           }
         }
+        if (request.companionEntities && request.companionEntities.length > 0) {
+          for (const companion of request.companionEntities) {
+            const entityDefinition = runtime.registry.getEntity(companion.canonicalKey);
+            if (entityDefinition) {
+              semanticResult.matches.push({
+                phrase: "",
+                // Companion entity phrase not needed for execution
+                canonicalKey: companion.canonicalKey,
+                semanticType: "entity",
+                definition: entityDefinition,
+                confidence: 1,
+                start: 0,
+                end: 0,
+                resolvedValue: companion.value
+              });
+            }
+          }
+        }
         tracker.enter("entity-identity-ambiguity");
         if (semanticResult.identityAmbiguities && semanticResult.identityAmbiguities.length > 0) {
           return {
@@ -216,7 +237,14 @@ function createRuntimeEngine({
             rows: [],
             rowCount: 0,
             error: "Unable to resolve question.",
-            answerability: { status: "not_directly_answerable" }
+            // LLM Integration Layer 1: "semantic-incomplete" is the same
+            // already-declared reason line ~397 below attaches for the
+            // conceptually identical "nothing meaningful extracted from
+            // the request at all" case (see AnswerabilityReason's own doc
+            // comment) - reused, not invented, so the outer execute()
+            // wrapper can precisely target only this dead-end shape for
+            // an LLM rewrite attempt, never any other refusal reason.
+            answerability: { status: "not_directly_answerable", reason: "semantic-incomplete" }
           };
         }
         if (semanticResult.unsupportedNegation) {
@@ -257,7 +285,7 @@ function createRuntimeEngine({
             }
           };
         }
-        const plan = planner.createPlan(semanticResult, runtime.domain.metrics, request.forcedIntent);
+        const plan = planner.createPlan(semanticResult, runtime.domain.metrics, request.forcedIntent, runtime.domain.entities);
         if (!plan.success || !plan.plan || plan.plan.semantic.metrics.length === 0) {
           return {
             success: false,
@@ -589,7 +617,20 @@ function createRuntimeEngine({
           ...coverageFacts.length > 0 ? { coverage: coverageFacts } : {}
         };
       };
-      const result = await runPipeline();
+      let result = await runPipeline();
+      if (!result.success && result.answerability?.status !== "ambiguous" && llmFallback && !request.llmFallbackAttempted) {
+        const rewrite = await llmFallback(request.question);
+        if (rewrite && "canonicalQuestion" in rewrite && rewrite.canonicalQuestion !== request.question) {
+          return engine.execute({
+            ...request,
+            question: rewrite.canonicalQuestion,
+            llmFallbackAttempted: true
+          });
+        }
+        if (rewrite && "clarification" in rewrite) {
+          result = { ...result, error: rewrite.clarification };
+        }
+      }
       tracker.exit(
         "response",
         result.success ? "ok" : "refused",
@@ -608,7 +649,7 @@ function createRuntimeEngine({
         ...capturedExecutionPlan ? { executionPlan: capturedExecutionPlan } : {},
         ...finalResult.answerability ? { answerability: finalResult.answerability } : {}
       };
-      const candidateQuestions = runtime.domain.executionStrategy.generateSuggestions(
+      const candidateQuestions = await runtime.domain.executionStrategy.generateSuggestions(
         suggestionContext
       );
       const isIdentityAmbiguous = finalResult.answerability?.status === "ambiguous" && finalResult.answerability?.reason === "identity-ambiguous";

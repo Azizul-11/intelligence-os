@@ -9,6 +9,76 @@ import { SemanticCollector } from "./semantic-collector";
 
 import { EntityParameterResolver } from "./entity-parameter-resolver";
 
+/**
+ * Bug E (Phase 3.1, 2026-09-18): a small, generic set of English
+ * question/command/filler words with no topical meaning of their own -
+ * distinct from, and never merged with, `packages/semantic`'s own
+ * `STOPWORDS` (a narrower set serving an unrelated purpose - role-
+ * tagging tokens for negation/modifier detection - not safe to widen
+ * without auditing its other consumers). This set exists ONLY to keep
+ * `hasUnaccountedSubstantiveToken()` from false-positiving on ordinary
+ * conversational phrasing ("show me...", "what is...", "tell me
+ * about...") that carries no domain-specific or off-topic content by
+ * itself. Deliberately domain-agnostic: contains no healthcare
+ * vocabulary and no off-topic vocabulary (no "weather", "climate",
+ * "president", etc.) - it only describes the shape of an ordinary
+ * English question, reusable by any future Domain SDK unchanged.
+ */
+const QUESTION_FILLER_WORDS = new Set([
+  "show",
+  "me",
+  "tell",
+  "give",
+  "find",
+  "get",
+  "list",
+  "what",
+  "whats",
+  "who",
+  "whos",
+  "which",
+  "where",
+  "when",
+  "how",
+  "is",
+  "are",
+  "was",
+  "were",
+  "do",
+  "does",
+  "did",
+  "can",
+  "could",
+  "would",
+  "will",
+  "should",
+  "i",
+  "you",
+  "we",
+  "us",
+  "our",
+  "your",
+  "please",
+  "want",
+  "need",
+  "know",
+  "about",
+  "there",
+  "any",
+  "some",
+  "s",
+  "the",
+  "a",
+  "an",
+  "of",
+  "for",
+  "to",
+  "in",
+  "on",
+  "and",
+  "or",
+]);
+
 export class QueryPlanner {
   private readonly intentDetector =
     new QueryIntentDetector();
@@ -23,6 +93,7 @@ export class QueryPlanner {
     semantic: SemanticResolutionResult,
     domainMetrics: readonly MetricDefinition[] = [],
     forcedIntent?: QueryIntent,
+    domainEntities: readonly EntityDefinition[] = [],
   ): QueryPlanResult {
     // RCG-010: a detected direction contradiction is reported as a
     // specific, natural-language failure rather than silently
@@ -63,6 +134,57 @@ export class QueryPlanner {
     let discoveredComparableMetrics = false;
     let discoveredDefaultRanking = false;
 
+    // PrePhase 9.5 Round 3: a request whose ONLY resolved metric is
+    // non-rankable (e.g. Healthcare's "hospital-list", matched by the
+    // phrase "hospitals in") is, for default-ranking-discovery purposes,
+    // exactly as metric-less as a request with zero metrics at all - a
+    // non-rankable metric never determines the query's own output
+    // shape, it merely happens to be the phrase that resolved. But this
+    // must NOT fire for a bare geographic list request ("hospitals in
+    // Texas", "hospitals in Birmingham Alabama") - Healthcare's own
+    // list-by-state/geographic-list capability is a real, intended
+    // answer shape, not a degraded default. The distinguishing, still
+    // domain-agnostic signal: at least one resolved entity whose
+    // category is NOT flagged `isGeographicScope` (e.g. an ownership
+    // filter) - a pure geographic request has none, so it is
+    // unaffected; "non-profit hospitals in California" does, so it
+    // becomes eligible for the same default-ranking discovery a bare
+    // "non-profit hospitals" (no state at all) already receives below,
+    // instead of silently returning the state's own already-oversized
+    // full list capped only by Tier1 Task 5's generic ceiling.
+    const hasOnlyNonRankableMetrics =
+      collections.metrics.length > 0 &&
+      collections.metrics.every(
+        (metric) => (metric.definition as MetricDefinition).rankable === false,
+      );
+    const hasNonGeographicScopeEntity = collections.entities.some(
+      (entity) => (entity.definition as EntityDefinition).category?.isGeographicScope !== true,
+    );
+
+    // Bug A/C fix: Skip default metric discovery when any entity identifies
+    // a unique record (e.g. a named hospital). The discovery logic below
+    // already checks this internally via discoverDefaultRankableMetric(),
+    // but by then we've already committed to "no metric, discover one",
+    // causing hard failure when discovery refuses. For queries with a non-
+    // rankable metric already resolved (hospital-detail), skip discovery to
+    // preserve that metric. For bare entity queries with NO metric at all,
+    // also skip discovery - they'll be handled by the F8 plan-ambiguity gate
+    // or fail with a proper semantic-incomplete reason, not discover a wrong
+    // ranking metric.
+    const hasUniqueRecordEntity = collections.entities.some(
+      (entity) => (entity.definition as EntityDefinition).identifiesUniqueRecord === true,
+    );
+
+    // Comparable-metric discovery runs FIRST, unconditionally whenever no
+    // metric was named at all - deliberately NOT gated by
+    // `hasUniqueRecordEntity` below: 2+ unique-record entities (e.g. two
+    // named hospitals) is EXACTLY the shape this discovers a metric for
+    // ("compare memorial hospital vs Mayo Clinic"). Gating this on
+    // `!hasUniqueRecordEntity` (as an earlier revision of the Bug A/C fix
+    // briefly did) silently disabled every hospital-vs-hospital comparison
+    // with no named metric - discovered live 2026-09-15 debugging exactly
+    // that regression (a comparison-continuation Turn 2 was completing as
+    // a single-entity lookup, silently dropping the second hospital).
     if (collections.metrics.length === 0) {
       const discoveredComparable = this.discoverComparableMetrics(
         collections.entities,
@@ -72,31 +194,89 @@ export class QueryPlanner {
       if (discoveredComparable.length > 0) {
         collections.metrics = discoveredComparable;
         discoveredComparableMetrics = true;
-      } else {
-        // Tier0 Task 5 (F12 Sub-Task A): a request naming a scope filter
-        // (e.g. "non-profit hospitals") but no metric at all is not
-        // rejected outright the way a truly empty request is - it is
-        // offered the active Domain SDK's own declared default ranking
-        // metric (see MetricDefinition.defaultRankable), the same
-        // generic, Domain-flag-driven discovery pattern
-        // discoverComparableMetrics() above already established for the
-        // comparison case. A domain that declares no default ranking
-        // metric, or a request with no scope entity at all, falls
-        // through to the original, unchanged failure below.
-        const discoveredDefault = this.discoverDefaultRankableMetric(
-          collections.entities,
-          domainMetrics,
-        );
+      }
+    }
 
-        if (discoveredDefault.length === 0) {
-          return {
-            success: false,
-            plan: null,
-          };
+    // Tier0 Task 5 (F12 Sub-Task A): a request naming a scope filter
+    // (e.g. "non-profit hospitals") but no metric at all is not rejected
+    // outright the way a truly empty request is - it is offered the
+    // active Domain SDK's own declared default ranking metric (see
+    // MetricDefinition.defaultRankable). Only attempted when comparable-
+    // metric discovery above didn't already resolve one, and (Bug A/C)
+    // never when a unique-record entity is present - defaulting a RANKING
+    // metric onto a specific named entity (a hospital dossier lookup, or
+    // a bare unique-record mention) would silently substitute a
+    // nationwide ranking for what should be that entity's own detail
+    // lookup. A domain that declares no default ranking metric, or a
+    // request with no scope entity at all, falls through to the original,
+    // unchanged failure below.
+    if (
+      !discoveredComparableMetrics &&
+      !hasUniqueRecordEntity &&
+      (collections.metrics.length === 0 ||
+        (hasOnlyNonRankableMetrics && hasNonGeographicScopeEntity))
+    ) {
+      const discoveredDefault = this.discoverDefaultRankableMetric(
+        collections.entities,
+        domainMetrics,
+        semantic.normalizedQuery,
+        semantic.matches,
+        domainEntities,
+      );
+
+      if (discoveredDefault.length === 0) {
+        return {
+          success: false,
+          plan: null,
+        };
+      }
+
+      collections.metrics = discoveredDefault;
+      discoveredDefaultRanking = true;
+    }
+
+    // Bug A/C remaining 5/12: Bare unique-record entity queries (e.g.
+    // "ADVENTHEALTH GORDON" without "tell me about") have no metric
+    // resolved and were correctly prevented from entering ranking-discovery
+    // above, but still need a lookup metric to proceed. Inject a default
+    // detail metric for the entity type. Domain-agnostic by construction:
+    // searches for any non-rankable metric whose ID matches the entity's
+    // own canonical key with "-detail" suffix pattern (e.g. hospital →
+    // hospital-detail), a generic naming convention already established
+    // by Phase 7.5.
+    //
+    // Comparison continuation fix: only inject when forcedIntent is NOT
+    // provided - forcedIntent signals intentional preservation of Turn1
+    // context (e.g. comparison intent from "compare memorial hospital vs
+    // ANIMAS" → Turn2 "CARTHAGE" should stay comparison, not become bare
+    // lookup). When forcedIntent is present, trust the caller's explicit
+    // intent and skip metric injection.
+    if (
+      collections.metrics.length === 0 &&
+      hasUniqueRecordEntity &&
+      collections.entities.length > 0 &&
+      !forcedIntent
+    ) {
+      const firstEntity = collections.entities[0];
+      if (firstEntity) {
+        const entityType = firstEntity.canonicalKey;
+        const detailMetricId = `${entityType}-detail`;
+        const detailMetric = domainMetrics.find((m) => m.id === detailMetricId && m.rankable === false);
+
+        if (detailMetric) {
+          collections.metrics = [
+            {
+              phrase: firstEntity.phrase,
+              canonicalKey: detailMetric.id,
+              semanticType: "metric",
+              definition: detailMetric,
+              confidence: 1,
+              start: firstEntity.start,
+              end: firstEntity.end,
+              isFallback: true,
+            },
+          ];
         }
-
-        collections.metrics = discoveredDefault;
-        discoveredDefaultRanking = true;
       }
     }
 
@@ -158,8 +338,10 @@ export class QueryPlanner {
     // a query where every candidate agrees.
     const finalCollections = {
       ...collections,
-      metrics: this.filterFallbackMetrics(
-        this.filterMetricsForIntent(collections.metrics, intent),
+      metrics: this.filterNonAnalyticalSecondaryMetrics(
+        this.filterFallbackMetrics(
+          this.filterMetricsForIntent(collections.metrics, intent),
+        ),
       ),
     };
 
@@ -300,6 +482,51 @@ export class QueryPlanner {
   }
 
   /**
+   * Bug F (Phase 3.3, 2026-09-18): a metric with NO analytical
+   * capability at all (`rankable`/`aggregatable`/`benchmarkable` all
+   * false - e.g. Healthcare's "hospital-list") represents a base entity
+   * listing, not a per-row value. It is only ever meaningful as the
+   * PRIMARY metric (metrics[0] - "hospitals in Birmingham with their
+   * overall ratings", where the listing stays primary and "overall
+   * ratings" is Phase 7's secondary, per-row enrichment). When some
+   * OTHER, genuinely analytical metric resolves first instead (e.g.
+   * "safest hospitals in Texas" - "safest" is metrics[0], "hospitals
+   * in" would otherwise be metrics[1]), this capability-less metric has
+   * no per-row value for Phase 7 to fetch and merge as a secondary
+   * enrichment - it has no template for that role - and would silently
+   * disappear from the plan if simply dropped, exactly the shape
+   * `assessPlanCompleteness()` exists to catch. Removing it HERE, at
+   * the same layer as `filterMetricsForIntent()`/`filterFallbackMetrics()`
+   * above, keeps it a legitimate, accounted-for removal (`plannedSemantic.
+   * metrics` - what `assessPlanCompleteness()` treats as already-filtered)
+   * rather than a candidate lost after planning. Domain-agnostic: reuses
+   * the same "any analytical capability" flags `filterMetricsForIntent()`
+   * already reads, and only ever removes a non-primary candidate - a
+   * standalone capability-less metric (the common "hospitals in Texas"
+   * case) is completely unaffected, since it stays metrics[0].
+   */
+  private filterNonAnalyticalSecondaryMetrics(
+    metrics: SemanticCandidate[],
+  ): SemanticCandidate[] {
+    if (metrics.length <= 1) {
+      return metrics;
+    }
+
+    const [primary, ...rest] = metrics;
+    const secondary = rest.filter((metric) => {
+      const definition = metric.definition as MetricDefinition;
+      const hasNoAnalyticalCapability =
+        definition.rankable === false &&
+        definition.aggregatable === false &&
+        definition.benchmarkable === false;
+
+      return !hasNoAnalyticalCapability;
+    });
+
+    return primary ? [primary, ...secondary] : secondary;
+  }
+
+  /**
    * Fix Cycle 018 (Option A): synthesizes metric candidates for a
    * metric-less multi-entity request from the active Domain SDK's own
    * `MetricDefinition.comparable` declarations, instead of from parsed
@@ -364,10 +591,25 @@ export class QueryPlanner {
    * identity entirely - exactly the entity-drop shape Tier0 Task 2 (F8)
    * already closed elsewhere. Only fires when every resolved entity is
    * a scope-only filter.
+   *
+   * Bug E (Phase 3.1, 2026-09-18): also refuses when the original
+   * question contains a substantive word that never became part of ANY
+   * resolved semantic candidate at all (see
+   * `hasUnaccountedSubstantiveToken()`'s own doc comment) - e.g.
+   * "what's the weather in Texas?" resolves only the "Texas" state
+   * entity, and "weather" is never accounted for anywhere. Defaulting a
+   * nationwide hospital ranking onto the resolved entity alone in that
+   * case would silently fabricate an answer to a different, narrower
+   * question than the one actually asked - the single most severe
+   * no-fabrication-invariant violation found in this codebase's history
+   * (Round 6 audit, Bug E).
    */
   private discoverDefaultRankableMetric(
     entities: SemanticCandidate[],
     domainMetrics: readonly MetricDefinition[],
+    normalizedQuery: string,
+    allMatches: readonly SemanticCandidate[],
+    domainEntities: readonly EntityDefinition[],
   ): SemanticCandidate[] {
     if (entities.length === 0) {
       return [];
@@ -378,6 +620,10 @@ export class QueryPlanner {
     );
 
     if (hasUniqueRecordEntity) {
+      return [];
+    }
+
+    if (this.hasUnaccountedSubstantiveToken(normalizedQuery, allMatches, domainEntities)) {
       return [];
     }
 
@@ -401,6 +647,68 @@ export class QueryPlanner {
         isFallback: true,
       },
     ];
+  }
+
+  /**
+   * Bug E (Phase 3.1, 2026-09-18): true when the original question
+   * contains a word that never became part of ANY resolved semantic
+   * candidate's own matched phrase - metric, entity, dimension,
+   * category, benchmark, or relationship, whichever domain supplied
+   * them - and is not one of the generic English question/filler words
+   * above. This is a purely structural check: it only ever compares the
+   * raw question text against phrases the semantic pipeline itself
+   * already resolved, never a hardcoded off-topic vocabulary (no
+   * "weather", "climate", "president" anywhere in this file) - the same
+   * mechanism would refuse "what's the [x] in Texas?" for ANY word `x`
+   * this Domain SDK's own registered vocabulary doesn't recognize,
+   * regardless of what that word is.
+   *
+   * Also treats a word as accounted for when it equals a REGISTERED
+   * entity's own `id` (`domainEntities`, the domain's complete entity
+   * list - not just the entities that happened to resolve as
+   * candidates this query). Confirmed necessary live: a word naming the
+   * domain's own core subject (e.g. Healthcare's "hospital" entity,
+   * `id: "hospital"`) does not always land inside a matched alias
+   * phrase - "CA government hospital"/"government hospital TX" (word
+   * order variants with no "hospital(s) in" 2-gram to match) would
+   * otherwise flag "hospital" itself as an unaccounted, off-topic-
+   * looking word and wrongly refuse a legitimate query. This stays
+   * domain-agnostic: Universal Core never names "hospital" itself, it
+   * only ever compares against whatever `id`s the active Domain SDK
+   * already declared, the same way `domainMetrics` is already consumed
+   * generically elsewhere in this file.
+   */
+  private hasUnaccountedSubstantiveToken(
+    normalizedQuery: string,
+    allMatches: readonly SemanticCandidate[],
+    domainEntities: readonly EntityDefinition[],
+  ): boolean {
+    const consumedWords = new Set<string>();
+
+    for (const match of allMatches) {
+      for (const word of match.phrase.toLowerCase().split(/\s+/)) {
+        if (word) {
+          consumedWords.add(word);
+        }
+      }
+    }
+
+    for (const entity of domainEntities) {
+      const id = entity.id.toLowerCase();
+      consumedWords.add(id);
+      // Naive, generic English plural ("hospital" -> "hospitals") - not
+      // a domain-specific rule, just regular pluralization morphology,
+      // so a reordered phrasing using the plural form of the entity's
+      // own id ("CA government hospitals") is accounted for the same
+      // way the singular form already is.
+      consumedWords.add(`${id}s`);
+    }
+
+    const queryWords = normalizedQuery.split(/\s+/).filter(Boolean);
+
+    return queryWords.some(
+      (word) => !consumedWords.has(word) && !QUESTION_FILLER_WORDS.has(word),
+    );
   }
 
   /**

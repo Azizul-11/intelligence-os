@@ -31,6 +31,22 @@ export const healthcareLexicalRewrites: readonly LexicalRewriteRule[] = [
   { pattern: "top hospital", replacement: "hospital overall rating" },
   { pattern: "top rated hospital", replacement: "hospital overall rating" },
   { pattern: "bottom rated hospital", replacement: "hospital overall rating" },
+  // Bug G (Phase 3.3, 2026-09-18): "strongest" is just another synonym
+  // for this exact same idiom (RANKING_KEYWORDS now recognizes it as a
+  // ranking word too - see query-intent-detector.ts - but that alone
+  // only sets intent, not which metric to rank by). Without this rule,
+  // a bare "strongest hospitals" with no OTHER metric phrase present
+  // (e.g. "give me the strongest hospitals in California") has no
+  // rankable metric candidate at all: "hospitals in" alone resolves to
+  // the non-rankable "hospital-list" listing metric, which has no
+  // "-ranking" template. Deliberately NOT registering singular/plural
+  // "strong hospital(s)" here: unlike "strongest", "strong" collides
+  // with a real hospital name ("STRONG MEMORIAL HOSPITAL" - see
+  // query-intent-detector.ts's own comment) and was already excluded
+  // from RANKING_KEYWORDS for that reason; registering it here too
+  // would silently rewrite any query naming that hospital.
+  { pattern: "strongest hospitals", replacement: "hospital overall rating" },
+  { pattern: "strongest hospital", replacement: "hospital overall rating" },
   // Direct metric-name plural ("Birmingham Alabama overall ratings") -
   // distinct from the ranking-idiom rules above: aliases/hospital-overall-
   // rating.ts registers "Overall Rating" (singular) as a direct alias, but
@@ -42,4 +58,33 @@ export const healthcareLexicalRewrites: readonly LexicalRewriteRule[] = [
   // failing cleanly. "overall ratings" is specific enough to carry no
   // such collision.
   { pattern: "overall ratings", replacement: "hospital overall rating" },
+];
+
+/**
+ * Known-misspelling corrections (Phase 3.4/3.5, 2026-09-18): a small,
+ * separate category from the ranking-idiom rules above - not an idiom,
+ * a literal exact-match typo-to-correct-spelling substitution, same
+ * "no fuzzy matching, exact literal string" convention this whole
+ * campaign has used everywhere else (e.g. ownership-directory.ts's
+ * "goverment"/"govt"/"gov" -> "government" entries). Deliberately NOT
+ * added directly to geographic-directory.ts's own CITIES/COUNTIES maps:
+ * that file is machine-generated ("Generated deterministically from...
+ * scripts/generate-geographic-directory.ts. Not hand-maintained;
+ * regenerate from that script if source data changes." - its own doc
+ * comment) - a hand-edit there would be silently wiped out by the next
+ * regeneration. This rewrite layer runs before phrase extraction/alias
+ * resolution ever sees the generated directory, so it survives any
+ * future regeneration untouched.
+ *
+ * "Huston" -> "Houston": confirmed via direct grep that "huston" is not
+ * itself a registered city/county anywhere in geographic-directory.ts -
+ * it is only ever the common one-letter-dropped misspelling of
+ * "Houston" (a real city in AL/GA/TN/TX per the COUNTIES map, and
+ * MO/MS/TX per the CITIES map). "show me hospital in Huston, Texas"
+ * previously left "Huston" entirely unresolved (no city/county
+ * candidate at all), silently falling back to the bare-state 100-row
+ * listing instead of the 28-row Houston, TX result.
+ */
+export const healthcareMisspellingRewrites: readonly LexicalRewriteRule[] = [
+  { pattern: "huston", replacement: "houston" },
 ];

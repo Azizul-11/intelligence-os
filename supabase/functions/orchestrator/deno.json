@@ -25,6 +25,9 @@
     "@intelligence/healthcare-domain":
       "../../../domain-packs/healthcare/dist/index.js",
       "@intelligence/sql-template-resolver":
-  "../../../packages/sql-template-resolver/edge/index.js"
+  "../../../packages/sql-template-resolver/edge/index.js",
+
+    "@intelligence/llm-model-gateway":
+      "../../../packages/llm-model-gateway/edge/index.js"
   }
 }

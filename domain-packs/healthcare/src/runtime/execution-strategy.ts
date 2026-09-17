@@ -10,7 +10,7 @@ import { HealthcareParameterResolver } from "./parameter-resolver";
 import { COUNTIES, CITIES } from "./geographic-directory";
 import { normalizeText, STATES } from "./entity-provider";
 import { hospitalIdentityDirectory } from "./hospital-identity-directory";
-import { generateHealthcareSuggestions } from "./suggestion-generator";
+import { generateHealthcareSuggestionsWithLLMRephrasing } from "./suggestion-generator";
 
 export const STATE_NAMES_BY_CODE = new Map<string, string>(
   Array.from(STATES.entries()).map(([name, code]) => [
@@ -244,19 +244,40 @@ export class HealthcareExecutionStrategy
       (filter) => filter.field === "measureCode",
     );
 
-    // Scoped to "rank" specifically - a "lookup"-shaped request (e.g.
-    // a single named hospital, no ranking word) must keep using the
-    // existing single-hospital lookup template, which returns every
-    // measure code for that one facility. Routing it to the
-    // population-wide condition-ranking template instead would
+    // Bug L Part B: hoisted above the measureCodeFilter check below (was
+    // previously computed further down, once, only for the generic
+    // no-ranking-word redirect) so BOTH branches share one definition.
+    // A single named hospital must never be silently dropped by either
+    // branch - the F8 checkPlanAmbiguity gate above this method already
+    // catches a named hospital combined with an actual "rank" operation
+    // before either of these ever runs.
+    const hasHospitalFilter = executionPlan.filters.some(
+      (filter) => filter.field === "hospital",
+    );
+
+    // Scoped to "rank" OR the same no-ranking-word "lookup" shape Bug L
+    // Part B's own redirect below now also resolves (e.g. "heart attack
+    // death rate" - a bare condition mention with no ranking word) -
+    // WITHOUT this broadened condition, that redirect (further down)
+    // would route a condition-specific request to the GENERIC, non-
+    // condition-specific ranking template instead (wrong data, silently:
+    // confirmed live via verify-concept-ranking-direction.ts returning
+    // real rows with none of the requested measure's own columns) since
+    // it has no knowledge of `measureCode` at all - this check must run
+    // BEFORE that generic redirect for the correct, condition-specific
+    // template to win. Still never fires for a "lookup"-shaped request
+    // that also names a specific hospital (`hasHospitalFilter`) - that
+    // must keep using the existing single-hospital lookup template,
+    // which returns every measure code for that one facility; routing it
+    // to the population-wide condition-ranking template instead would
     // silently drop the hospital filter (the new template declares no
-    // hospital/hospitalId parameter at all) - exactly the F8 entity-
-    // drop shape Tier0 Task 2 already closed elsewhere. A single named
-    // hospital combined with an actual "rank" operation is caught even
-    // earlier, by the existing F8 checkPlanAmbiguity branch above this
-    // method entirely (unaffected by this change, since it inspects
-    // only `operation`/the hospital filter, never `measureCode`).
-    if (measureCodeFilter && executionPlan.operation === "rank") {
+    // hospital/hospitalId parameter at all) - exactly the F8 entity-drop
+    // shape Tier0 Task 2 already closed elsewhere.
+    if (
+      measureCodeFilter &&
+      (executionPlan.operation === "rank" ||
+        (executionPlan.operation === "lookup" && !hasHospitalFilter))
+    ) {
       if (executionPlan.metric === "mortality-rate") {
         return "hospital-condition-mortality-ranking";
       }
@@ -275,11 +296,29 @@ export class HealthcareExecutionStrategy
     // of surface intent wording ("compare", "list", etc.). A single
     // resolved hospital, or no hospital at all, falls through to the
     // existing intent-based selection below, unchanged.
+    //
+    // Comparison full dossier fix: for dossier comparison (2,3+ hospitals
+    // with no explicit ranking metric), use hospital-detail metric instead
+    // of hospital-overall-rating to get full 22-field dossier per row, not
+    // just overall_rating. Detects dossier comparison by checking if metric
+    // is hospital-detail, hospital-overall-rating, or no metric resolved
+    // (bare comparison like "Mayo vs Cleveland" with no metric phrase).
     const explicitHospitalSet = executionPlan.filters.some(
       (filter) => filter.field === "hospital" && filter.operator === "in",
     );
 
     if (explicitHospitalSet) {
+      const isDossierComparison =
+        executionPlan.metric === "hospital-detail" ||
+        executionPlan.metric === "hospital-overall-rating" ||
+        !executionPlan.metric;
+
+      if (isDossierComparison) {
+        // Return full dossier (22 fields) for each hospital, not just overall_rating
+        return this.templateSelector.select("hospital-detail", "byIds");
+      }
+
+      // Non-dossier comparison (e.g., specific metric like mortality-rate)
       return this.templateSelector.select(executionPlan.metric, "byIds");
     }
 
@@ -305,8 +344,69 @@ export class HealthcareExecutionStrategy
     );
 
     if (executionPlan.operation === "compare" && explicitStateSet) {
+      // Bug D (Phase 3.2, 2026-09-18): a condition-specific `measureCode`
+      // filter must win here exactly as it already does for the "rank"
+      // branch above (lines ~276-288) - without this check, "Compare
+      // Readmission Rates for Pneumonia in Florida vs Georgia" silently
+      // fell through to the generic `${metric}-ranking` template below,
+      // which has no `measureCode` parameter at all and simply ignores
+      // it - a real, silent-wrong result (generic readmission COUNTS
+      // instead of the pneumonia-specific measure), confirmed live, with
+      // no error signal whatsoever. The condition-specific templates
+      // already support multi-state comparison unchanged (Tier1 Task 5's
+      // own `states`/`multiState` parameters, populated generically by
+      // `HealthcareParameterResolver` regardless of which template ends
+      // up selected) - this reuses that existing capability rather than
+      // building a new one, exactly mirroring the "rank" branch's own
+      // two condition-specific template ids.
+      if (measureCodeFilter) {
+        if (executionPlan.metric === "mortality-rate") {
+          return "hospital-condition-mortality-ranking";
+        }
+
+        if (executionPlan.metric === "readmission-rate") {
+          return "hospital-condition-readmission-ranking";
+        }
+      }
+
       const intent = executionPlan.metric === "hospital-list" ? "lookup" : "ranking";
       return this.templateSelector.select(executionPlan.metric, intent);
+    }
+
+    // Bug L Part B (2026-09-15): a "lookup"-shaped request (no ranking
+    // word detected by QueryIntentDetector) that resolved a genuinely
+    // rankable metric but named no specific hospital to look up (e.g.
+    // "good safety"/"good saftey" -> safety-performance, via this
+    // fix's own new literal aliases in aliases/safety-performance.ts)
+    // has nothing for "lookup" to mean - HealthcareTemplateSelector's
+    // own "lookup" mapping for a metric with no special-cased entry is
+    // just the bare metric id, never itself a registered template
+    // (only "<metric>-ranking" is), producing an avoidable "SQL
+    // template not found." rather than the same nationwide top-10 a
+    // ranking-worded phrasing of the identical metric already returns.
+    // Deliberately excludes "hospital-list"/"hospital-count" (their own
+    // explicit, correct "lookup" mappings in HealthcareTemplateSelector
+    // are a real, working capability, not a gap) and "hospital-detail"
+    // (handled by its own branch above - a genuine single-record
+    // profile, not a ranking). Does not touch `executionPlan.operation`
+    // itself, only which template this one selection resolves to, so
+    // `checkPlanAmbiguity()`'s own `operation === "rank"` F8 gate above
+    // is entirely unaffected - confirmed live: an earlier version of
+    // this fix instead added "good"/"great" to Universal Core's
+    // RANKING_KEYWORDS, which flipped `operation` itself to "rank" and
+    // broke previously-working single-hospital dossier lookups (e.g.
+    // "tell me about Good Samaritan Hospital") by routing them into
+    // that same F8 gate - reverted in favor of this narrower,
+    // template-selection-only fix. `hasHospitalFilter` itself is
+    // computed once, above, shared with the measureCodeFilter check.
+    if (
+      executionPlan.operation === "lookup" &&
+      !hasHospitalFilter &&
+      executionPlan.metric !== "hospital-list" &&
+      executionPlan.metric !== "hospital-count" &&
+      executionPlan.metric !== "hospital-detail"
+    ) {
+      return this.templateSelector.select(executionPlan.metric, "ranking");
     }
 
     const hasStateFilter = executionPlan.filters.some(
@@ -519,11 +619,14 @@ export class HealthcareExecutionStrategy
   }
 
   /**
-   * Tier1 Task 6: delegates to the Domain-owned, deterministic,
-   * rule-based generator - see suggestion-generator.ts for the actual
-   * depth/breadth/entity-dive and recovery rules.
+   * Tier1 Task 6 + LLM Integration Layer 2: delegates to the
+   * Domain-owned generator - see suggestion-generator.ts for the
+   * deterministic depth/breadth/entity-dive/recovery rules themselves,
+   * and generateHealthcareSuggestionsWithLLMRephrasing's own doc comment
+   * for how an optional, bounded LLM co-pilot call fits in without ever
+   * changing which facts a suggestion can mention.
    */
-  generateSuggestions(context: SuggestionContext): string[] {
-    return generateHealthcareSuggestions(context);
+  async generateSuggestions(context: SuggestionContext): Promise<string[]> {
+    return generateHealthcareSuggestionsWithLLMRephrasing(context);
   }
 }

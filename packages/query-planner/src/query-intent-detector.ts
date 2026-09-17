@@ -22,6 +22,20 @@ const RANKING_KEYWORDS = new Set([
   "ranked",
   "rank",
   "order",
+  // Bug G (Phase 3.3, 2026-09-18): "strongest" is a plain English
+  // superlative, exactly like every other word already in this set -
+  // its absence meant a query also containing "compare"/"vs" (which
+  // succeeds deterministically via COMPARISON_KEYWORDS on the very
+  // first pass) never got a chance to fall through to Layer 1's LLM
+  // rewrite (which does normalize "strongest" -> "best"), silently
+  // returning an unranked result instead. The Round 6 audit's own fix
+  // plan also suggested "strong" - deliberately NOT added here: a
+  // direct grep of hospital-identity-directory.ts found a real,
+  // confirmed collision ("STRONG MEMORIAL HOSPITAL"), the exact same
+  // class of regression already documented for "good"/"great" and real
+  // hospital names - adding it would flip `operation` to "rank" for any
+  // query naming that hospital. "strongest" itself has zero matches.
+  "strongest",
 ]);
 
 const COMPARISON_KEYWORDS = new Set(["compare", "vs", "versus"]);

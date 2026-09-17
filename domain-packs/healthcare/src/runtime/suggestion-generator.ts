@@ -1,7 +1,29 @@
 import type { SuggestionContext } from "@intelligence/domain-sdk";
+import { llmGateway } from "@intelligence/llm-model-gateway";
 
 import { healthcareMetrics } from "../metrics";
+import { concepts } from "../concepts";
+import { healthcareAliases } from "../aliases";
 import { STATE_NAMES_BY_CODE } from "./execution-strategy";
+
+/**
+ * PrePhase 9.5 Round 3 (suggestion diversity for concept queries): the
+ * same concepts-with-a-real-measure-code filter `capability-catalog.ts`
+ * already established, rebuilt here rather than imported from there to
+ * avoid a runtime-package -> capability-catalog -> back dependency; the
+ * underlying source data (`concepts/*.ts`, `aliases/*.ts`) is identical
+ * either way, never a second, independently-maintained list.
+ */
+const CONCEPTS_WITH_REAL_MEASURES = concepts.filter((concept) => concept.measureCodesByMetric);
+
+function conceptAliases(conceptId: string): string[] {
+  return healthcareAliases.find((alias) => alias.canonical === conceptId)?.aliases ?? [];
+}
+
+const METRIC_WORDS_BY_ID: Record<string, string> = {
+  "mortality-rate": "mortality rate",
+  "readmission-rate": "readmission",
+};
 
 /**
  * Tier1 Task 6: three real, already-verified-working queries (confirmed
@@ -133,6 +155,22 @@ function nextPeerState(currentStates: readonly string[]): string | undefined {
 }
 
 /**
+ * PrePhase 9.5 (suggestion diversity fix): every comparable/rankable
+ * metric OTHER than the current one - not just the single "next" pick
+ * `nextComparableMetric` returns. Used to build a genuinely diverse POOL
+ * for the LLM to select from (see `buildSuccessSuggestionPool` and
+ * `generateHealthcareSuggestionsWithLLMRephrasing` below) - live
+ * dogfooding (docs/Frontend test/PrePhase 9 LLM.md) showed that even
+ * with rephrasing, always offering the SAME one alternate metric still
+ * felt repetitive across turns.
+ */
+function allComparableMetricsExcept(currentMetricId: string) {
+  return healthcareMetrics.filter(
+    (metric) => (metric.rankable || metric.comparable) && metric.id !== currentMetricId,
+  );
+}
+
+/**
  * Sub-Goal A (success path): depth probe, breadth/pivot, and entity-dive
  * candidates derived mechanically from the resolved ExecutionPlan/rows -
  * never a hardcoded second hospital name (see the design doc's own
@@ -207,6 +245,119 @@ function successPathSuggestions(context: SuggestionContext): string[] {
 
   candidates.push(...SAFE_FALLBACK_SUGGESTIONS);
   return candidates;
+}
+
+/**
+ * PrePhase 9.5 (suggestion diversity fix): a genuinely larger pool of
+ * mechanically-valid candidates for the LLM to pick 3 diverse ones from,
+ * instead of `successPathSuggestions()`'s own single depth-probe/
+ * breadth-pivot/state-pivot triple. Every entry here is built the exact
+ * same mechanical way `successPathSuggestions()` already does (only the
+ * domain's own declared metrics/states/ownership categories/resolved
+ * entity - never invented) - this function only widens how many of each
+ * kind get offered, it does not introduce a new construction mechanism.
+ * `generateHealthcareSuggestionsWithLLMRephrasing()` is what actually
+ * narrows this down to 3, via `llmGateway.selectAndRephraseSuggestions`.
+ */
+function buildSuccessSuggestionPool(context: SuggestionContext): string[] {
+  const plan = context.executionPlan;
+  if (!plan) {
+    return SAFE_FALLBACK_SUGGESTIONS.slice();
+  }
+
+  const pool: string[] = [];
+  const stateFilter = plan.filters.find((filter) => filter.field === "state");
+  const ownershipFilter = plan.filters.find((filter) => filter.field === "ownership");
+  const hospitalFilter = plan.filters.find(
+    (filter) => filter.field === "hospital" && filter.operator === "=",
+  );
+  // PrePhase 9.5 Round 3: a concept-scoped query (AMI/CABG/COPD/etc)
+  // carries a `measureCode` filter alongside the generic top-level
+  // metric - used below to pivot the pool across OTHER concepts too,
+  // not just other top-level metrics, so "heart attack death rate"'s
+  // suggestions can offer "bypass surgery readmission" / "heart failure
+  // mortality" etc, not only "Safety Performance"/"Patient Experience".
+  const measureCodeFilter = plan.filters.find((filter) => filter.field === "measureCode");
+  const currentConcept = measureCodeFilter
+    ? CONCEPTS_WITH_REAL_MEASURES.find(
+        (concept) => concept.measureCodesByMetric?.[plan.metric] === measureCodeFilter.value,
+      )
+    : undefined;
+  const stateValues = stateFilter ? filterValues(stateFilter.value) : [];
+  const stateNames = stateValues.map(stateName);
+  const scopeSuffix = stateNames.length > 0 ? ` in ${stateNames.join(" and ")}` : "";
+
+  const firstRow = context.rows?.[0];
+  const hospitalName =
+    hospitalFilter && firstRow && typeof firstRow["hospital_name"] === "string"
+      ? (firstRow["hospital_name"] as string)
+      : undefined;
+
+  if (hospitalName) {
+    for (const metric of allComparableMetricsExcept(plan.metric)) {
+      pool.push(`What is ${hospitalName}'s ${metric.displayName.toLowerCase()}?`);
+    }
+    pool.push(`Tell me about ${hospitalName}`);
+  } else {
+    // Depth probe: every OTHER comparable metric, not just the next one.
+    for (const metric of allComparableMetricsExcept(plan.metric)) {
+      pool.push(`Show me hospitals with best ${metric.displayName}${scopeSuffix}`);
+    }
+
+    // Depth probe (concept-scoped only): every OTHER clinical concept
+    // with a real measure code - "heart attack" pivots to "bypass
+    // surgery"/"heart failure"/"pneumonia"/etc, not only to unrelated
+    // top-level metrics.
+    if (currentConcept) {
+      for (const other of CONCEPTS_WITH_REAL_MEASURES) {
+        if (other.id === currentConcept.id) continue;
+        const otherMetricId = other.measureCodesByMetric?.[plan.metric] ? plan.metric : Object.keys(other.measureCodesByMetric ?? {})[0];
+        if (!otherMetricId) continue;
+        const otherWord = METRIC_WORDS_BY_ID[otherMetricId] ?? "rate";
+        const shortName = conceptAliases(other.id)[0] ?? other.displayName;
+        pool.push(`Show me hospitals with lowest ${shortName} ${otherWord}${scopeSuffix}`);
+      }
+    }
+
+    // Breadth/pivot: both ownership directions, not just one rotation
+    // step - uses the current CONCEPT's own short name + metric word
+    // when concept-scoped (e.g. "AMI mortality rate"), not the generic
+    // top-level metric name, so the pivot stays contextual.
+    const primaryDisplayName = currentConcept
+      ? `${conceptAliases(currentConcept.id)[0] ?? currentConcept.displayName} ${METRIC_WORDS_BY_ID[plan.metric] ?? ""}`.trim()
+      : metricDisplayName(plan.metric) ?? "overall rating";
+    if (ownershipFilter) {
+      pool.push(`Show me hospitals with best ${primaryDisplayName}${scopeSuffix}`);
+    } else {
+      for (const ownership of OWNERSHIP_ROTATION) {
+        pool.push(`Show me ${ownership} hospitals with best ${primaryDisplayName}`);
+      }
+    }
+
+    // Breadth/pivot: several peer states, not just the next rotation step.
+    if (stateValues.length >= 1) {
+      const peers: string[] = [];
+      let anchor = stateValues;
+      for (let i = 0; i < Math.min(3, PEER_STATE_CODES.length); i++) {
+        const peer = nextPeerState(anchor);
+        if (!peer || peers.includes(peer)) {
+          break;
+        }
+        peers.push(peer);
+        anchor = [...anchor, peer];
+      }
+      for (const peer of peers) {
+        pool.push(
+          stateValues.length === 1
+            ? `Best hospitals in ${stateNames[0]} and ${stateName(peer)}`
+            : `Show me 5-star hospitals in ${stateNames.join(", ")} and ${stateName(peer)}`,
+        );
+      }
+    }
+  }
+
+  pool.push(...SAFE_FALLBACK_SUGGESTIONS);
+  return pool;
 }
 
 /**
@@ -299,4 +450,124 @@ function failurePathSuggestions(context: SuggestionContext): string[] {
 
 export function generateHealthcareSuggestions(context: SuggestionContext): string[] {
   return context.success ? successPathSuggestions(context) : failurePathSuggestions(context);
+}
+
+/**
+ * How long Layer 2's optional LLM rephrasing is allowed to hold up a
+ * response before falling back to the deterministic list untouched.
+ *
+ * Live-measured correction: the originally-approved value (800ms) was a
+ * proposal, not a measurement - 3 live timed calls against the fastest
+ * currently-configured free tier (Groq's `openai/gpt-oss-20b`) came back
+ * in 823ms/893ms/1477ms, meaning 800ms would silently discard the LLM
+ * response on nearly every real request, defeating Layer 2's entire
+ * purpose while still paying for the call. Raised to a value that
+ * comfortably covers the observed range while remaining a real, bounded
+ * ceiling (never unbounded, always falls back to the instant
+ * deterministic list past this point).
+ */
+const LLM_REPHRASE_RACE_TIMEOUT_MS = 1800;
+
+function raceWithTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | undefined> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        resolve(undefined);
+      }
+    }, timeoutMs);
+    promise.then(
+      (value) => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve(value);
+        }
+      },
+      () => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve(undefined);
+        }
+      },
+    );
+  });
+}
+
+/**
+ * LLM Integration Layer 2 (Contextual Suggestion Co-Pilot), extended in
+ * PrePhase 9.5 for diversity, not just wording. The deterministic pool
+ * builder above always runs first and its own output IS the bounded
+ * vocabulary contract - the LLM is only ever asked to SELECT + rephrase
+ * from that already-decided pool, never to choose a metric/state/entity
+ * that isn't already in it. Races the LLM call against
+ * LLM_REPHRASE_RACE_TIMEOUT_MS so this can never make a response slower
+ * than the pre-LLM (Batch 27) baseline - on timeout, failure, or any
+ * malformed/wrong-length response, the ORIGINAL deterministic top-3
+ * (`successPathSuggestions()`/`failurePathSuggestions()`'s own,
+ * already-proven output) is returned unchanged (Universal Core's own
+ * dry-run validation is what actually decides which candidates survive
+ * to the user either way).
+ *
+ * Identity-ambiguous candidates are deliberately NEVER sent to the LLM -
+ * see the bare-city-token doc comment above (failurePathSuggestions) for
+ * why they are continuation tokens, not standalone questions, and must
+ * reach create-runtime-engine.ts byte-for-byte as the generator produced
+ * them.
+ */
+export async function generateHealthcareSuggestionsWithLLMRephrasing(
+  context: SuggestionContext,
+): Promise<string[]> {
+  const deterministic = generateHealthcareSuggestions(context);
+
+  if (context.answerability?.reason === "identity-ambiguous") {
+    return deterministic;
+  }
+
+  const resolvedMetric = context.executionPlan?.metric;
+  const stateFilterValue = context.executionPlan?.filters.find((filter) => filter.field === "state")?.value;
+  const resolvedState = stateFilterValue !== undefined ? String(stateFilterValue) : undefined;
+
+  // Success path: a genuinely larger, diverse pool - the LLM SELECTS 3
+  // (never invents), so different turns asking the same base question
+  // can surface different real facts, not just different wording of
+  // the same 3.
+  if (context.success) {
+    const pool = buildSuccessSuggestionPool(context);
+    if (pool.length <= 3) {
+      return pool;
+    }
+    const selected = await raceWithTimeout(
+      llmGateway.selectAndRephraseSuggestions(pool, { resolvedMetric, resolvedState }, 3),
+      LLM_REPHRASE_RACE_TIMEOUT_MS,
+    );
+    return selected && selected.length === 3 ? selected : deterministic.slice(0, 3);
+  }
+
+  // Failure path: pool is already small/topic-specific
+  // (capability-unavailable's real alternatives, or one TOPIC_FALLBACKS
+  // triple) - plain rephrasing, not selection, since there usually isn't
+  // a larger pool to select a more diverse subset from.
+  const toRephrase = deterministic.slice(0, 3);
+  if (toRephrase.length === 0) {
+    return deterministic;
+  }
+
+  const rephrased = await raceWithTimeout(
+    llmGateway.synthesizeSuggestions({
+      question: context.question,
+      resolvedMetric,
+      resolvedState,
+      candidates: toRephrase,
+    }),
+    LLM_REPHRASE_RACE_TIMEOUT_MS,
+  );
+
+  if (!rephrased || rephrased.length !== toRephrase.length) {
+    return deterministic;
+  }
+
+  return [...rephrased, ...deterministic.slice(3)];
 }

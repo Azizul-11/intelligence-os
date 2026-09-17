@@ -236,7 +236,15 @@ function ResultCard({
 }) {
   const { question, result } = entry;
   const success = result.success;
-  
+
+  // LLM Integration Layer 0: a conversational turn (greeting/meta-
+  // capability/deflection) is plain prose, not a row-table JSON payload
+  // - rendered as a chat message, never run through JSON.parse (which
+  // would otherwise misreport it as "not valid JSON" and dump it in a
+  // monospace block).
+  const isConversational =
+    success && "answerability" in result && result.answerability?.status === "conversational";
+
   // Phase 8.10 Layer 2: Treat continuation prompts differently from errors
   const isContinuation = !success && "pendingInteractionId" in result && !!result.pendingInteractionId;
   const isError = !success && !isContinuation;
@@ -244,7 +252,7 @@ function ResultCard({
   let rows: unknown = null;
   let parseError: string | null = null;
 
-  if (success && result.answer) {
+  if (success && !isConversational && result.answer) {
     try {
       rows = JSON.parse(result.answer);
     } catch {
@@ -264,16 +272,22 @@ function ResultCard({
         <span
           className={cn(
             "shrink-0 rounded-full px-2 py-0.5 text-xs font-medium",
-            success
+            isConversational
+              ? "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+              : success
               ? "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300"
               : isContinuation
               ? "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
               : "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300",
           )}
         >
-          {success ? "success" : isContinuation ? "needs clarification" : "failure"}
+          {isConversational ? "chat" : success ? "success" : isContinuation ? "needs clarification" : "failure"}
         </span>
       </div>
+
+      {isConversational && (
+        <p className="mb-2 text-sm text-foreground">{result.answer}</p>
+      )}
 
       {"trace" in result && result.trace && result.trace.length > 0 && (
         <PhasePipeline trace={result.trace} />
@@ -313,6 +327,13 @@ function ResultCard({
             ? result.error
             : "The backend returned a failure with no error message."}
         </p>
+      )}
+
+      {/* LLM Integration Layer 3: purely additive - only rendered when
+          the backend's own numeric cross-check already accepted it; the
+          raw rows table below is completely unaffected either way. */}
+      {success && "summary" in result && result.summary && (
+        <p className="mb-2 text-sm text-foreground">{result.summary}</p>
       )}
 
       {success && parseError && (

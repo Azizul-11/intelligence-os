@@ -5,7 +5,134 @@ import { supabase } from "../../shared/supabase.ts";
 import { executeRuntime } from "../services/runtime.ts";
 import { handleContinuation } from "../services/continuation.ts";
 import { createPendingInteraction } from "@intelligence/runtime-engine";
-import { getDomainMetrics } from "../services/domain-registry.ts";
+import { getDomainMetrics, getDomainCapabilities, getRuntimeEngine } from "../services/domain-registry.ts";
+import { llmGateway } from "@intelligence/llm-model-gateway";
+
+/**
+ * LLM Integration Layer 0 (Conversational Front-Door Router). A short
+ * greeting/meta-capability/thanks message never reaches Gate 1 semantic
+ * resolution at all - live dogfooding (docs/Frontend test/PrePhase 9
+ * LLM.md) showed "hi"/"hello"/"what can you do" hitting the deterministic
+ * pipeline's own honest "Unable to resolve question." dead end, which is
+ * technically correct (none of these are analytical questions) but reads
+ * as a compiler failure on a user's very first message. This is a plain
+ * regex classifier, not a semantic gate - it never decides whether a
+ * REAL analytical question is answerable, only whether a message is
+ * conversational enough to skip the pipeline entirely.
+ */
+const CONVERSATIONAL_PATTERNS: RegExp[] = [
+  /^(hi|hello|hey|hiya|howdy|greetings|yo)\b/i,
+  /^(what can you do|what do you do|capabilities|help|what is this|who are you|what are you)\b/i,
+  /^(thanks|thank you|bye|goodbye)\b/i,
+  /^(how (are|do) you work|explain (yourself|what you can do))\b/i,
+];
+
+function isConversational(question: string): boolean {
+  const trimmed = question.trim().toLowerCase();
+  if (trimmed.length === 0 || trimmed.length > 60) {
+    return false;
+  }
+  return CONVERSATIONAL_PATTERNS.some((pattern) => pattern.test(trimmed));
+}
+
+/**
+ * Every suggestion chip from Layer 0 must still be dry-run validated
+ * exactly like every other suggestion this platform surfaces (the
+ * Every-Turn/100%-Executable invariants make no exception for
+ * conversational turns) - reuses the same RuntimeRequest.dryRun
+ * mechanism create-runtime-engine.ts's own suggestion loop already
+ * established, just invoked here since Layer 0 returns before the
+ * engine's own suggestion-generation code ever runs.
+ */
+async function validateConversationalSuggestions(candidates: string[]): Promise<string[]> {
+  const engine = getRuntimeEngine();
+  const validated: string[] = [];
+  for (const candidate of candidates) {
+    if (validated.length >= 4) {
+      break;
+    }
+    const trial = await engine.execute({ question: candidate, dryRun: true });
+    if (trial.success) {
+      validated.push(candidate);
+    }
+  }
+  return validated;
+}
+
+/**
+ * LLM Integration Layer 3 (Executive Answer Synthesis): the mandatory
+ * deterministic guardrail every summary must pass before it can ever
+ * reach the user - extracts every standalone numeric token the LLM's
+ * summary contains and confirms each one literally appears somewhere in
+ * the rows it's summarizing. Never edits/patches a summary that fails
+ * this check - it is discarded outright, and the response simply has no
+ * `summary` field (its own `answer` field with the raw rows is
+ * completely unaffected either way).
+ */
+function extractNumericTokens(text: string): string[] {
+  return text.match(/\d+(\.\d+)?/g) ?? [];
+}
+
+function rowsContainNumber(rows: Record<string, unknown>[], token: string): boolean {
+  return rows.some((row) =>
+    Object.values(row).some((value) => String(value).includes(token)),
+  );
+}
+
+/**
+ * PrePhase 9.5, Guardrail 6: no bare, technical-sounding failure text
+ * ever reaches the frontend as a "compiler failure." This only softens
+ * the specific, already-catalogued BLUNT/GENERIC messages (the ones
+ * this task's own dogfooding flagged - "Unable to resolve question.",
+ * "SQL template not found.", the missing-parameter message) - it never
+ * touches an already-informative message (Phase 8.10's alternative-
+ * based guidance text, F5's negation explanation, a targeted identity-
+ * ambiguous clarification), which are handled by their own dedicated
+ * branches above this function's only call site and already read as
+ * helpful, not as a raw error.
+ */
+const BLUNT_FAILURE_MESSAGES = new Set([
+  "Unable to resolve question.",
+  "SQL template not found.",
+  "I don't have enough specific information to identify exactly which record this question refers to. Please include more identifying detail (such as a full name or location) and try again.",
+  // Bug E (Phase 3.1.1): the exact literal text create-runtime-engine.ts
+  // falls back to when QueryPlanner.createPlan() refuses to plan at all
+  // (query-planner.ts's own `discoverDefaultRankableMetric` guard,
+  // "Unable to create query plan.") - this is the same class of
+  // technical-sounding dead end the 3 messages above already exist to
+  // soften, just not previously in this set. Fires for the off-topic/
+  // unaccounted-token refusal ("what's the weather in Texas?") among
+  // other genuinely-nothing-resolved cases - the generic redirect below
+  // is honest and appropriate for all of them, same as it already is for
+  // "Unable to resolve question."
+  "Unable to create query plan.",
+]);
+
+function softenBluntFailureMessage(error: string | undefined): string | undefined {
+  if (!error || !BLUNT_FAILURE_MESSAGES.has(error)) {
+    return error;
+  }
+  return "I specialize in US hospital clinical performance and healthcare analytics - I couldn't quite match that to something I track. Here are a few things I can help with:";
+}
+
+async function buildVerifiedSummary(
+  question: string,
+  rows: Record<string, unknown>[],
+): Promise<string | undefined> {
+  if (rows.length === 0) {
+    return undefined;
+  }
+
+  const summary = await llmGateway.summarizeResult(question, rows);
+  if (!summary) {
+    return undefined;
+  }
+
+  const numbers = extractNumericTokens(summary);
+  const allNumbersVerified = numbers.every((token) => rowsContainNumber(rows, token));
+
+  return allNumbersVerified ? summary : undefined;
+}
 
 // Tier0 Task 2 (F8) Phase 2: Query Tracer Observability. Persists the
 // PhaseGateTracker trace RuntimeResult already carries (see
@@ -42,6 +169,22 @@ export async function handleChat(
   // Phase 8.10 Layer 2: Check if this is a continuation (Turn 2)
   if (request.pendingInteractionId && request.continuationResponse) {
     return await handleContinuation(request);
+  }
+
+  // LLM Integration Layer 0: intercepted BEFORE Gate 1 / the deterministic
+  // pipeline entirely - never SQL, never the analytical pipeline, purely
+  // an onboarding/deflection response. See isConversational()'s own doc
+  // comment for why this exists.
+  if (isConversational(request.question)) {
+    const capabilities = getDomainCapabilities();
+    const conversational = await llmGateway.handleConversational(request.question, capabilities);
+    const suggestions = await validateConversationalSuggestions(conversational.suggestions);
+    return {
+      success: true,
+      answer: conversational.answer,
+      suggestions: suggestions.length > 0 ? suggestions : capabilities.exampleAnswerableQuestions.slice(0, 3),
+      answerability: { status: "conversational" },
+    };
   }
 
   const requestId = crypto.randomUUID();
@@ -166,13 +309,18 @@ export async function handleChat(
     return {
       success: false,
       answer: "",
-      error: result.error,
+      error: softenBluntFailureMessage(result.error),
       requestId,
       answerability: result.answerability,
       trace: result.trace,
       suggestions: result.suggestions,
     };
   }
+
+  const summary = await buildVerifiedSummary(
+    request.question,
+    result.rows as Record<string, unknown>[],
+  );
 
   return {
     success: true,
@@ -181,6 +329,7 @@ export async function handleChat(
     answerability: result.answerability,
     trace: result.trace,
     suggestions: result.suggestions,
+    ...(summary ? { summary } : {}),
     metadata: {
       rowCount: result.rowCount,
     },

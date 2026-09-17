@@ -43,6 +43,8 @@ export interface ChatResponse {
   trace?: PhaseGateTraceEntry[];
   // Tier1 Task 6: 2-3 already-verified-answerable follow-up/recovery chips
   suggestions?: string[];
+  // LLM Integration Layer 3: optional, numerically-verified 1-2 sentence summary of answer's rows
+  summary?: string;
 }
 
 const ORCHESTRATOR_URL = import.meta.env.VITE_ORCHESTRATOR_URL as

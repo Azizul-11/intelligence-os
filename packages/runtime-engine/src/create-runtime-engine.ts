@@ -140,6 +140,43 @@ type CreateRuntimeEngineOptions = {
   planner: QueryPlanner;
   executionPlanMapper: ExecutionPlanMapper;
   executor: SqlExecutor;
+  /**
+   * LLM Integration Layer 1 (Messy Input Normalizer): optional hook,
+   * supplied only by the orchestrator's bootstrap (wired to
+   * llmGateway.normalizeMessyLanguage()) - Universal Core stays 100%
+   * LLM-unaware when this is omitted (every pre-existing caller,
+   * including every verification script). Called only when the
+   * "semantic-incomplete" dead end fires; its return value is NEVER
+   * trusted as answerable on its own - a `canonicalQuestion` rewrite is
+   * re-run through this exact same engine's full pipeline (see the
+   * execute() wrapper below) before it can produce a real result. A
+   * `clarification` reply (PrePhase 9.5) is never re-run - it only
+   * replaces the gate's raw error text with the LLM's own natural-
+   * language follow-up question, for cases where guessing a rewrite
+   * would require inventing a scope (e.g. a state) the user never gave.
+   */
+  llmFallback?: (
+    question: string,
+  ) => Promise<{ canonicalQuestion: string } | { clarification: string } | null>;
+  /**
+   * Bug L Beyond (Phase 2, 2026-09-17): optional hook, supplied only by
+   * the orchestrator's bootstrap - a domain-owned, deterministic,
+   * synchronous rewrite of the raw question text applied BEFORE
+   * anything else (semantic resolution, the tracer, Layer 1). Universal
+   * Core never inspects what this does or which words it rewrites; it
+   * only ever calls whatever function the wiring layer supplies, exactly
+   * as `llmFallback` above already works. This exists so a Domain SDK
+   * can deterministically expand its own domain-specific short forms
+   * (e.g. Healthcare's own US state abbreviations) using a signal
+   * (letter case) that is destroyed by the time the request reaches
+   * `semantic.resolve()` - see `HealthcareEntityProvider`'s own
+   * documented reason for never registering abbreviations in its
+   * case-insensitive `STATES` map. Applied once, unconditionally, at
+   * the very top of `execute()` - safe to also run on an already-
+   * expanded or LLM-rewritten question (a idempotent no-op when no
+   * matching short form is present).
+   */
+  preprocessQuestion?: (question: string) => string;
 };
 export function createRuntimeEngine({
   runtime,
@@ -147,13 +184,22 @@ export function createRuntimeEngine({
   planner,
   executionPlanMapper,
   executor,
+  llmFallback,
+  preprocessQuestion,
 }: CreateRuntimeEngineOptions): RuntimeEngine {
   // Tier1 Task 6: `engine` is declared before `execute` runs so the
   // suggestion dry-run loop below can recursively call `engine.execute`
   // on itself (self-reference via closure, resolved by the time any
   // request actually arrives).
   const engine: RuntimeEngine = {
-    async execute(request: RuntimeRequest): Promise<RuntimeResult> {
+    async execute(incomingRequest: RuntimeRequest): Promise<RuntimeResult> {
+      // Bug L Beyond: rewrite once, up front - every reference to
+      // `request.question` below (the tracer, semantic resolution, the
+      // Layer 1 fallback, suggestion dedup) then sees the same already-
+      // expanded text, with zero further changes needed downstream.
+      const request: RuntimeRequest = preprocessQuestion
+        ? { ...incomingRequest, question: preprocessQuestion(incomingRequest.question) }
+        : incomingRequest;
       // Tier0 Task 2 (F8) Phase 2: Query Tracer Observability. Wraps the
       // entire, unchanged pipeline below so every response - whichever
       // gate it stops at - carries a `trace` of exactly which gates this
@@ -233,6 +279,31 @@ console.log("=====================================");
         }
       }
 
+      // Comparison continuation fix: inject companion entities from Turn 1.
+      // When a comparison query had one ambiguous entity and one or more
+      // non-ambiguous entities (e.g., "compare memorial hospital vs ANIMAS"),
+      // Turn 2 must preserve ALL entities, not just the disambiguated one.
+      // Companion entities are the non-ambiguous entities from Turn 1 that
+      // were already resolved successfully and carried through to Turn 2.
+      if (request.companionEntities && request.companionEntities.length > 0) {
+        for (const companion of request.companionEntities) {
+          const entityDefinition = runtime.registry.getEntity(companion.canonicalKey);
+          
+          if (entityDefinition) {
+            semanticResult.matches.push({
+              phrase: "", // Companion entity phrase not needed for execution
+              canonicalKey: companion.canonicalKey,
+              semanticType: "entity",
+              definition: entityDefinition,
+              confidence: 1,
+              start: 0,
+              end: 0,
+              resolvedValue: companion.value,
+            });
+          }
+        }
+      }
+
       // Phase 8.1: an entity mention resolved to more than one legitimate
       // candidate identity (e.g. two real hospitals sharing the same
       // name). Previously this was indistinguishable from the phrase not
@@ -288,7 +359,14 @@ console.log("=====================================");
           rows: [],
           rowCount: 0,
           error: "Unable to resolve question.",
-          answerability: { status: "not_directly_answerable" },
+          // LLM Integration Layer 1: "semantic-incomplete" is the same
+          // already-declared reason line ~397 below attaches for the
+          // conceptually identical "nothing meaningful extracted from
+          // the request at all" case (see AnswerabilityReason's own doc
+          // comment) - reused, not invented, so the outer execute()
+          // wrapper can precisely target only this dead-end shape for
+          // an LLM rewrite attempt, never any other refusal reason.
+          answerability: { status: "not_directly_answerable", reason: "semantic-incomplete" },
         };
       }
 
@@ -372,7 +450,7 @@ console.log("=====================================");
       // can discover a domain-declared `comparable` set for a
       // metric-less multi-entity request. Universal Core never inspects
       // this list beyond the generic `comparable` flag.
-      const plan = planner.createPlan(semanticResult, runtime.domain.metrics, request.forcedIntent);
+      const plan = planner.createPlan(semanticResult, runtime.domain.metrics, request.forcedIntent, runtime.domain.entities);
 
     if (
   !plan.success ||
@@ -1019,7 +1097,63 @@ return {
 };
       };
 
-      const result = await runPipeline();
+      let result = await runPipeline();
+
+      // LLM Integration Layer 1 (Messy Input Normalizer). PrePhase 9.5
+      // broadened this from ONLY "semantic-incomplete" to any
+      // non-ambiguous failure - live dogfooding (docs/Frontend test/
+      // PrePhase 9 LLM.md) found real typo/near-miss questions
+      // ("hospitals with best safty performence", "show me 3 start
+      // hospital") failing at OTHER gates entirely - capability-
+      // unavailable ("SQL template not found.") and missing-parameter
+      // ("I don't have enough specific information...") - not just the
+      // bare zero-candidate dead end. `status === "ambiguous"`
+      // (identity-ambiguous) is the one deliberate exception: it already
+      // has its own real clarification flow with real candidates, and an
+      // LLM rewrite would only interfere with that pending interaction.
+      // The rewrite is never trusted directly: delegating to a fresh
+      // engine.execute() re-runs the ENTIRE pipeline (semantic
+      // resolution through execution) on the rewritten text, so Rule
+      // 21/22 and Phase 8.13 hold exactly as they would for a user who
+      // typed the canonical phrasing themselves - this outer wrapper
+      // never inspects or shortcuts what that recursive call decides. If
+      // the rewrite doesn't help (still fails, or is identical to the
+      // original), the ORIGINAL result - whatever gate it came from,
+      // including any guidance message it already carries - is returned
+      // completely unchanged, never replaced with something worse.
+      if (
+        !result.success &&
+        result.answerability?.status !== "ambiguous" &&
+        llmFallback &&
+        !request.llmFallbackAttempted
+      ) {
+        const rewrite = await llmFallback(request.question);
+        if (
+          rewrite &&
+          "canonicalQuestion" in rewrite &&
+          rewrite.canonicalQuestion !== request.question
+        ) {
+          return engine.execute({
+            ...request,
+            question: rewrite.canonicalQuestion,
+            llmFallbackAttempted: true,
+          });
+        }
+        // PrePhase 9.5: the LLM can determine a rewrite isn't safe to
+        // guess (e.g. a bare filter/list question with no geographic
+        // scope, where inventing a state would silently narrow what the
+        // user actually asked for) and instead hands back its own
+        // natural-language clarifying question. Surfacing that verbatim
+        // (instead of the gate's original raw/blunt error string) is
+        // what makes this a graceful "which state?" follow-up rather
+        // than a dead-end technical failure - the ChatGPT-style behavior
+        // this batch was asked for. `result.success` stays false and
+        // `answerability` is untouched: this is strictly a friendlier
+        // error message, never a fabricated success.
+        if (rewrite && "clarification" in rewrite) {
+          result = { ...result, error: rewrite.clarification };
+        }
+      }
 
       tracker.exit(
         "response",
@@ -1049,7 +1183,7 @@ return {
         ...(finalResult.answerability ? { answerability: finalResult.answerability } : {}),
       };
 
-      const candidateQuestions = runtime.domain.executionStrategy.generateSuggestions(
+      const candidateQuestions = await runtime.domain.executionStrategy.generateSuggestions(
         suggestionContext,
       );
 

@@ -42,6 +42,59 @@ function hadMetricOrConcept(originalSemanticResult: unknown): boolean {
   );
 }
 
+// Mirrors packages/query-planner/src/query-intent-detector.ts's own
+// COMPARISON_KEYWORDS exactly - a tiny, stable set, mirrored rather than
+// imported since this Deno edge function can't easily pull a Node
+// package's internal (non-exported) const across the runtime boundary
+// (the same pattern chat.ts's own CONVERSATIONAL_PATTERNS already uses).
+const COMPARISON_KEYWORDS = ["compare", "vs", "versus"];
+
+/**
+ * Comparison continuation fix: whether Turn 1 was a multi-entity
+ * comparison query (e.g. "compare memorial hospital vs ANIMAS").
+ *
+ * BUG FOUND live (2026-09-15): the original version of this check
+ * counted `comparable` entities inside `originalSemanticResult` (i.e.
+ * `RuntimeResult.semanticMatches`) and required 2+. But
+ * `semanticMatches` is populated with the entities ALREADY resolved
+ * alongside an ambiguity - by design, it deliberately EXCLUDES the
+ * ambiguous entity mention itself (see chat.ts's own doc comment on
+ * `originalSemanticResult`). So for "compare memorial hospital vs Mayo
+ * Clinic" (memorial hospital ambiguous, Mayo Clinic resolved), only ONE
+ * comparable entity (Mayo Clinic) could ever appear here - the count
+ * could never reach 2 for exactly the shape this function exists to
+ * detect, silently disabling the whole comparison-continuation fix.
+ *
+ * Fixed by checking the ORIGINAL QUESTION TEXT for a comparison
+ * keyword instead (the same signal `QueryIntentDetector` itself uses
+ * to classify comparison intent in the first place) - combined with
+ * requiring at least one already-resolved ENTITY (any entity, not
+ * "comparable" - `EntityDefinition` has no `comparable` field at all;
+ * that flag only ever exists on `MetricDefinition`. The original
+ * check's `.definition?.comparable === true` was checking a property
+ * that can never be true for an entity, so it silently disabled this
+ * function a SECOND, independent way even after the keyword fix -
+ * confirmed live by reading the actual persisted
+ * `pending_interactions.original_semantic_result` row: the entity's
+ * serialized `definition` has no `comparable` key at all) - to avoid
+ * misfiring on an unrelated "compare" mention with no pending
+ * multi-entity identity at all.
+ */
+function wasComparisonQuery(originalQuestion: string, originalSemanticResult: unknown): boolean {
+  const lowerQuestion = originalQuestion.toLowerCase();
+  const hasComparisonKeyword = COMPARISON_KEYWORDS.some((keyword) =>
+    lowerQuestion.split(/\s+/).includes(keyword),
+  );
+
+  if (!hasComparisonKeyword || !Array.isArray(originalSemanticResult)) {
+    return false;
+  }
+
+  return originalSemanticResult.some(
+    (match: any) => match?.semanticType === "entity" && match?.resolvedValue !== undefined,
+  );
+}
+
 /**
  * Phase 8.10 Layer 2 Task 2: Complete continuation handling with full reconstruction.
  * 
@@ -73,6 +126,8 @@ export async function handleContinuation(
       forcedIdentityCandidate?: { value: unknown };
       selectedCapability?: string;
       identityAlreadyResolved?: boolean;
+      forcedIntent?: "lookup" | "ranking" | "comparison";
+      companionEntities?: Array<{ value: unknown; canonicalKey: string }>;
     } | null = null;
 
     if (interaction.kind === "clarification") {
@@ -198,6 +253,47 @@ export async function handleContinuation(
           .filter(Boolean)
           .join(", ");
 
+        // Comparison continuation fix: if Turn 1 was a comparison query
+        // (2+ comparable entities), preserve comparison intent in Turn 2
+        // so metric injection doesn't overwrite it with bare lookup metric.
+        const forcedIntentForTurn2 = wasComparisonQuery(interaction.originalQuestion, interaction.originalSemanticResult)
+          ? "comparison"
+          : undefined;
+
+        // Bug fix: Multi-entity continuation (comparison with one ambiguous entity).
+        // When Turn 1 had 2+ entities (e.g., "compare memorial hospital vs ANIMAS"),
+        // Turn 2 must preserve ALL entities, not just the disambiguated one.
+        // Extract companion entities (non-ambiguous entities from Turn 1) and pass
+        // them through so ExecutionPlanMapper builds multi-entity IN filter.
+        let companionEntities: Array<{ value: unknown; canonicalKey: string }> = [];
+        
+        if (wasComparisonQuery(interaction.originalQuestion, interaction.originalSemanticResult)) {
+          const originalEntities = Array.isArray(interaction.originalSemanticResult)
+            ? interaction.originalSemanticResult.filter(
+                (match: any) => match?.semanticType === "entity" && match?.resolvedValue
+              )
+            : [];
+          
+          // Companion entities are those NOT involved in the ambiguity being resolved.
+          // The disambiguated entity will be injected separately via forcedIdentityCandidate.
+          // We identify the ambiguous entity by checking if its resolvedValue matches any
+          // of the offered candidates' values (the ambiguity involves these candidates).
+          const ambiguousCandidateValues = new Set(
+            (interaction.pendingTarget?.candidates ?? []).map((c: any) => c.value)
+          );
+          
+          companionEntities = originalEntities
+            .filter((entity: any) => {
+              // Keep entities whose resolvedValue is NOT in the ambiguity candidates
+              // This means they were already unambiguously resolved in Turn 1
+              return !ambiguousCandidateValues.has(entity.resolvedValue);
+            })
+            .map((entity: any) => ({
+              value: entity.resolvedValue,
+              canonicalKey: entity.canonicalKey,
+            }));
+        }
+
         reconstructed = {
           question: locationQualifier
             ? `${interaction.originalQuestion} in ${locationQualifier}`
@@ -219,6 +315,8 @@ export async function handleContinuation(
           // clarification (e.g. Tier0 Task 2's own hospital-ranking
           // check) about that same, already-resolved identity.
           identityAlreadyResolved: true,
+          forcedIntent: forcedIntentForTurn2,
+          companionEntities: companionEntities.length > 0 ? companionEntities : undefined,
         };
       }
     } else if (interaction.kind === "guidance") {
@@ -289,6 +387,8 @@ export async function handleContinuation(
       requestId,
       identityAlreadyResolved: reconstructed.identityAlreadyResolved,
       forcedIdentityCandidate: reconstructed.forcedIdentityCandidate,
+      forcedIntent: reconstructed.forcedIntent,
+      companionEntities: reconstructed.companionEntities,
       // Tier1 Task 6: a real Turn 2 terminal response - see
       // RuntimeRequest.includeSuggestions's own doc comment.
       includeSuggestions: true,

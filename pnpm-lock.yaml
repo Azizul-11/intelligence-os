@@ -103,6 +103,9 @@ importers:
       '@intelligence/domain-sdk':
         specifier: workspace:*
         version: link:../../packages/domain-sdk
+      '@intelligence/llm-model-gateway':
+        specifier: workspace:*
+        version: link:../../packages/llm-model-gateway
     devDependencies:
       esbuild:
         specifier: ^0.28.1
@@ -144,6 +147,18 @@ importers:
         specifier: workspace:*
         version: link:../contracts
     devDependencies:
+      esbuild:
+        specifier: ^0.28.1
+        version: 0.28.1
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.3
+
+  packages/llm-model-gateway:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.2
       esbuild:
         specifier: ^0.28.1
         version: 0.28.1
@@ -764,6 +779,9 @@ packages:
   '@tybys/wasm-util@0.10.3':
     resolution: {integrity: sha512-F3fo1MYrRJYL3zER0OUOmkutjr1Vp23m7OsSgp7nq4SP6OqX6C/56XFIPAl5bt3zaBRjmW7SGz3u/6LwFpYcOg==}
 
+  '@types/node@22.20.2':
+    resolution: {integrity: sha512-xlvWf4Vs9n1PEVYwP1n4vvG07M6y8WgvJ2t0vbrWTmijsIHp1cS+uJ2kMIRdY3nHZK0nCYKrPeD171+SzF4/zw==}
+
   '@types/node@24.13.2':
     resolution: {integrity: sha512-fRa09kZTgu8o71KFcDjUFuc7F+dEbZYZmkI0mg5YBTRs0yMKjYHsq/c0urDKeDb+D5qVgXOdFcuu+DZPKOITwA==}
 
@@ -1041,6 +1059,9 @@ packages:
     resolution: {integrity: sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==}
     engines: {node: '>=14.17'}
     hasBin: true
+
+  undici-types@6.21.0:
+    resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
 
   undici-types@7.18.2:
     resolution: {integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==}
@@ -1495,6 +1516,10 @@ snapshots:
       tslib: 2.8.1
     optional: true
 
+  '@types/node@22.20.2':
+    dependencies:
+      undici-types: 6.21.0
+
   '@types/node@24.13.2':
     dependencies:
       undici-types: 7.18.2
@@ -1740,6 +1765,8 @@ snapshots:
   typescript@5.9.3: {}
 
   typescript@6.0.3: {}
+
+  undici-types@6.21.0: {}
 
   undici-types@7.18.2: {}
 

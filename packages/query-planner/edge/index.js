@@ -14,7 +14,21 @@ var RANKING_KEYWORDS = /* @__PURE__ */ new Set([
   "least",
   "ranked",
   "rank",
-  "order"
+  "order",
+  // Bug G (Phase 3.3, 2026-09-18): "strongest" is a plain English
+  // superlative, exactly like every other word already in this set -
+  // its absence meant a query also containing "compare"/"vs" (which
+  // succeeds deterministically via COMPARISON_KEYWORDS on the very
+  // first pass) never got a chance to fall through to Layer 1's LLM
+  // rewrite (which does normalize "strongest" -> "best"), silently
+  // returning an unranked result instead. The Round 6 audit's own fix
+  // plan also suggested "strong" - deliberately NOT added here: a
+  // direct grep of hospital-identity-directory.ts found a real,
+  // confirmed collision ("STRONG MEMORIAL HOSPITAL"), the exact same
+  // class of regression already documented for "good"/"great" and real
+  // hospital names - adding it would flip `operation` to "rank" for any
+  // query naming that hospital. "strongest" itself has zero matches.
+  "strongest"
 ]);
 var COMPARISON_KEYWORDS = /* @__PURE__ */ new Set(["compare", "vs", "versus"]);
 var TREND_KEYWORDS = /* @__PURE__ */ new Set(["trend"]);
@@ -117,11 +131,65 @@ var EntityParameterResolver = class {
 };
 
 // src/query-planner.ts
+var QUESTION_FILLER_WORDS = /* @__PURE__ */ new Set([
+  "show",
+  "me",
+  "tell",
+  "give",
+  "find",
+  "get",
+  "list",
+  "what",
+  "whats",
+  "who",
+  "whos",
+  "which",
+  "where",
+  "when",
+  "how",
+  "is",
+  "are",
+  "was",
+  "were",
+  "do",
+  "does",
+  "did",
+  "can",
+  "could",
+  "would",
+  "will",
+  "should",
+  "i",
+  "you",
+  "we",
+  "us",
+  "our",
+  "your",
+  "please",
+  "want",
+  "need",
+  "know",
+  "about",
+  "there",
+  "any",
+  "some",
+  "s",
+  "the",
+  "a",
+  "an",
+  "of",
+  "for",
+  "to",
+  "in",
+  "on",
+  "and",
+  "or"
+]);
 var QueryPlanner = class _QueryPlanner {
   intentDetector = new QueryIntentDetector();
   collector = new SemanticCollector();
   entityParameterResolver = new EntityParameterResolver();
-  createPlan(semantic, domainMetrics = [], forcedIntent) {
+  createPlan(semantic, domainMetrics = [], forcedIntent, domainEntities = []) {
     if (semantic.ambiguityError) {
       return {
         success: false,
@@ -140,6 +208,15 @@ var QueryPlanner = class _QueryPlanner {
     );
     let discoveredComparableMetrics = false;
     let discoveredDefaultRanking = false;
+    const hasOnlyNonRankableMetrics = collections.metrics.length > 0 && collections.metrics.every(
+      (metric) => metric.definition.rankable === false
+    );
+    const hasNonGeographicScopeEntity = collections.entities.some(
+      (entity) => entity.definition.category?.isGeographicScope !== true
+    );
+    const hasUniqueRecordEntity = collections.entities.some(
+      (entity) => entity.definition.identifiesUniqueRecord === true
+    );
     if (collections.metrics.length === 0) {
       const discoveredComparable = this.discoverComparableMetrics(
         collections.entities,
@@ -148,19 +225,45 @@ var QueryPlanner = class _QueryPlanner {
       if (discoveredComparable.length > 0) {
         collections.metrics = discoveredComparable;
         discoveredComparableMetrics = true;
-      } else {
-        const discoveredDefault = this.discoverDefaultRankableMetric(
-          collections.entities,
-          domainMetrics
-        );
-        if (discoveredDefault.length === 0) {
-          return {
-            success: false,
-            plan: null
-          };
+      }
+    }
+    if (!discoveredComparableMetrics && !hasUniqueRecordEntity && (collections.metrics.length === 0 || hasOnlyNonRankableMetrics && hasNonGeographicScopeEntity)) {
+      const discoveredDefault = this.discoverDefaultRankableMetric(
+        collections.entities,
+        domainMetrics,
+        semantic.normalizedQuery,
+        semantic.matches,
+        domainEntities
+      );
+      if (discoveredDefault.length === 0) {
+        return {
+          success: false,
+          plan: null
+        };
+      }
+      collections.metrics = discoveredDefault;
+      discoveredDefaultRanking = true;
+    }
+    if (collections.metrics.length === 0 && hasUniqueRecordEntity && collections.entities.length > 0 && !forcedIntent) {
+      const firstEntity = collections.entities[0];
+      if (firstEntity) {
+        const entityType = firstEntity.canonicalKey;
+        const detailMetricId = `${entityType}-detail`;
+        const detailMetric = domainMetrics.find((m) => m.id === detailMetricId && m.rankable === false);
+        if (detailMetric) {
+          collections.metrics = [
+            {
+              phrase: firstEntity.phrase,
+              canonicalKey: detailMetric.id,
+              semanticType: "metric",
+              definition: detailMetric,
+              confidence: 1,
+              start: firstEntity.start,
+              end: firstEntity.end,
+              isFallback: true
+            }
+          ];
         }
-        collections.metrics = discoveredDefault;
-        discoveredDefaultRanking = true;
       }
     }
     let intent = forcedIntent ? forcedIntent : discoveredComparableMetrics ? "comparison" : discoveredDefaultRanking ? "ranking" : this.intentDetector.detect(
@@ -171,8 +274,10 @@ var QueryPlanner = class _QueryPlanner {
     }
     const finalCollections = {
       ...collections,
-      metrics: this.filterFallbackMetrics(
-        this.filterMetricsForIntent(collections.metrics, intent)
+      metrics: this.filterNonAnalyticalSecondaryMetrics(
+        this.filterFallbackMetrics(
+          this.filterMetricsForIntent(collections.metrics, intent)
+        )
       )
     };
     const parameters = this.entityParameterResolver.resolve(
@@ -285,6 +390,42 @@ var QueryPlanner = class _QueryPlanner {
     return explicit;
   }
   /**
+   * Bug F (Phase 3.3, 2026-09-18): a metric with NO analytical
+   * capability at all (`rankable`/`aggregatable`/`benchmarkable` all
+   * false - e.g. Healthcare's "hospital-list") represents a base entity
+   * listing, not a per-row value. It is only ever meaningful as the
+   * PRIMARY metric (metrics[0] - "hospitals in Birmingham with their
+   * overall ratings", where the listing stays primary and "overall
+   * ratings" is Phase 7's secondary, per-row enrichment). When some
+   * OTHER, genuinely analytical metric resolves first instead (e.g.
+   * "safest hospitals in Texas" - "safest" is metrics[0], "hospitals
+   * in" would otherwise be metrics[1]), this capability-less metric has
+   * no per-row value for Phase 7 to fetch and merge as a secondary
+   * enrichment - it has no template for that role - and would silently
+   * disappear from the plan if simply dropped, exactly the shape
+   * `assessPlanCompleteness()` exists to catch. Removing it HERE, at
+   * the same layer as `filterMetricsForIntent()`/`filterFallbackMetrics()`
+   * above, keeps it a legitimate, accounted-for removal (`plannedSemantic.
+   * metrics` - what `assessPlanCompleteness()` treats as already-filtered)
+   * rather than a candidate lost after planning. Domain-agnostic: reuses
+   * the same "any analytical capability" flags `filterMetricsForIntent()`
+   * already reads, and only ever removes a non-primary candidate - a
+   * standalone capability-less metric (the common "hospitals in Texas"
+   * case) is completely unaffected, since it stays metrics[0].
+   */
+  filterNonAnalyticalSecondaryMetrics(metrics) {
+    if (metrics.length <= 1) {
+      return metrics;
+    }
+    const [primary, ...rest] = metrics;
+    const secondary = rest.filter((metric) => {
+      const definition = metric.definition;
+      const hasNoAnalyticalCapability = definition.rankable === false && definition.aggregatable === false && definition.benchmarkable === false;
+      return !hasNoAnalyticalCapability;
+    });
+    return primary ? [primary, ...secondary] : secondary;
+  }
+  /**
    * Fix Cycle 018 (Option A): synthesizes metric candidates for a
    * metric-less multi-entity request from the active Domain SDK's own
    * `MetricDefinition.comparable` declarations, instead of from parsed
@@ -342,8 +483,20 @@ var QueryPlanner = class _QueryPlanner {
    * identity entirely - exactly the entity-drop shape Tier0 Task 2 (F8)
    * already closed elsewhere. Only fires when every resolved entity is
    * a scope-only filter.
+   *
+   * Bug E (Phase 3.1, 2026-09-18): also refuses when the original
+   * question contains a substantive word that never became part of ANY
+   * resolved semantic candidate at all (see
+   * `hasUnaccountedSubstantiveToken()`'s own doc comment) - e.g.
+   * "what's the weather in Texas?" resolves only the "Texas" state
+   * entity, and "weather" is never accounted for anywhere. Defaulting a
+   * nationwide hospital ranking onto the resolved entity alone in that
+   * case would silently fabricate an answer to a different, narrower
+   * question than the one actually asked - the single most severe
+   * no-fabrication-invariant violation found in this codebase's history
+   * (Round 6 audit, Bug E).
    */
-  discoverDefaultRankableMetric(entities, domainMetrics) {
+  discoverDefaultRankableMetric(entities, domainMetrics, normalizedQuery, allMatches, domainEntities) {
     if (entities.length === 0) {
       return [];
     }
@@ -351,6 +504,9 @@ var QueryPlanner = class _QueryPlanner {
       (entity) => entity.definition.identifiesUniqueRecord === true
     );
     if (hasUniqueRecordEntity) {
+      return [];
+    }
+    if (this.hasUnaccountedSubstantiveToken(normalizedQuery, allMatches, domainEntities)) {
       return [];
     }
     const defaultMetric = domainMetrics.find(
@@ -371,6 +527,54 @@ var QueryPlanner = class _QueryPlanner {
         isFallback: true
       }
     ];
+  }
+  /**
+   * Bug E (Phase 3.1, 2026-09-18): true when the original question
+   * contains a word that never became part of ANY resolved semantic
+   * candidate's own matched phrase - metric, entity, dimension,
+   * category, benchmark, or relationship, whichever domain supplied
+   * them - and is not one of the generic English question/filler words
+   * above. This is a purely structural check: it only ever compares the
+   * raw question text against phrases the semantic pipeline itself
+   * already resolved, never a hardcoded off-topic vocabulary (no
+   * "weather", "climate", "president" anywhere in this file) - the same
+   * mechanism would refuse "what's the [x] in Texas?" for ANY word `x`
+   * this Domain SDK's own registered vocabulary doesn't recognize,
+   * regardless of what that word is.
+   *
+   * Also treats a word as accounted for when it equals a REGISTERED
+   * entity's own `id` (`domainEntities`, the domain's complete entity
+   * list - not just the entities that happened to resolve as
+   * candidates this query). Confirmed necessary live: a word naming the
+   * domain's own core subject (e.g. Healthcare's "hospital" entity,
+   * `id: "hospital"`) does not always land inside a matched alias
+   * phrase - "CA government hospital"/"government hospital TX" (word
+   * order variants with no "hospital(s) in" 2-gram to match) would
+   * otherwise flag "hospital" itself as an unaccounted, off-topic-
+   * looking word and wrongly refuse a legitimate query. This stays
+   * domain-agnostic: Universal Core never names "hospital" itself, it
+   * only ever compares against whatever `id`s the active Domain SDK
+   * already declared, the same way `domainMetrics` is already consumed
+   * generically elsewhere in this file.
+   */
+  hasUnaccountedSubstantiveToken(normalizedQuery, allMatches, domainEntities) {
+    const consumedWords = /* @__PURE__ */ new Set();
+    for (const match of allMatches) {
+      for (const word of match.phrase.toLowerCase().split(/\s+/)) {
+        if (word) {
+          consumedWords.add(word);
+        }
+      }
+    }
+    for (const entity of domainEntities) {
+      const id = entity.id.toLowerCase();
+      consumedWords.add(id);
+      consumedWords.add(`${id}s`);
+    }
+    const queryWords = normalizedQuery.split(/\s+/).filter(Boolean);
+    return queryWords.some(
+      (word) => !consumedWords.has(word) && !QUESTION_FILLER_WORDS.has(word)
+    );
   }
   /**
    * True when at least 2 resolved entities share the same execution

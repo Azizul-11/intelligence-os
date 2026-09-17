@@ -528,13 +528,27 @@ var SemanticPipeline = class {
       candidate.resolvedValue = entity.value;
       semanticCandidates.push(candidate);
     }
-    semanticCandidates = semanticCandidates.filter((inner) => {
-      if (inner.semanticType !== "entity") {
+    semanticCandidates = semanticCandidates.filter((candidateA) => {
+      if (candidateA.semanticType !== "entity") {
         return true;
       }
-      return !semanticCandidates.some(
-        (outer) => outer !== inner && outer.semanticType === "entity" && outer.start <= inner.start && outer.end >= inner.end && (outer.start < inner.start || outer.end > inner.end)
-      );
+      return !semanticCandidates.some((candidateB) => {
+        if (candidateB === candidateA || candidateB.semanticType !== "entity") {
+          return false;
+        }
+        const spansOverlap = !(candidateA.end <= candidateB.start || candidateB.end <= candidateA.start);
+        if (!spansOverlap) {
+          return false;
+        }
+        const candidateADef = candidateA.definition;
+        const candidateBDef = candidateB.definition;
+        if (candidateADef.execution?.parameter === candidateBDef.execution?.parameter) {
+          const lengthA = candidateA.end - candidateA.start;
+          const lengthB = candidateB.end - candidateB.start;
+          return lengthB > lengthA || lengthB === lengthA && candidateB.start < candidateA.start;
+        }
+        return candidateB.start <= candidateA.start && candidateB.end >= candidateA.end && (candidateB.start < candidateA.start || candidateB.end > candidateA.end);
+      });
     });
     semanticCandidates = semanticCandidates.filter((candidate) => {
       if (candidate.semanticType !== "entity") {

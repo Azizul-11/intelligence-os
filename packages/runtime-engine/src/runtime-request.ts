@@ -66,6 +66,18 @@ export interface RuntimeRequest {
   forcedIntent?: QueryIntent;
 
   /**
+   * Comparison continuation fix: when a Layer 2 continuation resolves one
+   * ambiguous entity in a multi-entity comparison query (e.g., "compare
+   * memorial hospital vs ANIMAS" -> "CARTHAGE"), Turn 2 must preserve the
+   * companion entities (non-ambiguous entities from Turn 1) so
+   * ExecutionPlanMapper constructs a multi-entity IN filter. Each entry
+   * contains the already-resolved value and canonicalKey from Turn 1.
+   * Only injected when Turn 1 had 2+ entities (comparison). Single-entity
+   * clarifications leave this undefined (no companion entities to preserve).
+   */
+  companionEntities?: Array<{ value: unknown; canonicalKey: string }>;
+
+  /**
    * Tier1 Task 6: opt-in (default false/omitted - no behavior change for
    * any existing caller) request for 2-3 dry-run-validated follow-up/
    * recovery suggestions on the response (see RuntimeResult.suggestions).
@@ -96,4 +108,14 @@ export interface RuntimeRequest {
    * execution path just to validate a suggestion.
    */
   dryRun?: boolean;
+
+  /**
+   * LLM Integration Layer 1: internal recursion guard only - set by
+   * create-runtime-engine.ts's own delegation to a fresh recursive
+   * execute() call after an LLM-rewritten canonical question, never by
+   * an external caller. Prevents a rewrite that itself still fails to
+   * resolve from attempting a second rewrite (bounded to exactly one
+   * LLM rewrite attempt per original user question).
+   */
+  llmFallbackAttempted?: boolean;
 }

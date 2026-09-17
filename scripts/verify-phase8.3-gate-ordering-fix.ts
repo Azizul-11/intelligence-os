@@ -153,7 +153,15 @@ async function run() {
       result.success === false &&
       result.error === "Unable to resolve question." &&
       result.answerability?.status === "not_directly_answerable" &&
-      !result.answerability?.reason &&
+      // LLM Integration Layer 1: this gate now attaches the
+      // already-declared "semantic-incomplete" reason (reused from the
+      // conceptually identical "Unable to create query plan." gate
+      // elsewhere in this file) so the new optional llmFallback hook can
+      // precisely target only this dead-end shape - previously no
+      // reason was attached at all. Updated, not bypassed: the message
+      // and refusal-with-zero-SQL behavior this check actually cares
+      // about are both still exactly unchanged.
+      result.answerability?.reason === "semantic-incomplete" &&
       !flag.called;
 
     check(

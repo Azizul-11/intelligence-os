@@ -61,4 +61,16 @@ export interface ChatResponse {
    * for the full contract doc comment.
    */
   suggestions?: string[];
+
+  /**
+   * LLM Integration Layer 3 (Executive Answer Synthesis): an optional
+   * 1-2 sentence natural-language summary of `answer`'s own rows,
+   * attached ONLY after chat.ts's deterministic numeric cross-check
+   * confirms every number in the summary literally appears in the rows
+   * it summarizes. Never replaces `answer` (the full row JSON is always
+   * populated independently of whether this field is present) - a
+   * rejected/failed/timed-out summary simply leaves this field absent,
+   * degrading to exactly the pre-Layer-3 response shape.
+   */
+  summary?: string;
 }
