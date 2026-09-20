@@ -1,3 +1,10 @@
+import { CITIES, COUNTIES } from "./geographic-directory";
+import { normalizeText, STATES } from "./entity-provider";
+
+// The 50 states the platform answers for. The directory also lists territories (GU, PR, ...) as a "state"; a place there
+// stays unresolved (and refused) exactly as before, so a territory is never derived into an answerable state filter.
+const SUPPORTED_STATE_CODES = new Set(STATES.values());
+
 export class HealthcareParameterResolver {
   /**
    * Phase 7.5.4: the "hospital" execution parameter carries the exact
@@ -27,6 +34,19 @@ export class HealthcareParameterResolver {
         parameters.facilityIds = hospital;
       } else {
         parameters.hospitalId = hospital;
+      }
+    }
+
+    // Batch 2 (2.3): a city or county the geographic directory places in exactly ONE state names that state too.
+    // The listing template requires `states`, so "hospitals in Chicago" / "Harris County" were refused although
+    // nothing about them is ambiguous. This only fills a MISSING state, and only when every geographic value present
+    // agrees on that one state. A value that exists in several states never gets here: the plan-ambiguity gate
+    // (HealthcareExecutionStrategy.checkPlanAmbiguity) clarifies first, and no state is ever picked for it.
+    if (!("state" in parameters) && !("hospital" in parameters)) {
+      const derived = this.singleStateOfGeography(parameters);
+
+      if (derived) {
+        parameters.state = derived;
       }
     }
 
@@ -65,5 +85,38 @@ export class HealthcareParameterResolver {
     }
 
     return parameters;
+  }
+
+  /**
+   * The one state every present `city` / `county` value belongs to per the geographic directory, or undefined when
+   * there is none, when a value is missing from the directory, when any value spans several states, or when that one
+   * "state" is a territory.
+   */
+  private singleStateOfGeography(parameters: Record<string, unknown>): string | undefined {
+    const states = new Set<string>();
+
+    for (const [field, directory] of [
+      ["city", CITIES],
+      ["county", COUNTIES],
+    ] as const) {
+      const value = parameters[field];
+
+      if (value === undefined || value === null) {
+        continue;
+      }
+
+      const entry = typeof value === "string" ? directory.get(normalizeText(value)) : undefined;
+      const onlyState = entry?.states.length === 1 ? entry.states[0] : undefined;
+
+      if (onlyState === undefined) {
+        return undefined;
+      }
+
+      states.add(onlyState);
+    }
+
+    const [only] = [...states];
+
+    return states.size === 1 && only !== undefined && SUPPORTED_STATE_CODES.has(only) ? only : undefined;
   }
 }

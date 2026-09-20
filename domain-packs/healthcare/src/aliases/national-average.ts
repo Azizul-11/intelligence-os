@@ -10,6 +10,8 @@ export const nationalAverageAliases: AliasDefinition = {
     "nationwide average",
     "us average",
     "country average",
+    // Batch 3: "the national benchmark for overall rating" (D089) - the same reference value, another word for it.
+    "national benchmark",
 
     // Tier0 Task 4 F1 Real Fix V2 (Option A+): known metric words
     // commonly inserted between "national"/"nationwide"/"us" and

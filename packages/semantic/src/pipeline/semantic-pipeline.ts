@@ -137,6 +137,10 @@ export class SemanticPipeline {
       phrase: string;
     }[] = [];
 
+    // Batch 4: the subset of `identityConflicts` that was a plain `not_found`
+    // (never an ambiguity) - see `identityNotFound` below.
+    const notFoundAttempts: typeof identityConflicts = [];
+
     for (const phrase of phrases) {
       const aliasResult = this.aliasResolver.resolve(phrase.value);
 
@@ -180,6 +184,12 @@ export class SemanticPipeline {
           }
         } else if (entity.status === "not_found" && entity.entityId && entity.phrase) {
           identityConflicts.push({
+            start: phrase.start,
+            end: phrase.end,
+            entityId: entity.entityId,
+            phrase: entity.phrase,
+          });
+          notFoundAttempts.push({
             start: phrase.start,
             end: phrase.end,
             entityId: entity.entityId,
@@ -237,8 +247,12 @@ export class SemanticPipeline {
           return false;
         }
 
-        // Check if spans overlap (share any token index)
-        const spansOverlap = !(candidateA.end <= candidateB.start || candidateB.end <= candidateA.start);
+        // Check if spans overlap (share any token index). `end` is the INCLUSIVE
+        // index of the span's last token (PhraseExtractor), so two spans overlap
+        // when each starts at or before the other's last token; the exclusive-end
+        // form (`A.end <= B.start`) missed a single token shared at an edge, e.g.
+        // "york" inside "new york" (Batch 2).
+        const spansOverlap = candidateA.start <= candidateB.end && candidateB.start <= candidateA.end;
         
         if (!spansOverlap) {
           return false;
@@ -386,6 +400,21 @@ export class SemanticPipeline {
     // silently replace a correctly-narrowed candidate set with a
     // broader, un-narrowed one instead of preserving the user's own
     // qualifier.
+    // Batch 4: a `not_found` attempt that no surviving entity candidate of the
+    // same type overlaps is a mention of something that does not exist (its
+    // qualifier contradicted every candidate, and a shorter, qualified attempt
+    // did not resolve either). An ambiguity inside such a span is the same
+    // mention seen without its qualifier - not a separate question to ask.
+    const identityNotFoundSpans = notFoundAttempts.filter(
+      (attempt) =>
+        !resolvedEntitySpans.some(
+          (candidate) =>
+            candidate.canonicalKey === attempt.entityId &&
+            attempt.start <= candidate.end &&
+            candidate.start <= attempt.end,
+        ),
+    );
+
     const candidateSuppressedIdentityAmbiguities = identityAmbiguities.filter(
       (ambiguity) =>
         !resolvedEntitySpans.some(
@@ -393,6 +422,12 @@ export class SemanticPipeline {
             candidate.canonicalKey === ambiguity.result.entityId &&
             ambiguity.start <= candidate.end &&
             candidate.start <= ambiguity.end,
+        ) &&
+        !identityNotFoundSpans.some(
+          (attempt) =>
+            attempt.entityId === ambiguity.result.entityId &&
+            attempt.start <= ambiguity.start &&
+            attempt.end >= ambiguity.end,
         ),
     );
 
@@ -429,6 +464,14 @@ export class SemanticPipeline {
     // against LexicalRewriter's own record of which rules it applied for
     // THIS query; never inspects domain/metric identity.
     for (const candidate of semanticCandidates) {
+      const triggers = rewritten.appliedReplacements
+        .filter((applied) => applied.replacement.includes(candidate.phrase))
+        .map((applied) => applied.pattern);
+
+      if (triggers.length > 0) {
+        candidate.consumedText = triggers.join(" ");
+      }
+
       if (candidate.semanticType !== "metric") {
         continue;
       }
@@ -456,14 +499,15 @@ export class SemanticPipeline {
         continue;
       }
 
-      const direction = this.directionResolver.resolve(
+      const resolvedDirection = this.directionResolver.resolveDetailed(
         originalTokenValues,
         modifierTokenIndices,
         candidate.phrase,
       );
 
-      if (direction) {
-        candidate.direction = direction;
+      if (resolvedDirection) {
+        candidate.direction = resolvedDirection.direction;
+        candidate.directionBasis = resolvedDirection.basis;
       }
     }
 
@@ -494,12 +538,13 @@ export class SemanticPipeline {
         continue;
       }
 
-      const direction = this.directionResolver.resolveFromText(
+      const resolvedDirection = this.directionResolver.resolveFromTextDetailed(
         matchedRule.pattern,
       );
 
-      if (direction) {
-        candidate.direction = direction;
+      if (resolvedDirection) {
+        candidate.direction = resolvedDirection.direction;
+        candidate.directionBasis = resolvedDirection.basis;
       }
     }
 
@@ -591,6 +636,9 @@ export class SemanticPipeline {
       ...(unsupportedNegation ? { unsupportedNegation } : {}),
       ...(filteredIdentityAmbiguities.length > 0
         ? { identityAmbiguities: filteredIdentityAmbiguities.map((a) => a.result) }
+        : {}),
+      ...(identityNotFoundSpans.length > 0
+        ? { identityNotFound: identityNotFoundSpans.map(({ entityId, phrase }) => ({ entityId, phrase })) }
         : {}),
       ...(temporalCandidates.length > 0 ? { temporalCandidates } : {}),
     };

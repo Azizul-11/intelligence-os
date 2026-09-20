@@ -42,7 +42,8 @@
  * working query today, in any casing. Expanding "VA"/"Va"/"va" to
  * "Virginia" here would silently break that existing capability. A
  * query that means the state of Virginia by its abbreviation remains
- * LLM-dependent, exactly as before this fix.
+ * LLM-dependent, exactly as before this fix - except the unambiguous
+ * "in VA" (Batch 2, IN_VA_PATTERN below).
  *
  * Phase 2.1 correction (found by this fix's own regression test, not
  * assumed safe): the first case-insensitive draft of this file put
@@ -138,6 +139,13 @@ const NON_COLLIDING_PATTERN = buildAlternationPattern(
   true,
 );
 
+// Batch 2 (2.2): "in VA" is the state. "VA" stays out of both maps above (it is also the Veterans ownership alias),
+// but the preposition immediately before an ALL-CAPS "VA" leaves no doubt ("hospitals in VA"); "VA hospitals" and
+// lowercase "va" are untouched. Case-sensitive on purpose, like the colliding group.
+const IN_VA_PATTERN = /\b([Ii]n)\s+VA\b/g;
+
+const HAS_LOWERCASE_PATTERN = /[a-z]/;
+
 /**
  * Expands a US state abbreviation into its full name, but only when
  * the question also mentions "hospital"/"hospitals" (the context this
@@ -145,15 +153,25 @@ const NON_COLLIDING_PATTERN = buildAlternationPattern(
  * additional guard alongside the case-matching rules above. Idempotent
  * and safe to call unconditionally: a question with no matching token,
  * or no "hospital(s)" mention at all, is returned unchanged.
+ *
+ * Batch 2 (2.2): the colliding group assumes the English word is written
+ * lowercase, so its ALL-CAPS tokens must be state codes. A message with no
+ * lowercase letter at all ("PLEASE SHOW ME HOSPITALS IN TEXAS!!!") breaks
+ * that assumption - "ME" and "IN" are words there - so the colliding
+ * group is skipped for it. The non-colliding group is safe in any casing.
  */
 export function expandUppercaseStateAbbreviations(question: string): string {
   if (!HOSPITAL_CONTEXT_PATTERN.test(question)) {
     return question;
   }
 
-  const withCollidingExpanded = question.replace(COLLIDING_PATTERN, (token) => {
-    return COLLIDING_UPPERCASE_ONLY.get(token) ?? token;
-  });
+  const withInVaExpanded = question.replace(IN_VA_PATTERN, "$1 Virginia");
+
+  const withCollidingExpanded = HAS_LOWERCASE_PATTERN.test(withInVaExpanded)
+    ? withInVaExpanded.replace(COLLIDING_PATTERN, (token) => {
+        return COLLIDING_UPPERCASE_ONLY.get(token) ?? token;
+      })
+    : withInVaExpanded;
 
   return withCollidingExpanded.replace(NON_COLLIDING_PATTERN, (token) => {
     return NON_COLLIDING_CASE_INSENSITIVE.get(token.toUpperCase()) ?? token;

@@ -18,6 +18,13 @@
  * gate already returned) - it is not something this tracker can fake or
  * skip independently of the real control flow.
  */
+/**
+ * Opaque, flat diagnostic detail a gate's caller may attach to its exit
+ * marker (e.g. which service answered, how long it took). Universal Core
+ * stores it verbatim and never interprets a key or value.
+ */
+export type PhaseGateDetail = Readonly<Record<string, string | number | boolean>>;
+
 export interface PhaseGateEntry {
   phase: string;
   timestamp: number;
@@ -26,6 +33,7 @@ export interface PhaseGateEntry {
   status: string;
   sqlCalls: number;
   answerability?: string;
+  detail?: PhaseGateDetail;
 }
 
 export class PhaseGateTracker {
@@ -42,13 +50,14 @@ export class PhaseGateTracker {
     this.gates.push({ phase, timestamp: Date.now(), status: "enter", sqlCalls: 0 });
   }
 
-  exit(phase: string, status: string, sqlCalls: number, answerability?: string): void {
+  exit(phase: string, status: string, sqlCalls: number, answerability?: string, detail?: PhaseGateDetail): void {
     this.gates.push({
       phase,
       timestamp: Date.now(),
       status,
       sqlCalls,
       ...(answerability !== undefined ? { answerability } : {}),
+      ...(detail !== undefined ? { detail } : {}),
     });
   }
 

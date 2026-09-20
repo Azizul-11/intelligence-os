@@ -24,6 +24,8 @@
  * this implementation follows.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
+
 // ============================================================================
 // §1 — Provider contract
 // ============================================================================
@@ -44,6 +46,25 @@
 export interface SamplingOptions {
   temperature: number;
   topP?: number;
+  /**
+   * True when this call's output decides WHICH DATA THE USER IS SHOWN (the
+   * question rewrite) - tiers flagged `unsafeForRewrite` are skipped for it.
+   */
+  forRewrite?: boolean;
+  /**
+   * True for calls that must return a JSON object (completeJSON). Sent as
+   * `response_format: json_object` ONLY to a tier flagged `supportsJsonMode`
+   * - every other provider's request body is unchanged.
+   */
+  jsonMode?: boolean;
+  /**
+   * Wall-clock budget for the WHOLE chain traversal, in ms. Each attempt's
+   * timeout is capped to what is left, and no further tier is started once it
+   * is spent (the call then rejects like an exhausted chain). Unset = the
+   * per-tier timeouts alone apply, as before - on the free chain that adds up
+   * to 10-40 s when the first tiers are rate-limited.
+   */
+  deadlineMs?: number | undefined;
 }
 
 export interface LLMProvider {
@@ -60,6 +81,7 @@ export type ProviderKind =
   | "anthropic"
   | "cerebras"
   | "mistral"
+  | "aicredits"
   | "ollama"
   | "mock";
 
@@ -74,6 +96,31 @@ export interface ProviderConfig {
   keyId: string; // human-readable id for logging/observability
   isFree: boolean; // descriptive metadata only, not behavioral
   stripReasoningTokens?: boolean; // true for reasoning-tuned models (NVIDIA Nemotron, OpenRouter Laguna/Nemotron)
+  /**
+   * Skipped for question rewriting (normalizeMessyLanguage) only. Measured
+   * 2026-09-18 on the real prompt: this tier returns VALID JSON with wrong
+   * content - it drops or invents cities/states ("Houson Texas" -> "Texas",
+   * "heart attack death rate" -> "... in Houston, Texas") and picks the
+   * wrong metric. A rewrite is the one role whose output directly decides
+   * which data is shown, with no downstream faithfulness check, so a
+   * confident wrong answer is worse than moving on to the next tier. Still
+   * used by every role that is validated downstream.
+   */
+  unsafeForRewrite?: boolean;
+  /** Accepts `response_format: {"type": "json_object"}` - see SamplingOptions.jsonMode. */
+  supportsJsonMode?: boolean;
+  /**
+   * Extra fields merged into this tier's OpenAI-compatible request body (core
+   * fields - model, messages, temperature - always win). Used to switch off a
+   * hybrid model's reasoning: `{ reasoning: { enabled: false } }`.
+   */
+  extraBody?: Record<string, unknown>;
+  /**
+   * Circuit-breaker key; defaults to `provider`, so tiers of one provider share
+   * a circuit (a Groq 429 skips every Groq tier). Set it when two tiers of the
+   * same gateway must fail independently.
+   */
+  circuitKey?: string;
 }
 
 // ============================================================================
@@ -105,7 +152,7 @@ export const FALLBACK_CHAIN: ProviderConfig[] = [
   // Zero-Stall 429 Failover means this only ever gets tried once both
   // are already exhausted or erroring, at no added latency cost when
   // they're healthy. ---
-  { provider: "groq", model: "allam-2-7b", apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", timeoutMs: 4000, maxRetries: 1, keyId: "groq-allam-2-7b", isFree: true },
+  { provider: "groq", model: "allam-2-7b", apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", timeoutMs: 4000, maxRetries: 1, keyId: "groq-allam-2-7b", isFree: true, unsafeForRewrite: true },
 
   // --- Google Gemini. LIVE-VERIFIED 2026-09-13: "gemini-2.0-flash" and
   // "gemini-1.5-flash" (this design's original assumption) both now 404
@@ -155,6 +202,67 @@ export const FALLBACK_CHAIN: ProviderConfig[] = [
   // approved design, even though its own adapter is a deliberate no-op.
   { provider: "mock", model: "deterministic-fallback", timeoutMs: 0, maxRetries: 0, keyId: "mock-deterministic", isFree: true },
 ];
+
+/**
+ * R7 (2026-09-18): the two PAID tiers - first in line for the question-rewrite
+ * role (normalizeMessyLanguage / intent) ONLY. They are deliberately not in
+ * FALLBACK_CHAIN: suggestions, summaries and conversational replies use that
+ * chain, so they can never spend them.
+ *
+ * AICredits (https://api.aicredits.in/v1) is an OpenAI-compatible gateway;
+ * the key is the existing ZAI_API_KEY. Unset key = Graceful Unset Bypass, the
+ * rewrite chain is then exactly the free chain it was before. A key with no
+ * credit answers 4xx: each tier is skipped (no retry) and the free chain takes
+ * over.
+ *
+ * Choice made on the same 42-case rewrite battery (3 runs each, same prompt):
+ *  1. qwen/qwen3.7-flash, reasoning OFF - 39-40/42, no wrong-answer rewrites,
+ *     hospital names returned unchanged 10/10, ~INR 2.5 per 1K queries, p50
+ *     ~1 s. It reasons by default (10-12 s), so `reasoning: {enabled: false}`
+ *     is mandatory. Its one flaw is an upstream 429 on ~2-8% of calls (a call
+ *     that fails takes ~9 s to return), hence the 3 s cutoff and no retry.
+ *  2. qwen/qwen3-30b-a3b-instruct-2507 - 38-39/42, no HTTP error in ~175
+ *     calls (open-weight, several hosts), p50 ~1 s, p95 2.7-3.8 s (hence 4 s),
+ *     ~INR 16 per 1K queries, non-thinking only.
+ * Rejected on the same evidence: gemini-2.5-flash-lite (fastest and steadiest,
+ * but silently drops "best"/"Texas"/hospital names), mistral-nemo (excluded by
+ * the owner), phi-4 (IFEval 63), amazon/nova-micro and gemma-3-4b (wrong
+ * rewrites), z-ai/glm-5.3-flash (reasoning cannot be disabled, 3-8 s).
+ *
+ * Each tier has its OWN circuit breaker: two tiers of one gateway share a
+ * provider kind, and a shared circuit would let a failing second tier take the
+ * first one down with it.
+ */
+export const AICREDITS_QWEN_FLASH_TIER: ProviderConfig = {
+  provider: "aicredits",
+  model: "qwen/qwen3.7-flash",
+  apiKey: process.env.ZAI_API_KEY,
+  baseURL: "https://api.aicredits.in/v1",
+  timeoutMs: 3000,
+  maxRetries: 0,
+  keyId: "aicredits-qwen3.7-flash",
+  circuitKey: "aicredits-qwen3.7-flash",
+  isFree: false,
+  supportsJsonMode: true,
+  extraBody: { reasoning: { enabled: false } },
+};
+
+export const AICREDITS_QWEN_30B_TIER: ProviderConfig = {
+  provider: "aicredits",
+  model: "qwen/qwen3-30b-a3b-instruct-2507",
+  apiKey: process.env.ZAI_API_KEY,
+  baseURL: "https://api.aicredits.in/v1",
+  timeoutMs: 4000,
+  maxRetries: 0,
+  keyId: "aicredits-qwen3-30b-a3b",
+  circuitKey: "aicredits-qwen3-30b-a3b",
+  isFree: false,
+  supportsJsonMode: true,
+};
+
+export const AICREDITS_NORMALIZER_TIERS: ProviderConfig[] = [AICREDITS_QWEN_FLASH_TIER, AICREDITS_QWEN_30B_TIER];
+
+export const NORMALIZER_CHAIN: ProviderConfig[] = [...AICREDITS_NORMALIZER_TIERS, ...FALLBACK_CHAIN];
 
 // ============================================================================
 // §3 — Response sanitization: reasoning-token stripping + JSON extraction
@@ -242,6 +350,7 @@ async function callOpenAICompatible(
       Authorization: `Bearer ${config.apiKey}`,
     },
     body: JSON.stringify({
+      ...(config.extraBody ?? {}),
       model: config.model,
       messages: [
         { role: "system", content: systemPrompt },
@@ -249,6 +358,7 @@ async function callOpenAICompatible(
       ],
       temperature: sampling.temperature,
       ...(sampling.topP !== undefined ? { top_p: sampling.topP } : {}),
+      ...(sampling.jsonMode && config.supportsJsonMode ? { response_format: { type: "json_object" } } : {}),
     }),
   });
 
@@ -397,6 +507,7 @@ async function callAdapter(
     case "openai":
     case "cerebras":
     case "mistral":
+    case "aicredits":
       return callOpenAICompatible(config, systemPrompt, userMessage, sampling);
     case "google":
       return callGoogle(config, systemPrompt, userMessage, sampling);
@@ -422,9 +533,12 @@ interface CircuitState {
 const CIRCUIT_FAILURE_THRESHOLD = 3;
 const CIRCUIT_COOLDOWN_MS = 30_000;
 
-const circuits = new Map<ProviderKind, CircuitState>();
+const circuits = new Map<string, CircuitState>();
 
-function circuitFor(provider: ProviderKind): CircuitState {
+/** `circuitKey` when a tier opted into its own circuit, else its provider (shared by every tier of that provider). */
+const circuitKeyOf = (config: ProviderConfig): string => config.circuitKey ?? config.provider;
+
+function circuitFor(provider: string): CircuitState {
   let circuit = circuits.get(provider);
   if (!circuit) {
     circuit = { state: "closed", failureCount: 0, openedAt: 0 };
@@ -433,7 +547,7 @@ function circuitFor(provider: ProviderKind): CircuitState {
   return circuit;
 }
 
-function isCircuitOpen(provider: ProviderKind): boolean {
+function isCircuitOpen(provider: string): boolean {
   const circuit = circuitFor(provider);
   if (circuit.state !== "open") {
     return false;
@@ -445,11 +559,11 @@ function isCircuitOpen(provider: ProviderKind): boolean {
   return true;
 }
 
-function recordSuccess(provider: ProviderKind): void {
+function recordSuccess(provider: string): void {
   circuits.set(provider, { state: "closed", failureCount: 0, openedAt: 0 });
 }
 
-function recordFailure(provider: ProviderKind): void {
+function recordFailure(provider: string): void {
   const circuit = circuitFor(provider);
   circuit.failureCount += 1;
   if (circuit.state === "half-open" || circuit.failureCount >= CIRCUIT_FAILURE_THRESHOLD) {
@@ -482,12 +596,89 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** What one chain traversal did - filled in by runChain for a caller that wants to record it. */
+interface ChainTrace {
+  attempts: number;
+  tiers: string[];
+  answeredBy?: ProviderConfig;
+}
+
+/**
+ * Which tier answered a rewrite and what it took to get there. Flat scalars
+ * on purpose: the runtime engine stores this verbatim as opaque trace detail
+ * and never interprets it. Without it a wrong rewrite (the Houston case)
+ * could not be attributed to the tier that produced it.
+ */
+export type LlmProvenance = {
+  provider: string;
+  model: string;
+  keyId: string;
+  /** HTTP attempts across the whole traversal (retries and fallbacks included). */
+  attempts: number;
+  /** Wall time of the whole traversal. */
+  latencyMs: number;
+  /** keyIds actually attempted, in order, joined with ">". */
+  tiers: string;
+  /** True when a tier other than the first one attempted answered. */
+  fallbackUsed: boolean;
+};
+
+function toProvenance(trace: ChainTrace, startedAt: number): LlmProvenance {
+  const answered = trace.answeredBy;
+  return {
+    provider: answered?.provider ?? "none",
+    model: answered?.model ?? "none",
+    keyId: answered?.keyId ?? "none",
+    attempts: trace.attempts,
+    latencyMs: Date.now() - startedAt,
+    tiers: trace.tiers.join(">"),
+    fallbackUsed: answered ? trace.tiers[0] !== answered.keyId : trace.tiers.length > 1,
+  };
+}
+
+/** One gateway call made while serving a request. `provider: "none"` = every tier failed or the deadline ran out. */
+export type LlmCallRecord = LlmProvenance & {
+  role: "normalizer" | "summary" | "suggestions" | "conversational";
+};
+
+// Per-request, not module-level: an edge isolate serves concurrent requests,
+// and a shared array would mix their calls together.
+const callLog = new AsyncLocalStorage<LlmCallRecord[]>();
+
+/** Runs `fn` and returns its result plus every gateway call made inside it (including calls it awaited transitively). */
+export async function withLlmCallLog<T>(fn: () => Promise<T>): Promise<{ result: T; calls: LlmCallRecord[] }> {
+  const calls: LlmCallRecord[] = [];
+  const result = await callLog.run(calls, fn);
+  return { result, calls };
+}
+
+function recordCall(role: LlmCallRecord["role"], trace: ChainTrace, startedAt: number): void {
+  callLog.getStore()?.push({ role, ...toProvenance(trace, startedAt) });
+}
+
 async function runChain(
   chain: ProviderConfig[],
   systemPrompt: string,
   userMessage: string,
   sampling: SamplingOptions,
+  /**
+   * Phase 3.6 (LLM-First Front Door): optional content-shape check, used
+   * by completeJSON() below. A provider that responds with HTTP 200 but
+   * ignores the "return ONLY this JSON shape" instruction (a real,
+   * observed failure mode on weaker fallback-chain tiers, not
+   * hypothetical) used to be indistinguishable from "every provider is
+   * down" - the whole chain failed outright on the first successful-but-
+   * malformed response, never trying the tiers after it. This is a
+   * content-shape failure, not a network/availability one: it never
+   * calls recordFailure() (that provider answered fine, just not in the
+   * shape THIS caller needed) and never opens that provider's circuit
+   * breaker for other callers (e.g. complete(), which has no such shape
+   * requirement).
+   */
+  isValid?: (content: string) => boolean,
+  trace?: ChainTrace,
 ): Promise<string> {
+  const deadline = sampling.deadlineMs === undefined ? undefined : Date.now() + sampling.deadlineMs;
   for (const config of chain) {
     // Graceful Unset Bypass: a tier with no configured key (ollama and
     // mock excepted - neither needs one) is skipped BEFORE any network
@@ -495,7 +686,10 @@ async function runChain(
     if (!config.apiKey && config.provider !== "ollama" && config.provider !== "mock") {
       continue;
     }
-    if (isCircuitOpen(config.provider)) {
+    if (isCircuitOpen(circuitKeyOf(config))) {
+      continue;
+    }
+    if (sampling.forRewrite && config.unsafeForRewrite) {
       continue;
     }
 
@@ -503,23 +697,40 @@ async function runChain(
     // maxRetries applies only to non-rate-limit errors (see below) -
     // Zero-Stall 429 Failover means a 429/503 never retries in place.
     while (attempt <= config.maxRetries) {
+      const timeoutMs = deadline === undefined ? config.timeoutMs : Math.min(config.timeoutMs, deadline - Date.now());
+      if (timeoutMs <= 0) {
+        throw new Error(`LLM call deadline of ${sampling.deadlineMs}ms exhausted`);
+      }
       try {
+        if (trace) {
+          trace.attempts += 1;
+          if (trace.tiers[trace.tiers.length - 1] !== config.keyId) {
+            trace.tiers.push(config.keyId);
+          }
+        }
         const result = await withTimeout(
           callAdapter(config, systemPrompt, userMessage, sampling),
-          config.timeoutMs,
+          timeoutMs,
         );
-        recordSuccess(config.provider);
         const raw = config.stripReasoningTokens ? stripReasoning(result.content) : result.content;
+        if (isValid && !isValid(raw)) {
+          logFallbackEvent(config.keyId, "response did not match expected shape - advancing to next tier", new Error("shape validation failed"));
+          break; // advance to next tier - this provider itself is fine
+        }
+        recordSuccess(circuitKeyOf(config));
+        if (trace) {
+          trace.answeredBy = config;
+        }
         return raw;
       } catch (error) {
         if (error instanceof RateLimitedError) {
-          recordFailure(config.provider);
+          recordFailure(circuitKeyOf(config));
           logFallbackEvent(config.keyId, "429/503 - zero-stall failover, no retry", error);
           break; // advance to next tier immediately, no retry
         }
         attempt += 1;
         if (attempt > config.maxRetries) {
-          recordFailure(config.provider);
+          recordFailure(circuitKeyOf(config));
           logFallbackEvent(config.keyId, "exhausted retries", error);
           break;
         }
@@ -540,6 +751,15 @@ export interface MessyLanguageResult {
   status: "ok" | "need_clarification" | "fallback";
   canonical_question?: string;
   reason?: string;
+  /**
+   * Batch 1 (D2): the user's own words for everything the question asks that the capability catalog cannot
+   * answer, reported alongside whatever status the normalizer chose (the report never changes the status). The
+   * caller refuses when a reported term names a topic the domain lists as unsupported, instead of answering the
+   * rest of the question and dropping those words; absent or empty leaves behavior unchanged.
+   */
+  unsupported_terms?: string[];
+  /** Added by the gateway (never by the model): which tier answered, attempts, latency. Present on every result, including "LLM gateway unavailable". */
+  provenance?: LlmProvenance;
 }
 
 /**
@@ -556,6 +776,14 @@ export interface CapabilityCatalog {
   ownerships: string[];
   /** PrePhase 9.5 Round 2: condition-specific concepts (AMI, CABG, etc.) with their own real, already-registered simple-language aliases. Optional - a caller that omits it (pre-Round-2 shape) is unaffected. */
   concepts?: { displayName: string; aliases: string[]; metrics: string[] }[];
+  /**
+   * Batch 1 (D2): topics the domain knows it cannot answer, derived by the domain from its own registry so that
+   * registering the capability removes the entry. The caller treats a decline as binding only when a reported term
+   * names one of them. Batch 2 (Option A): this list is deliberately NOT rendered into the normalizer prompt - it
+   * inverted an unrelated ranking direction (see 1_BatchWordDropAndRefusalFIX.md, A026) - so it only corroborates
+   * what the model reports on its own under RULE 6.
+   */
+  unsupportedTopics?: string[];
   exampleAnswerableQuestions: string[];
   nonAnswerableExamples: string[];
 }
@@ -592,6 +820,33 @@ function describeCapabilities(capabilities?: CapabilityCatalog): string {
 }
 
 /**
+ * Names-only rendering of a capability catalog for the normalizer prompt
+ * (LLM call-count audit R2). describeCapabilities() also ships metric
+ * descriptions, the full state list, example questions and non-answerable
+ * examples - the normalizer's rules and few-shot already cover those, and
+ * only conversational Layer 0 (handleConversational) needs them. Concept
+ * aliases stay: they are the phrases a rewrite must land on for the
+ * deterministic pipeline to resolve the condition. Without a catalog it
+ * degrades exactly as describeCapabilities() does.
+ */
+function describeCapabilitiesCompact(capabilities?: CapabilityCatalog): string {
+  if (!capabilities) {
+    return describeCapabilities();
+  }
+  const conditions = (capabilities.concepts ?? []).map((c) => `${c.displayName} (${c.aliases.join(", ")})`).join("; ");
+  return [
+    `METRICS (exact names only): ${capabilities.metrics.map((m) => m.displayName).join(", ")}.`,
+    `OWNERSHIPS: ${capabilities.ownerships.join(", ")}.`,
+    conditions
+      ? `CONDITIONS - use only the exact display name before the brackets; the bracketed phrases are what users say for it: ${conditions}.`
+      : "",
+    "STATES: any US state, written as its full name.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/**
  * Tier1 T6 successor: same shape SuggestionContext-derived candidates
  * already carry - kept generic/duck-typed here (not imported from
  * @intelligence/domain-sdk) so this package stays a zero-dependency
@@ -605,7 +860,15 @@ export interface SuggestionPromptContext {
 }
 
 export class LLMModelGateway implements LLMProvider {
-  constructor(private readonly chain: ProviderConfig[] = FALLBACK_CHAIN) {}
+  /**
+   * `chain` serves every role; `rewriteChain` serves the question-rewrite role
+   * (normalizeMessyLanguage) only and defaults to `chain`, so a gateway built
+   * with one chain - every existing caller and test - behaves exactly as before.
+   */
+  constructor(
+    private readonly chain: ProviderConfig[] = FALLBACK_CHAIN,
+    private readonly rewriteChain: ProviderConfig[] = chain,
+  ) {}
 
   async complete(
     systemPrompt: string,
@@ -620,7 +883,25 @@ export class LLMModelGateway implements LLMProvider {
     userMessage: string,
     options: SamplingOptions = { temperature: 0.9 },
   ): Promise<T> {
-    const raw = await runChain(this.chain, systemPrompt, userMessage, options);
+    return this.runJSON<T>(this.chain, systemPrompt, userMessage, options);
+  }
+
+  private async runJSON<T>(
+    chain: ProviderConfig[],
+    systemPrompt: string,
+    userMessage: string,
+    options: SamplingOptions,
+    trace?: ChainTrace,
+  ): Promise<T> {
+    const isValidJson = (content: string): boolean => {
+      try {
+        JSON.parse(extractJsonBoundary(content));
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const raw = await runChain(chain, systemPrompt, userMessage, { ...options, jsonMode: true }, isValidJson, trace);
     return JSON.parse(extractJsonBoundary(raw)) as T;
   }
 
@@ -635,99 +916,69 @@ export class LLMModelGateway implements LLMProvider {
    * (SAFE_FALLBACK_SUGGESTIONS) takes over, never a crash.
    */
   async normalizeMessyLanguage(question: string, capabilities?: CapabilityCatalog): Promise<MessyLanguageResult> {
+    // LLM call-count audit R2 (2026-09-18): rewritten from a 15,906-char /
+    // 3,730-token prompt (measured) to a compact, rule-ordered one. Goals:
+    // (1) fewer tokens per call - Groq's free tier caps at 8,000 TOKENS per
+    // minute, so prompt size, not call count, is what exhausts it;
+    // (2) fix the two frontend failures - a named city was dropped or
+    // widened (the old shape rule had no city slot) and "show me hospital
+    // Houson Texas", written without "in", was rejected by tiers that
+    // pattern-match on examples that all contained "in"; (3) stop restating
+    // what deterministic code already does - the 50-state abbreviation map
+    // (expandUppercaseStateAbbreviations already expands 36 codes in any
+    // case; the 13 that collide with English words are covered by the one
+    // state-code rule below). Behaviors the old prompt encoded for earlier
+    // fixes (ownership preservation, good -> best, typo handling, condition
+    // default, "needs a state" clarification, off-topic fallback) are kept
+    // as a rule or an example.
     const systemPrompt = [
-      "You rewrite unclear healthcare-analytics questions into one canonical supported question.",
-      
-      "TYPO HANDLING - Be generous, preserve filters:",
-      "'safty performence' or 'saftey performence' or 'saftey' or 'saftey performance' means Safety Performance.",
-      "'good saftey' or 'good safety' means best Safety Performance - ranking - no state needed - good = best/top/highest.",
-      "Ownership typos: 'goverment' or 'govt' or 'gov' or 'govenment' means government - preserve ownership filter - never drop ownership word even with typo.",
-      "'non profit' or 'nonprofit' means non-profit, 'voluntary non profit' means voluntary non-profit, 'for profit' or 'forprofit' means for-profit.",
-      "'3 star' means Hospital Overall Rating of 3, 'heart care'/'heart attack dead' means Mortality Rate.",
-      "CRITICAL: Preserve ALL filters - if original has ownership word (government, non-profit, voluntary non-profit, for-profit, etc.) even with typo, canonical_question MUST keep that ownership word (corrected) - never drop ownership or state when present in original.",
-      
-      "STATE HANDLING - Always expand to full state name - exhaustive map - never leave an abbreviation in canonical_question:",
-      "Abbreviations: 'AL' means Alabama, 'AK' means Alaska, 'AZ' means Arizona, 'AR' means Arkansas, 'CA' or 'cali' or 'calif' means California, 'CO' means Colorado, 'CT' means Connecticut, 'DE' means Delaware, 'FL' or 'fla' means Florida, 'GA' means Georgia, 'HI' means Hawaii, 'ID' means Idaho, 'IL' means Illinois, 'IN' means Indiana, 'IA' means Iowa, 'KS' means Kansas, 'KY' means Kentucky, 'LA' means Louisiana, 'ME' means Maine, 'MD' means Maryland, 'MA' means Massachusetts, 'MI' means Michigan, 'MN' means Minnesota, 'MS' means Mississippi, 'MO' means Missouri, 'MT' means Montana, 'NE' means Nebraska, 'NV' means Nevada, 'NH' means New Hampshire, 'NJ' means New Jersey, 'NM' means New Mexico, 'NY' means New York, 'NC' means North Carolina, 'ND' means North Dakota, 'OH' means Ohio, 'OK' means Oklahoma, 'OR' means Oregon, 'PA' means Pennsylvania, 'RI' means Rhode Island, 'SC' means South Carolina, 'SD' means South Dakota, 'TN' means Tennessee, 'TX' or 'tex' means Texas, 'UT' means Utah, 'VT' means Vermont, 'VA' means Virginia, 'WA' means Washington, 'WV' means West Virginia, 'WI' means Wisconsin, 'WY' means Wyoming.",
-      "'CA' never means Canada in this healthcare context - always California. Every two-letter code above, written in ALL CAPS, immediately next to the word 'hospital'/'hospitals' or after 'in', is a US state code in this context, never an ordinary English word (e.g. 'hospital in IN' or 'hospitals IN' means Indiana, not the preposition) - lowercase 'in' used as an ordinary preposition (e.g. 'hospitals in California') is never a state code.",
-      "Lowercase: 'california' means California, 'texas' means Texas - normalize case to full proper case in canonical_question.",
-      "Informal: 'cali' means California, 'tex' means Texas, 'fla' means Florida, etc. - expand informal short forms too.",
-      "Always expand any abbreviation or informal short form to the full, proper-case state name in canonical_question - never leave 'CA'/'TX'/'cali'/'tex' etc. in the output.",
+      "You rewrite ONE user question about US hospital analytics into ONE canonical question that a deterministic pipeline can resolve. You never answer questions, never write SQL, never invent facts.",
+      'Return ONLY this JSON, nothing else: {"status": "ok" | "need_clarification" | "fallback", "canonical_question": string | null, "reason": string | null, "unsupported_terms": string[]}',
+      "",
+      "RULE 1 - SLOT PRESERVATION (highest priority, beats every other rule):",
+      "Never ADD a state, city, county, ownership type, metric or condition that is not in the original question in some form (correct, misspelled or abbreviated). Never DROP or BROADEN one that is: a named city stays a city (\"in Houston\" is never widened to the state or the nation), an ownership word stays (government, non-profit, for-profit...), a state stays. If the question names no location, the canonical question names none - never guess one, and never attach a state to a bare city. A hospital, clinic or health-system NAME (Mayo Clinic, Johns Hopkins, Cleveland Clinic, NYU Langone, Memorial Hospital) is a name, never a place: a question about a named hospital is returned exactly as written (status ok, identical text).",
+      "",
+      "RULE 2 - FIX THE WRITING, KEEP THE MEANING:",
+      "Correct typos in any word: metrics (\"saftey\" -> safety), ownership (\"goverment\"/\"govt\"/\"gov\" -> government, \"nonprofit\" -> non-profit, \"for profit\" -> for-profit), cities (\"Houson\"/\"Huston\" -> Houston), states (\"Calfornia\" -> California). A two-letter US state code in ANY letter case placed right after \"in\" or next to \"hospital(s)\" is a state (\"hospitals in oh\" -> Ohio, \"in tx\" -> Texas, \"hospital in IN\" -> Indiana); \"CA\" is California, never Canada; the ordinary word \"in\" is never a state; \"VA hospitals\" is the Veterans ownership alias - leave it as written (only \"in VA\" means Virginia). Always write full, proper-case state names. Expand an informal name only when it names exactly one place: cali -> California, tex -> Texas, philly -> Philadelphia, NYC -> New York City; leave ambiguous or multi-city forms (LA, DFW) exactly as written. A question that is already clean and complete is returned unchanged.",
+      "",
+      "RULE 3 - THE REQUEST SHAPES (the \"in\" may be missing in the original):",
+      "(a) LISTING - a location (state, city, or city + state) and no metric or ranking word is a COMPLETE request: \"Show me hospitals in <location>\", with an ownership word before \"hospitals\" when present (\"Show me government hospitals in <location>\"). Status ok. Never ask for clarification when a location is present.",
+      "(b) RANKING - \"Show me hospitals with <best|top|highest|lowest|worst> <metric>\", then \"in <City>\", \"in <City>, <State>\" or \"in <State>\" - only the location parts the original had (an ownership word goes before \"hospitals\": \"Show me non-profit hospitals with lowest Mortality Rate in Ohio\"). good/great/excellent = best; bad/poor = worst; \"safest\" = best Safety Performance; every superlative (safest, strongest, top-rated) is a ranking word. For Mortality Rate and Readmission Rate lower is better: best/good -> lowest, worst/bad -> highest (\"hospital with good mortality\" -> \"Show me hospitals with lowest Mortality Rate\"). Use the metric's exact display name from METRICS; a metric name alone is never a canonical question. A ranking needs NO location.",
+      "(c) CONDITION - a listed clinical condition (see CONDITIONS) with no ranking word defaults to \"lowest\" of its mortality or readmission measure (\"bypass surgery readmission\" -> \"Show me hospitals with lowest CABG Readmission\"); with a ranking word keep its direction. A condition never needs a location.",
+      "(d) STAR RATING - \"3 star\", \"3 start\", \"5-star\" is a Hospital Overall Rating filter, always written \"N-star\" (never \"Hospital Overall Rating of N\"), e.g. \"Show me 3-star hospitals in Georgia\". It needs a state - with none in the question, status need_clarification.",
+      "",
+      "RULE 4 - HEART LANGUAGE:",
+      "(a) Symptom words - \"heart pain\", \"chest pain\", \"chest discomfort\", \"my chest hurts\", \"my heart hurts\", \"heart ache\" - mean a heart attack: \"Show me hospitals with lowest Mortality Rate for Acute Myocardial Infarction\" (plus the location if one was given).",
+      "(b) General heart-care quality - \"heart care\", \"heart attack dead\" - means Mortality Rate: \"best heart care hospital\" -> \"Show me hospitals with lowest Mortality Rate\".",
+      "(c) Only a BARE \"heart issue\" / \"heart problem\", \"lung disease\", \"shortness of breath\" or \"checkup\", with no word from (a) or (b), is ambiguous - status fallback, never guessed.",
+      "",
+      "RULE 5 - WHEN NOT TO REWRITE:",
+      "status \"fallback\" (canonical_question null) when the question is not about US hospital performance (weather, trivia, people, jobs...) or maps to nothing in the lists below. status \"need_clarification\" (reason = one short question, e.g. \"Which state should I look in?\") ONLY when the request names a metric or star rating, has NO location, and has NO ranking word (best, top, highest, lowest, worst, good, great, excellent, bad, poor, safest, or any other superlative), or is genuinely ambiguous between two metrics. A question with a ranking word or a location is never need_clarification for lack of a location.",
+      "",
+      "RULE 6 - REPORT WHAT IS NOT SUPPORTED (a report only: it never changes status, canonical_question or any other rule):",
+      "Fill unsupported_terms with the user's EXACT words (copied from the question) for anything they ask FOR that is outside METRICS, CONDITIONS, OWNERSHIPS, STATES, US places and hospital names: a condition or measure that is not listed, a symptom (except the heart language in RULE 4), a hospital attribute or service (hospital type, emergency services, cleanliness, staff communication), a time window (a year, \"since 2020\"). Never list comparison words, hospital names, typos or informal wording of a LISTED thing, or code fragments. Choose status and canonical_question exactly as the other rules say; when nothing is unsupported, unsupported_terms is [].",
+      "",
+      "EXAMPLES - they show FORMAT only. Never copy a place, ownership type or metric from an example into a question that does not contain it.",
+      "\"goverment hospital in California\" -> \"Show me government hospitals in California\"",
+      "\"show me hospital Houson Texas\" -> \"Show me hospitals in Houston, Texas\"",
+      "\"best hospital for heart pain Houston\" -> \"Show me hospitals with lowest Mortality Rate for Acute Myocardial Infarction in Houston\"",
+      "\"best hospital for heart pain Phoenix\" -> \"Show me hospitals with lowest Mortality Rate for Acute Myocardial Infarction in Phoenix\"",
+      "\"best hospital for chest pain in Columbus, Ohio\" -> \"Show me hospitals with lowest Mortality Rate for Acute Myocardial Infarction in Columbus, Ohio\"",
+      "\"show me hospital for heart pain\" -> \"Show me hospitals with lowest Mortality Rate for Acute Myocardial Infarction\"",
+      "\"Which hospitals have the lowest mortality rates?\" -> \"Show me hospitals with lowest Mortality Rate\"",
+      "\"good saftey\" -> \"Show me hospitals with best Safety Performance\"",
+      "\"safest hosptials\" -> \"Show me hospitals with best Safety Performance\"",
+      "\"best heart care hospital\" -> \"Show me hospitals with lowest Mortality Rate\"",
+      "\"3 start hospitals in Georgia\" -> \"Show me 3-star hospitals in Georgia\"",
+      "\"hospitals with a 4 star rating\" -> status need_clarification, reason \"Which state should I look in?\"",
+      "\"hospitals in ok\" -> \"Show me hospitals in Oklahoma\"",
+      "\"what's the weather in Dallas?\" -> status fallback",
+      "",
+      describeCapabilitiesCompact(capabilities),
+    ].join("\n");
 
-      "GEOGRAPHIC LIST WITHOUT METRIC - a state alone, no metric named, is a complete, answerable request - never ask for clarification when a state is already present:",
-      "'hospital in CA' or 'hospitals in CA' or 'show me hospital in CA' or 'show me hospitals in CA' means 'Show me hospitals in California' - status ok, no metric needed, this is a real geographic list capability.",
-      "'hospital in TX' means 'Show me hospitals in Texas'. Any bare '<location word> in <state abbreviation/informal/full name>' with no ownership/metric word follows the same pattern - expand the state, keep the shape 'Show me hospitals in <State>'.",
-
-      "COMBINATION HANDLING - Two or more errors at once - correct ALL of them, drop none:",
-      "When a question has both a typo AND a state abbreviation (e.g. 'goverment hospital in CA'), correct BOTH in the same canonical_question - normalize the typo AND expand the abbreviation - never fix one while silently dropping the other. Example: 'goverment hospital in CA' -> 'Show me government hospitals in California' (NOT 'Show me government hospitals' with California dropped, and NOT 'Show me hospitals in California' with government dropped - both of those are wrong, incomplete rewrites).",
-
-      "OWNERSHIP + STATE IMPLIES RANKING - Preserve intent, never substitute a different filter:",
-      "'government hospital in California' or 'goverment hospital in CA' implies ranking - canonical should be 'Show me government hospitals in California' - preserve government filter and state - will be ranked by overall rating (10 rows) not full state list (100 rows).",
-      "Never change 'government hospital' to '5-star hospital' or 'best hospital' - ownership is different from rating - preserve ownership word - don't invent rating when ownership asked.",
-
-      "RANKING SYNONYMS - good/bad handling - Critical for safety cases:",
-      "'good' or 'great' or 'excellent' means 'best' or 'top' or 'highest' - ranking - e.g. 'good safety' means 'best Safety Performance' or 'highest Safety Performance' - ranking, no state needed.",
-      "'bad' or 'poor' or 'worst' means 'worst' or 'lowest' - ranking.",
-      "So 'show me hospital with good safety' → 'Show me hospitals with best Safety Performance' - status ok, no state needed, ranking.",
-      "'show me hospital with good saftey' (typo) → 'Show me hospitals with best Safety Performance' - correct typo saftey → safety AND good → best.",
-      "'hospital with good rating' → 'hospitals with best Hospital Overall Rating'.",
-      "'hospital with good mortality' → 'hospitals with lowest Mortality Rate' - because lower is better for mortality - but good still implies ranking.",
-      "This fixes: 'Which hospitals rank highest in Safety Performance' already works, but 'good safety' should also work without state.",
-
-      "NEGATIVE EXAMPLES - what NOT to do - never produce these:",
-      "Wrong: 'goverment hospital in CA' -> 'Show me 5-star hospitals in California' (ownership silently dropped, an unrelated rating invented instead - never invent a different filter than what was asked).",
-      "Wrong: 'goverment hospital in CA' -> 'Show me government hospitals' (California silently dropped - state must be preserved once present in the original).",
-      "Wrong: 'goverment hospital in CA' -> 'Show me hospitals in California' (government ownership silently dropped - this exact mistake previously caused a real, live bug: an all-ownership nationwide-scoped result presented as if it were California-only government hospitals).",
-      "Wrong: inventing a state when none was named and no ranking word was given either - return status \"need_clarification\" instead.",
-      "Wrong: treating 'CA' as Canada, or as anything other than California, in this healthcare context.",
-
-      "FEW-SHOT EXAMPLES - Input → Output - Cover edge combos so this does not need to be re-fixed for the next typo/short-form variant:",
-      "Input: 'goverment hospital in CA' → Output: status ok, canonical_question 'Show me government hospitals in California'.",
-      "Input: 'goverment hospital in california' → Output: 'Show me government hospitals in California'.",
-      "Input: 'government hospital in CA' → Output: 'Show me government hospitals in California'.",
-      "Input: 'govt hospital in CA' → Output: 'Show me government hospitals in California'.",
-      "Input: 'gov hospital CA' → Output: 'Show me government hospitals in California'.",
-      "Input: 'government hospital in Cali' → Output: 'Show me government hospitals in California'.",
-      "Input: 'goverment hospital TX' → Output: 'Show me government hospitals in Texas'.",
-      "Input: 'non profit hospital in CA' → Output: 'Show me non-profit hospitals in California'.",
-      "Input: 'hospital in CA' → Output: status ok, canonical_question 'Show me hospitals in California' - no metric needed, state alone is a complete request.",
-      "Input: 'show me hospital in CA' → Output: 'Show me hospitals in California'.",
-      "Input: 'hospitals in CA' → Output: 'Show me hospitals in California'.",
-      "Input: 'hospital in TX' → Output: 'Show me hospitals in Texas'.",
-      "Input: 'show me hospital with good safety' → Output: status ok, canonical_question 'Show me hospitals with best Safety Performance' - no state needed, good → best, safety → Safety Performance, ranking.",
-      "Input: 'show me hospital with good saftey' → Output: 'Show me hospitals with best Safety Performance' - typo saftey → safety + good → best.",
-      "Input: 'hospital with good safety performance' → Output: 'Show me hospitals with best Safety Performance'.",
-      "Input: 'which hospitals have good safety?' → Output: 'Show me hospitals with best Safety Performance'.",
-      "Input: 'good safety hospitals' → Output: 'Show me hospitals with best Safety Performance'.",
-      "Input: 'good safety' → Output: 'Show me hospitals with best Safety Performance'.",
-      "Input: 'best safety' → Output: 'Show me hospitals with best Safety Performance' - here the LLM rewrite itself supplies the missing word 'Performance', a different mechanism than a bare-phrase deterministic alias match.",
-      "Input: 'Which hospitals rank highest in Safety Performance?' → Output: 'Show me hospitals with highest Safety Performance' - already works but include as positive example.",
-      "Input: 'Which hospitals have the lowest mortality rates?' → Output: 'Show me hospitals with lowest Mortality Rate' - positive control, unrelated to typos/states, must keep working exactly as-is.",
-
-      describeCapabilities(capabilities),
-      'You must NEVER invent a metric, hospital name, or condition not in the list above. If the',
-      'question cannot be mapped to any of these metrics, return status "fallback". If it is',
-      'ambiguous between two metrics, return status "need_clarification" with a reason.',
-      'canonical_question must always be a full question of the shape "Show me hospitals with',
-      '<best/top/highest/lowest/worst> <metric>" (optionally "in <state>") - NEVER just the bare',
-      "metric name alone (e.g. never just \"Safety Performance\" by itself).",
-      "A plain filter/list request for a metric (e.g. a specific star rating, or a bare metric name",
-      "with no ranking word like best/top/highest/lowest/worst/good/great/excellent/bad/poor) requires a named state to run - never invent or default a state that",
-      'was not in the original question. If the original question has no state AND no ranking',
-      'word (including good/great/excellent/bad/poor), return status "need_clarification"',
-      "asking which state, instead of guessing status \"ok\" with a still-unscoped canonical_question.",
-      'If the question already implies ranking ("best", "top", "worst", "good", "great", "excellent", etc.) it does not need a',
-      "state and can be returned as status \"ok\" as-is.",
-      "EXCEPTION for clinical conditions: if the question names one of the clinical conditions listed",
-      "above (heart attack, bypass surgery, COPD, heart failure, pneumonia, hip/knee, etc.) with NO",
-      'ranking word, default the ranking to "lowest" yourself (a lower rate is always the better',
-      "outcome for these condition-specific measures) instead of asking for a state - a bare",
-      'condition name alone is always intended as a ranking request, never a plain filter/list, so it',
-      'never needs a state either. Example: "bypass surgery readmission" -> "Show me hospitals with',
-      'lowest CABG Readmission" (status "ok", no state, no clarification needed).',
-      "Return ONLY this JSON shape, nothing else:",
-      '{"status": "ok" | "need_clarification" | "fallback", "canonical_question": string | null, "reason": string | null}',
-    ].join(" ");
-
+    const startedAt = Date.now();
+    const trace: ChainTrace = { attempts: 0, tiers: [] };
     try {
       // Master LLM Audit: canonicalization is a factual/deterministic-shaped
       // task (typo correction, alias expansion), not a creative one - a
@@ -736,14 +987,34 @@ export class LLMModelGateway implements LLMProvider {
       // shared temperature 0.9 caused the identical "goverment hospital
       // in CA" input to sometimes drop the ownership filter and
       // sometimes not, across separate calls with no code change.
-      const result = await this.completeJSON<MessyLanguageResult>(systemPrompt, question, { temperature: 0.1 });
+      //
+      // Phase 3.6 (LLM-First Front Door): lowered further, from 0.1 to
+      // 0.0. This method used to run only as an on-failure fallback (a
+      // small fraction of traffic); as Layer 0.5 it now runs on nearly
+      // every analytical query, so its output variance has a much
+      // larger blast radius - the lowest safe temperature for a
+      // factual-rewrite task is the right default now, not just a
+      // marginal improvement. Same multi-vendor-fallback caveat as
+      // before still applies: a low temperature makes one provider
+      // consistent, it does not make a weaker fallback-chain provider
+      // follow instructions as reliably once the primary is
+      // quota-exhausted.
+      const result = await this.runJSON<MessyLanguageResult>(
+        this.rewriteChain,
+        systemPrompt,
+        question,
+        { temperature: 0.0, forRewrite: true },
+        trace,
+      );
       if (result && (result.status === "ok" || result.status === "need_clarification" || result.status === "fallback")) {
-        return result;
+        return { ...result, provenance: toProvenance(trace, startedAt) };
       }
-      return { status: "fallback", reason: "malformed gateway response" };
+      return { status: "fallback", reason: "malformed gateway response", provenance: toProvenance(trace, startedAt) };
     } catch (error) {
       logFallbackEvent("normalizeMessyLanguage", "all providers exhausted", error);
-      return { status: "fallback", reason: "LLM gateway unavailable" };
+      return { status: "fallback", reason: "LLM gateway unavailable", provenance: toProvenance(trace, startedAt) };
+    } finally {
+      recordCall("normalizer", trace, startedAt);
     }
   }
 
@@ -755,7 +1026,7 @@ export class LLMModelGateway implements LLMProvider {
    * whatever this returns, so a bad rephrase costs nothing beyond one
    * dropped candidate at that call site, never a broken response.
    */
-  async synthesizeSuggestions(context: SuggestionPromptContext): Promise<string[]> {
+  async synthesizeSuggestions(context: SuggestionPromptContext, deadlineMs?: number): Promise<string[]> {
     if (context.candidates.length === 0) {
       return context.candidates;
     }
@@ -776,13 +1047,15 @@ export class LLMModelGateway implements LLMProvider {
       candidates: context.candidates,
     });
 
+    const startedAt = Date.now();
+    const trace: ChainTrace = { attempts: 0, tiers: [] };
     try {
       // Master LLM Audit: medium temperature - enough lexical variety to
       // avoid robotic repeats, but this method must never invent a new
       // fact (only rephrase already-decided candidates), so it stays
       // well below the high end used for genuinely creative/diverse
       // suggestion generation (selectAndRephraseSuggestions).
-      const result = await this.completeJSON<string[]>(systemPrompt, userMessage, { temperature: 0.6 });
+      const result = await this.runJSON<string[]>(this.chain, systemPrompt, userMessage, { temperature: 0.6, deadlineMs }, trace);
       if (Array.isArray(result) && result.length === context.candidates.length && result.every((s) => typeof s === "string" && s.length > 0)) {
         return result;
       }
@@ -790,6 +1063,8 @@ export class LLMModelGateway implements LLMProvider {
     } catch (error) {
       logFallbackEvent("synthesizeSuggestions", "all providers exhausted", error);
       return context.candidates;
+    } finally {
+      recordCall("suggestions", trace, startedAt);
     }
   }
 
@@ -802,7 +1077,7 @@ export class LLMModelGateway implements LLMProvider {
    * Returns an empty string on any failure - the caller must treat an
    * empty string identically to "no summary available".
    */
-  async summarizeResult(question: string, rows: Record<string, unknown>[]): Promise<string> {
+  async summarizeResult(question: string, rows: Record<string, unknown>[], deadlineMs?: number): Promise<string> {
     if (rows.length === 0) {
       return "";
     }
@@ -817,6 +1092,8 @@ export class LLMModelGateway implements LLMProvider {
 
     const userMessage = JSON.stringify({ question, rows: rows.slice(0, 20) });
 
+    const startedAt = Date.now();
+    const trace: ChainTrace = { attempts: 0, tiers: [] };
     try {
       // Master LLM Audit: low temperature - this is a factual restatement
       // task (only numbers/names/values already present in `rows`), the
@@ -825,11 +1102,13 @@ export class LLMModelGateway implements LLMProvider {
       // of narrative drift already observed elsewhere in this campaign
       // (e.g. a name-swap hallucination between two compared hospitals'
       // stats in an earlier dogfooding round).
-      const summary = await this.complete(systemPrompt, userMessage, { temperature: 0.2 });
+      const summary = await runChain(this.chain, systemPrompt, userMessage, { temperature: 0.2, deadlineMs }, undefined, trace);
       return summary.trim();
     } catch (error) {
       logFallbackEvent("summarizeResult", "all providers exhausted", error);
       return "";
+    } finally {
+      recordCall("summary", trace, startedAt);
     }
   }
 
@@ -878,12 +1157,14 @@ export class LLMModelGateway implements LLMProvider {
       suggestions: capabilities.exampleAnswerableQuestions.slice(0, 4),
     };
 
+    const startedAt = Date.now();
+    const trace: ChainTrace = { attempts: 0, tiers: [] };
     try {
       // Master LLM Audit: kept high (this method's shape needs a warm,
       // varied, non-repetitive onboarding tone across turns - a "normal
       // chatbot" task per the research this audit is based on, not a
       // factual/canonicalization one).
-      const result = await this.completeJSON<{ answer?: string; suggestions?: string[] }>(systemPrompt, question, { temperature: 0.8 });
+      const result = await this.runJSON<{ answer?: string; suggestions?: string[] }>(this.chain, systemPrompt, question, { temperature: 0.8 }, trace);
       if (
         typeof result?.answer === "string" &&
         result.answer.length > 0 &&
@@ -896,6 +1177,8 @@ export class LLMModelGateway implements LLMProvider {
     } catch (error) {
       logFallbackEvent("handleConversational", "all providers exhausted", error);
       return fallback;
+    } finally {
+      recordCall("conversational", trace, startedAt);
     }
   }
 
@@ -915,6 +1198,7 @@ export class LLMModelGateway implements LLMProvider {
     pool: string[],
     context: { resolvedMetric?: string | undefined; resolvedState?: string | undefined },
     count = 3,
+    deadlineMs?: number,
   ): Promise<string[]> {
     const fallback = pool.slice(0, count);
     if (pool.length <= count) {
@@ -939,12 +1223,14 @@ export class LLMModelGateway implements LLMProvider {
       numberToSelect: count,
     });
 
+    const startedAt = Date.now();
+    const trace: ChainTrace = { attempts: 0, tiers: [] };
     try {
       // Master LLM Audit: kept high - this is the brainstorming/diversity
       // task (research: 0.7-1.1 best creativity-to-cost ratio for idea
       // generation) - a low temperature here would defeat the entire
       // point of this method (avoiding repetitive, formulaic suggestions).
-      const result = await this.completeJSON<string[]>(systemPrompt, userMessage, { temperature: 0.8 });
+      const result = await this.runJSON<string[]>(this.chain, systemPrompt, userMessage, { temperature: 0.8, deadlineMs }, trace);
       if (Array.isArray(result) && result.length === count && result.every((s) => typeof s === "string" && s.length > 0)) {
         return result;
       }
@@ -952,8 +1238,10 @@ export class LLMModelGateway implements LLMProvider {
     } catch (error) {
       logFallbackEvent("selectAndRephraseSuggestions", "all providers exhausted", error);
       return fallback;
+    } finally {
+      recordCall("suggestions", trace, startedAt);
     }
   }
 }
 
-export const llmGateway = new LLMModelGateway();
+export const llmGateway = new LLMModelGateway(FALLBACK_CHAIN, NORMALIZER_CHAIN);

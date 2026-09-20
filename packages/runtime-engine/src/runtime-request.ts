@@ -118,4 +118,13 @@ export interface RuntimeRequest {
    * LLM rewrite attempt per original user question).
    */
   llmFallbackAttempted?: boolean;
+
+  /**
+   * Batch 1 (Step 1.2): internal only, set by create-runtime-engine.ts's
+   * own recursive execute() that runs an LLM-rewritten canonical question -
+   * the user's ORIGINAL question. Lets the unaccounted-word gate tell a word
+   * the user typed (and the rewrite kept, unresolved) from a word the
+   * rewrite introduced itself.
+   */
+  rewrittenFrom?: string;
 }

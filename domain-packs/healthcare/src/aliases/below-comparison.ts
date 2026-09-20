@@ -13,6 +13,9 @@ export const belowComparisonAliases: AliasDefinition = {
     "under",
     "beneath",
     "worse than",
+    // Batch 3: performance wording of the same comparison (see above-comparison.ts).
+    "performing below",
+    "performing below the",
   ],
 
   type: "relationship",

@@ -69,6 +69,16 @@ definition: SemanticDefinition;
   direction?: "asc" | "desc";
 
   /**
+   * Batch 3 (D1): which kind of modifier word `direction` came from - a
+   * "performance" word ("best", "worst": the word itself says which end is
+   * good) or a "magnitude" word ("highest", "lowest": it names the number).
+   * Generic, domain-agnostic - populated with `direction` by
+   * ModifierDirectionResolver; the planner combines it with the metric's
+   * `lowerIsBetter` to normalize the ExecutionPlan direction.
+   */
+  directionBasis?: "performance" | "magnitude";
+
+  /**
    * True when this candidate's phrase was introduced by a domain's
    * declared generic-ranking-idiom rewrite rule (see
    * LexicalRewriteRule) rather than appearing verbatim in the user's
@@ -79,4 +89,14 @@ definition: SemanticDefinition;
    * Only meaningful for metric-typed candidates.
    */
   isFallback?: boolean;
+
+  /**
+   * Batch 4: the text of the lexical rewrite rule(s) that introduced this
+   * candidate's phrase (e.g. "hospital comes out on top" for the phrase
+   * "hospital overall rating"). The rule itself is the domain's declaration
+   * that it understands those words, so they count as accounted for. Generic,
+   * domain-agnostic - populated by SemanticPipeline from LexicalRewriter's
+   * applied-replacements record, read by QueryPlanner.
+   */
+  consumedText?: string;
 }

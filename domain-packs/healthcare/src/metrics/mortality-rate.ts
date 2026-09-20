@@ -15,6 +15,9 @@ export const mortalityRateMetric: MetricDefinition = {
 
   rankable: true,
 
+  // Batch 3 (D1): a lower mortality rate is the better one; "highest death rate" means the worst hospitals first.
+  lowerIsBetter: true,
+
   benchmarkable: true,
 
   aggregatable: true,

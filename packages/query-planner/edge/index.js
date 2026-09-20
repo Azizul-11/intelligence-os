@@ -1,3 +1,6 @@
+// src/query-planner.ts
+import { Normalizer as Normalizer2 } from "@intelligence/semantic";
+
 // src/query-intent-detector.ts
 import { Normalizer } from "@intelligence/semantic";
 var RANKING_KEYWORDS = /* @__PURE__ */ new Set([
@@ -33,6 +36,12 @@ var RANKING_KEYWORDS = /* @__PURE__ */ new Set([
 var COMPARISON_KEYWORDS = /* @__PURE__ */ new Set(["compare", "vs", "versus"]);
 var TREND_KEYWORDS = /* @__PURE__ */ new Set(["trend"]);
 var AGGREGATION_KEYWORDS = /* @__PURE__ */ new Set(["average", "count", "total"]);
+var INTENT_KEYWORDS = /* @__PURE__ */ new Set([
+  ...RANKING_KEYWORDS,
+  ...COMPARISON_KEYWORDS,
+  ...TREND_KEYWORDS,
+  ...AGGREGATION_KEYWORDS
+]);
 var QueryIntentDetector = class {
   normalizer = new Normalizer();
   detect(question) {
@@ -185,6 +194,36 @@ var QUESTION_FILLER_WORDS = /* @__PURE__ */ new Set([
   "and",
   "or"
 ]);
+var FUNCTION_WORDS = /* @__PURE__ */ new Set([
+  "with",
+  "have",
+  "has",
+  "had",
+  "from",
+  "by",
+  "at",
+  "than",
+  "that",
+  "this",
+  "these",
+  "those",
+  "it",
+  "its",
+  "their",
+  "them",
+  "they",
+  "be",
+  "been",
+  "being",
+  "also",
+  "between",
+  "among",
+  // Batch 3: the participle of the "highest rated / top rated hospitals" idiom. A domain's lexical rewrite consumes
+  // the whole idiom ("highest rated hospitals" -> its rating metric), so "rated" is never left as a candidate phrase
+  // and was reported unaccounted, sending every such question to the LLM front door, which can drop the rest of it
+  // ("... in New York by county" lost "by county" about half the time). It carries no constraint of its own.
+  "rated"
+]);
 var QueryPlanner = class _QueryPlanner {
   intentDetector = new QueryIntentDetector();
   collector = new SemanticCollector();
@@ -269,7 +308,7 @@ var QueryPlanner = class _QueryPlanner {
     let intent = forcedIntent ? forcedIntent : discoveredComparableMetrics ? "comparison" : discoveredDefaultRanking ? "ranking" : this.intentDetector.detect(
       semantic.originalQuery
     );
-    if (intent === "aggregation" && collections.relationships.length > 0) {
+    if (intent === "aggregation" && collections.relationships.length > 0 || intent === "lookup" && collections.relationships.length > 0 && collections.benchmarks.length > 0) {
       intent = "ranking";
     }
     const finalCollections = {
@@ -558,9 +597,50 @@ var QueryPlanner = class _QueryPlanner {
    * generically elsewhere in this file.
    */
   hasUnaccountedSubstantiveToken(normalizedQuery, allMatches, domainEntities) {
+    return this.unaccountedWords(normalizedQuery, allMatches, domainEntities).length > 0;
+  }
+  /**
+   * True when the deterministic layers understood EVERY word of the question:
+   * each word is part of a resolved semantic phrase, a registered entity id, a
+   * generic filler/function word, or a word the intent detector acts on
+   * (ranking / comparison / trend / aggregation). A typo ("Houson"), an
+   * unregistered word ("heart pain", "weather") or a lowercase state code
+   * ("oh") is left over, so it returns false. The runtime engine uses this to
+   * skip an LLM rewrite that could only change a question it already
+   * understood - a suggestion chip, a canonical question, an aliased phrase.
+   * Structural and domain-agnostic, like hasUnaccountedSubstantiveToken().
+   */
+  isFullyUnderstood(normalizedQuery, allMatches, domainEntities) {
+    return this.unaccountedWords(normalizedQuery, allMatches, domainEntities, (word) => FUNCTION_WORDS.has(word) || INTENT_KEYWORDS.has(word)).length === 0;
+  }
+  /**
+   * Batch 1 (Step 1.2): the words of `normalizedQuery` that nothing resolved,
+   * with the same allowance isFullyUnderstood() applies (question-filler,
+   * function and intent words count as understood). When `originalQuestion`
+   * is given, only words the user actually typed are returned: an LLM rewrite
+   * can introduce words of its own (a concept's display name, "performance")
+   * that no alias registers, and those are harmless - a word the user typed,
+   * that survived the rewrite and that nothing resolved is a dropped
+   * constraint. Structural and domain-agnostic: never inspects what a word
+   * means, only whether some semantic candidate accounted for it.
+   */
+  findUnaccountedWords(normalizedQuery, allMatches, domainEntities, originalQuestion) {
+    const words = this.unaccountedWords(
+      normalizedQuery,
+      allMatches,
+      domainEntities,
+      (word) => FUNCTION_WORDS.has(word) || INTENT_KEYWORDS.has(word)
+    );
+    if (originalQuestion === void 0) {
+      return words;
+    }
+    const typed = new Set(new Normalizer2().normalize(originalQuestion).split(" ").filter(Boolean));
+    return words.filter((word) => typed.has(word));
+  }
+  unaccountedWords(normalizedQuery, allMatches, domainEntities, alsoIgnore = () => false) {
     const consumedWords = /* @__PURE__ */ new Set();
     for (const match of allMatches) {
-      for (const word of match.phrase.toLowerCase().split(/\s+/)) {
+      for (const word of `${match.phrase} ${match.consumedText ?? ""}`.toLowerCase().split(/\s+/)) {
         if (word) {
           consumedWords.add(word);
         }
@@ -572,8 +652,8 @@ var QueryPlanner = class _QueryPlanner {
       consumedWords.add(`${id}s`);
     }
     const queryWords = normalizedQuery.split(/\s+/).filter(Boolean);
-    return queryWords.some(
-      (word) => !consumedWords.has(word) && !QUESTION_FILLER_WORDS.has(word)
+    return queryWords.filter(
+      (word) => !consumedWords.has(word) && !QUESTION_FILLER_WORDS.has(word) && !alsoIgnore(word)
     );
   }
   /**
@@ -607,6 +687,18 @@ var QueryPlanner = class _QueryPlanner {
 };
 
 // src/execution-plan-mapper.ts
+var PERFORMANCE_COMPARISON_WORDS = /* @__PURE__ */ new Set([
+  "performing",
+  "outperform",
+  "outperforms",
+  "outperforming",
+  "underperforming",
+  "beat",
+  "beats",
+  "beating",
+  "better",
+  "worse"
+]);
 var ExecutionPlanMapper = class {
   /**
    * Map QueryPlan to ExecutionPlan.
@@ -683,10 +775,32 @@ var ExecutionPlanMapper = class {
       seen.add(candidate.canonicalKey);
       metrics.push({
         metric: candidate.canonicalKey,
-        direction: candidate.direction ?? "desc"
+        direction: this.performanceDirection(candidate) ?? "desc"
       });
     }
     return metrics;
+  }
+  /**
+   * Batch 3 (D1): the direction a ranking modifier asks for, normalized to ONE convention that every domain
+   * template can rely on: "desc" = best first, "asc" = worst first.
+   *
+   * The semantic layer reports the modifier's bucket (highest/best/top/largest -> "desc", lowest/worst/bottom/
+   * smallest -> "asc") and which kind of word it was. A performance word ("best", "worst") already says which end
+   * is good, so its bucket already is best-first / worst-first. A magnitude word ("highest", "lowest") names the
+   * number: for a metric where higher is better that is the same thing, but for a metric where LOWER is better
+   * (`MetricDefinition.lowerIsBetter`) "highest" means the worst hospitals first, so the bucket flips.
+   * A candidate with no modifier keeps the default of the caller.
+   */
+  performanceDirection(candidate) {
+    const direction = candidate.direction;
+    if (!direction) {
+      return void 0;
+    }
+    const lowerIsBetter = candidate.definition.lowerIsBetter === true;
+    if (lowerIsBetter && candidate.directionBasis === "magnitude") {
+      return direction === "desc" ? "asc" : "desc";
+    }
+    return direction;
   }
   /**
    * Map QueryIntent to ExecutionOperation.
@@ -787,22 +901,14 @@ var ExecutionPlanMapper = class {
       if (!primaryMetric) {
         return void 0;
       }
-      if (primaryCandidate.direction) {
+      const requestedDirection = this.performanceDirection(primaryCandidate);
+      if (requestedDirection) {
         return {
           field: primaryMetric,
-          direction: primaryCandidate.direction
+          direction: requestedDirection
         };
       }
-      const hasAbove = queryPlan.semantic.relationships.some(
-        (r) => r.canonicalKey === "above-comparison"
-      );
-      const hasBelow = queryPlan.semantic.relationships.some(
-        (r) => r.canonicalKey === "below-comparison"
-      );
-      let direction = "desc";
-      if (hasBelow) {
-        direction = "asc";
-      }
+      const direction = this.performanceComparison(queryPlan) === "below" ? "asc" : "desc";
       return {
         field: primaryMetric,
         direction
@@ -853,14 +959,35 @@ var ExecutionPlanMapper = class {
    * disambiguation rule, not one that inspects which canonical id is
    * involved.
    */
+  /**
+   * Batch 3 (D1): which side of a benchmark the request asks for, normalized to the same convention as the ranking
+   * direction: "above" = the better side, "below" = the worse side (a benchmark template compares PERFORMANCE).
+   * A comparison that judges the result ("performing below", "beat", "worse than", "better than") already says so.
+   * A bare "below" / "lower than" / "above" names the number: for a metric where LOWER is better
+   * (`MetricDefinition.lowerIsBetter`), "mortality rate lower than the national average" asks for the BETTER
+   * hospitals, so the side flips. Without a comparison word, or for a higher-is-better metric, nothing changes.
+   */
+  performanceComparison(queryPlan) {
+    const { relationships, metrics } = queryPlan.semantic;
+    const below = relationships.find((r) => r.canonicalKey === "below-comparison");
+    const stated = below ?? relationships.find((r) => r.canonicalKey === "above-comparison");
+    if (!stated) {
+      return void 0;
+    }
+    const comparison = below ? "below" : "above";
+    const lowerIsBetter = metrics[0]?.definition?.lowerIsBetter === true;
+    const judgesResult = stated.phrase.split(" ").some((word) => PERFORMANCE_COMPARISON_WORDS.has(word));
+    if (lowerIsBetter && !judgesResult) {
+      return comparison === "below" ? "above" : "below";
+    }
+    return comparison;
+  }
   buildBenchmark(queryPlan) {
     const { relationships, benchmarks } = queryPlan.semantic;
     if (relationships.length === 0 || benchmarks.length === 0) {
       return void 0;
     }
-    const comparison = relationships.some(
-      (r) => r.canonicalKey === "below-comparison"
-    ) ? "below" : relationships.some((r) => r.canonicalKey === "above-comparison") ? "above" : void 0;
+    const comparison = this.performanceComparison(queryPlan);
     if (!comparison) {
       return void 0;
     }
@@ -1049,6 +1176,7 @@ function detectSubsumedBenchmarkRisk(candidates, normalizedQuery, aliasDefinitio
 }
 export {
   ExecutionPlanMapper,
+  INTENT_KEYWORDS,
   QueryIntentDetector,
   QueryPlanner,
   SemanticCollector,

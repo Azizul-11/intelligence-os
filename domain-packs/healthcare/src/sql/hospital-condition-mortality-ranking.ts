@@ -9,7 +9,8 @@ export const hospitalConditionMortalityRankingSqlTemplate: SqlTemplateDefinition
 
   description:
     "Returns hospitals ranked by a specific CMS condition/procedure outcome measure (e.g. AMI, CABG, COPD, Heart Failure, Pneumonia mortality; Hip/Knee complications), scoped by :measureCode. Tier1 Task 5 balanced-limits fix: top 10 overall for a single-state/nationwide request; top 5 PER named state for a multi-state request (ROW_NUMBER() OVER PARTITION BY state), so no single state's tied hospitals crowd out another's. " +
-    "PrePhase 9.5 Round 3: `co.score` is a raw badness value (a death rate) - lower is always better. The ORDER BY is unconditionally ascending (lowest/best first) regardless of `:direction`, which used to flip it via a CASE expression - that CASE was wrong: Universal Core's direction lexicon buckets \"lowest\"/\"worst\" into the SAME generic \"asc\" signal (see packages/semantic/src/direction/modifier-direction-lexicon.ts), so \"lowest death rate\" (meaning: show me the best) and a genuine \"worst death rate\" request were indistinguishable by the time they reached this template, and the old CASE resolved that ambiguity the wrong way for the far more common \"lowest/best\" case (confirmed live: 17.1% - the worst score in the result set - was appearing first). ponytail: known ceiling - a genuine \"show me the worst-performing hospitals\" request for this measure is not supported (always returns best-first); upgrade path is a metric-aware direction resolver upstream (already tracked as a separate, larger pre-existing gap, not part of this fix) that can tell \"worst\" apart from \"lowest\" before it reaches here.",
+    "PrePhase 9.5 Round 3: `co.score` is a raw badness value (a death rate) - lower is always better. The ORDER BY is unconditionally ascending (lowest/best first) regardless of `:direction`, which used to flip it via a CASE expression - that CASE was wrong: Universal Core's direction lexicon buckets \"lowest\"/\"worst\" into the SAME generic \"asc\" signal (see packages/semantic/src/direction/modifier-direction-lexicon.ts), so \"lowest death rate\" (meaning: show me the best) and a genuine \"worst death rate\" request were indistinguishable by the time they reached this template, and the old CASE resolved that ambiguity the wrong way for the far more common \"lowest/best\" case (confirmed live: 17.1% - the worst score in the result set - was appearing first). ponytail: known ceiling - a genuine \"show me the worst-performing hospitals\" request for this measure is not supported (always returns best-first); upgrade path is a metric-aware direction resolver upstream (already tracked as a separate, larger pre-existing gap, not part of this fix) that can tell \"worst\" apart from \"lowest\" before it reaches here. " +
+    "Batch 3 (D1) delivered that resolver: the planner now normalizes `:direction` to one convention (\"DESC\" = best first, \"ASC\" = worst first) from the kind of ranking word (performance vs magnitude) and `MetricDefinition.lowerIsBetter`, so this template honours it again: DESC (the default) orders by score ascending (lowest death rate first), ASC by score descending (highest first). \"worst\" and \"highest death rate\" now return the worst hospitals first.",
 
   template: `
 WITH ranked_facilities AS (
@@ -26,7 +27,7 @@ WITH ranked_facilities AS (
         co.compared_to_national,
         ROW_NUMBER() OVER (
             PARTITION BY (CASE WHEN :multiState = true THEN h.state ELSE 'ALL' END)
-            ORDER BY co.score ASC NULLS LAST, h.hospital_name ASC
+            ORDER BY (CASE WHEN :direction = 'ASC' THEN -co.score ELSE co.score END) ASC NULLS LAST, h.hospital_name ASC
         ) AS rank_within_scope
     FROM warehouse_hospitals h
     JOIN warehouse_hospital_clinical_outcomes co ON h.facility_id = co.facility_id
@@ -56,7 +57,7 @@ WHERE
     (:multiState = true AND rank_within_scope <= 5)
     OR (:multiState = false AND rank_within_scope <= 10)
 ORDER BY
-    score ASC NULLS LAST,
+    (CASE WHEN :direction = 'ASC' THEN -score ELSE score END) ASC NULLS LAST,
     state ASC, hospital_name ASC
 `.trim(),
 
@@ -116,7 +117,7 @@ ORDER BY
       type: "string",
       required: false,
       description:
-        "PrePhase 9.5 Round 3: no longer consumed by this template's ORDER BY - see the ponytail comment on the template string itself for why.",
+        "Batch 3 (D1): DESC (default) = best first, lowest death rate first; ASC = worst first, highest death rate first. Normalized upstream from the ranking word and MetricDefinition.lowerIsBetter - see the template description.",
     },
   ],
 

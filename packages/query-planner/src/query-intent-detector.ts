@@ -44,6 +44,18 @@ const TREND_KEYWORDS = new Set(["trend"]);
 
 const AGGREGATION_KEYWORDS = new Set(["average", "count", "total"]);
 
+/**
+ * Every word this detector itself acts on. Exported so the planner's
+ * "fully understood" check counts these as understood - the deterministic
+ * layer already handles them - instead of keeping a second copy of the lists.
+ */
+export const INTENT_KEYWORDS: ReadonlySet<string> = new Set([
+  ...RANKING_KEYWORDS,
+  ...COMPARISON_KEYWORDS,
+  ...TREND_KEYWORDS,
+  ...AGGREGATION_KEYWORDS,
+]);
+
 export class QueryIntentDetector {
   private readonly normalizer = new Normalizer();
 

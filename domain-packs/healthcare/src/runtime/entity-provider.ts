@@ -6,6 +6,7 @@ import type {
 
 import { hospitalIdentityDirectory } from "./hospital-identity-directory";
 import type { HospitalIdentityRecord } from "./hospital-identity-directory";
+import { HOSPITAL_FAMILIES } from "./hospital-family-directory";
 import { COUNTIES, CITIES } from "./geographic-directory";
 import type { GeographicValue } from "./geographic-directory";
 import { OWNERSHIP } from "./ownership-directory";
@@ -24,6 +25,18 @@ function toAmbiguousCandidate(record: HospitalIdentityRecord): AmbiguousCandidat
     value: record.facilityId,
     label: `${record.city}, ${record.county} County, ${record.state}`,
   };
+}
+
+// Same-name facilities are told apart by place alone. The members of a
+// hospital family have different names (several can share a city), so the
+// name leads the label: "<NAME>, <CITY>, <COUNTY> County, <ST>".
+function toAmbiguousCandidates(records: HospitalIdentityRecord[]): AmbiguousCandidate[] {
+  const named = new Set(records.map((record) => record.hospitalName)).size > 1;
+
+  return records.map((record) => {
+    const candidate = toAmbiguousCandidate(record);
+    return named ? { ...candidate, label: `${record.hospitalName}, ${candidate.label}` } : candidate;
+  });
 }
 
 /**
@@ -96,10 +109,19 @@ export const STATES = new Map<string, string>([
   ["wyoming", "WY"],
 ]);
 
+// Batch 2 (2.5): informal names for a city the directory holds under its formal name. Exact literals only (matched on
+// the whole normalized phrase, never a substring or a near-miss); the value is the CITIES key of the formal name.
+// "Boroughs are separate city names" in the warehouse, so this resolves to the NEW YORK city record alone.
+const INFORMAL_CITY_NAMES = new Map<string, string>([
+  ["nyc", "new york"],
+  ["new york city", "new york"],
+]);
+
 export class HealthcareEntityProvider
   implements EntityProvider
 {
   private readonly hospitalsByName = new Map<string, HospitalIdentityRecord[]>();
+  private readonly hospitalsByFamily = new Map<string, HospitalIdentityRecord[]>();
 
   constructor() {
     for (const record of hospitalIdentityDirectory) {
@@ -109,6 +131,24 @@ export class HealthcareEntityProvider
       if (existing) {
         existing.push(record);
       } else {
+        this.hospitalsByName.set(key, [record]);
+      }
+
+      for (const family of HOSPITAL_FAMILIES) {
+        if (key.startsWith(`${family} `)) {
+          this.hospitalsByFamily.set(family, [...(this.hospitalsByFamily.get(family) ?? []), record]);
+        }
+      }
+    }
+
+    // Batch 4: a facility registered as "<operator> DBA <trade name>" is asked
+    // for by its trade name ("Memorial Health University Medical Center"), so
+    // the trade name is also an exact name - unless it already is one.
+    for (const record of hospitalIdentityDirectory) {
+      const tradeName = /\s(?:dba|d\/b\/a)\s+(.+)$/i.exec(record.hospitalName)?.[1];
+      const key = tradeName ? normalizeText(tradeName) : "";
+
+      if (key && !this.hospitalsByName.has(key)) {
         this.hospitalsByName.set(key, [record]);
       }
     }
@@ -198,8 +238,8 @@ export class HealthcareEntityProvider
       }
     }
     
-    // Check if phrase is a bare city name
-    const cityValue = CITIES.get(normalizedPhrase);
+    // Check if phrase is a bare city name (or an informal name of one)
+    const cityValue = CITIES.get(INFORMAL_CITY_NAMES.get(normalizedPhrase) ?? normalizedPhrase);
     if (cityValue) {
       return {
         found: true,
@@ -245,6 +285,22 @@ export class HealthcareEntityProvider
       };
     }
 
+    // Batch 4: the bare name of a listed health system ("Memorial Hermann")
+    // names its whole family of facilities - never one hospital, never
+    // nothing. See hospital-family-directory.ts.
+    const familyMembers = this.hospitalsByFamily.get(normalizedPhrase);
+
+    if (familyMembers) {
+      return {
+        found: false,
+        entityId: "hospital",
+        value: null,
+        phrase,
+        status: "ambiguous",
+        candidates: toAmbiguousCandidates(familyMembers),
+      };
+    }
+
     // Qualifier wiring: Universal Core's PhraseExtractor already
     // produces the full compound phrase "<hospital name> in
     // <qualifier>" as one of its exhaustive candidate substrings (e.g.
@@ -264,7 +320,8 @@ export class HealthcareEntityProvider
     if (inIndex > 0) {
       const namePart = phrase.slice(0, inIndex);
       const rawQualifierPart = phrase.slice(inIndex + 4);
-      const nameCandidates = this.hospitalsByName.get(normalizeText(namePart));
+      const nameCandidates =
+        this.hospitalsByName.get(normalizeText(namePart)) ?? this.hospitalsByFamily.get(normalizeText(namePart));
 
       if (nameCandidates && nameCandidates.length > 0) {
         // Tier0 Task 3 (Root Cause B): the raw text after " in " runs to
@@ -282,6 +339,27 @@ export class HealthcareEntityProvider
         const qualifierWords = rawQualifierPart.trim().split(/\s+/).filter(Boolean);
         const geoMatch = this.extractGeographicQualifierPrefix(qualifierWords);
         const boundedQualifier = geoMatch?.qualifier ?? rawQualifierPart;
+
+        // Batch 4: several facilities share the name, and the state/city/
+        // county the user attached holds none of them ("Memorial Hospital in
+        // Alabama"): there is no such hospital there. Not "which of the
+        // others" - every candidate is somewhere the user did not ask about.
+        // (A qualifier that is not a recognized place keeps the old
+        // behaviour: it may be words of another kind.)
+        if (
+          geoMatch &&
+          nameCandidates.length > 1 &&
+          this.filterCandidatesByQualifier(nameCandidates, boundedQualifier).length === 0
+        ) {
+          return {
+            found: false,
+            entityId: "hospital",
+            value: null,
+            phrase: namePart,
+            status: "not_found",
+          };
+        }
+
         const directResult = this.narrowByQualifier(namePart, nameCandidates, boundedQualifier);
 
         // Tier0 Task 3 (Root Cause A, correctness half - brand aliasing):
@@ -677,7 +755,7 @@ export class HealthcareEntityProvider
         value: null,
         phrase: hospitalName,
         status: "ambiguous",
-        candidates: narrowed.map(toAmbiguousCandidate),
+        candidates: toAmbiguousCandidates(narrowed),
       };
     }
 
@@ -715,7 +793,7 @@ export class HealthcareEntityProvider
       value: null,
       phrase: hospitalName,
       status: "ambiguous",
-      candidates: candidates.map(toAmbiguousCandidate),
+      candidates: toAmbiguousCandidates(candidates),
     };
   }
 }

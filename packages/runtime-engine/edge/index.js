@@ -58,13 +58,14 @@ var PhaseGateTracker = class {
   enter(phase) {
     this.gates.push({ phase, timestamp: Date.now(), status: "enter", sqlCalls: 0 });
   }
-  exit(phase, status, sqlCalls, answerability) {
+  exit(phase, status, sqlCalls, answerability, detail) {
     this.gates.push({
       phase,
       timestamp: Date.now(),
       status,
       sqlCalls,
-      ...answerability !== void 0 ? { answerability } : {}
+      ...answerability !== void 0 ? { answerability } : {},
+      ...detail !== void 0 ? { detail } : {}
     });
   }
   /**
@@ -136,6 +137,10 @@ function discoverAlternatives(unavailableMetricId, executionPlan, runtime) {
   }
   return alternatives;
 }
+function isLlmFirstFrontDoorEnabled() {
+  const env = globalThis.process?.env;
+  return env?.LLM_FIRST_FRONT_DOOR_ENABLED === "true";
+}
 function createRuntimeEngine({
   runtime,
   semantic,
@@ -194,6 +199,14 @@ function createRuntimeEngine({
         if (request.companionEntities && request.companionEntities.length > 0) {
           for (const companion of request.companionEntities) {
             const entityDefinition = runtime.registry.getEntity(companion.canonicalKey);
+            const settledIndex = (semanticResult.identityAmbiguities ?? []).findIndex(
+              (ambiguity) => (ambiguity.candidates ?? []).some(
+                (candidate) => valuesMatch(candidate, companion.value) || valuesMatch(candidate?.value, companion.value)
+              )
+            );
+            if (settledIndex !== -1) {
+              semanticResult.identityAmbiguities.splice(settledIndex, 1);
+            }
             if (entityDefinition) {
               semanticResult.matches.push({
                 phrase: "",
@@ -209,7 +222,20 @@ function createRuntimeEngine({
             }
           }
         }
+        if (!semanticResult.resolved && semanticResult.matches.length > 0) {
+          semanticResult.resolved = true;
+        }
         tracker.enter("entity-identity-ambiguity");
+        if (semanticResult.identityNotFound && semanticResult.identityNotFound.length > 0) {
+          const missing = semanticResult.identityNotFound[0];
+          return {
+            success: false,
+            rows: [],
+            rowCount: 0,
+            error: `I couldn't find a ${missing.entityId} matching "${missing.phrase}" in the place you named, so I can't answer about it. Check the name and the place, or ask about ${missing.entityId}s there in general.`,
+            answerability: { status: "not_directly_answerable", reason: "data-unavailable" }
+          };
+        }
         if (semanticResult.identityAmbiguities && semanticResult.identityAmbiguities.length > 0) {
           return {
             success: false,
@@ -246,6 +272,27 @@ function createRuntimeEngine({
             // an LLM rewrite attempt, never any other refusal reason.
             answerability: { status: "not_directly_answerable", reason: "semantic-incomplete" }
           };
+        }
+        if (request.rewrittenFrom) {
+          const dropped = planner.findUnaccountedWords(
+            semanticResult.normalizedQuery,
+            semanticResult.matches,
+            runtime.domain.entities,
+            request.rewrittenFrom
+          );
+          if (dropped.length > 0) {
+            tracker.enter("unaccounted-word-guard");
+            tracker.exit("unaccounted-word-guard", "refused", 0, "not_directly_answerable", {
+              unaccountedWords: dropped.join(" ")
+            });
+            return {
+              success: false,
+              rows: [],
+              rowCount: 0,
+              error: "Unable to resolve question.",
+              answerability: { status: "not_directly_answerable", reason: "semantic-incomplete" }
+            };
+          }
         }
         if (semanticResult.unsupportedNegation) {
           return {
@@ -617,14 +664,69 @@ function createRuntimeEngine({
           ...coverageFacts.length > 0 ? { coverage: coverageFacts } : {}
         };
       };
-      let result = await runPipeline();
-      if (!result.success && result.answerability?.status !== "ambiguous" && llmFallback && !request.llmFallbackAttempted) {
+      let preNormalizeAttempted = false;
+      let pendingClarification;
+      let declinedTerms;
+      if (llmFallback && !request.llmFallbackAttempted && !request.dryRun && !request.identityAlreadyResolved && !request.forcedIdentityCandidate && !request.forcedIntent && !request.companionEntities && isLlmFirstFrontDoorEnabled()) {
+        const resolved = semantic.resolve(request.question);
+        const hasUniqueRecordMatch = resolved.matches.some(
+          (candidate) => candidate.semanticType === "entity" && candidate.definition.identifiesUniqueRecord === true
+        );
+        const fullyUnderstood = planner.isFullyUnderstood(resolved.normalizedQuery, resolved.matches, runtime.domain.entities);
+        if (!hasUniqueRecordMatch && !fullyUnderstood) {
+          preNormalizeAttempted = true;
+          tracker.enter("llm-normalization");
+          const rewrite = await llmFallback(request.question);
+          const rewriteMeta = rewrite?.meta;
+          if (rewrite && "canonicalQuestion" in rewrite && rewrite.canonicalQuestion !== request.question) {
+            tracker.exit("llm-normalization", "rewritten", 0, void 0, {
+              ...rewriteMeta,
+              canonicalQuestion: rewrite.canonicalQuestion.slice(0, 300)
+            });
+            const recursiveResult = await engine.execute({
+              ...request,
+              question: rewrite.canonicalQuestion,
+              llmFallbackAttempted: true,
+              rewrittenFrom: request.question
+            });
+            return {
+              ...recursiveResult,
+              trace: [...tracker.gates, ...recursiveResult.trace ?? []]
+            };
+          }
+          if (rewrite && "clarification" in rewrite) {
+            pendingClarification = rewrite.clarification;
+            tracker.exit("llm-normalization", "clarification", 0, void 0, rewriteMeta);
+          } else if (rewrite && "canonicalQuestion" in rewrite) {
+            tracker.exit("llm-normalization", "unchanged", 0, void 0, rewriteMeta);
+          } else if (rewrite && "unsupportedTerms" in rewrite) {
+            declinedTerms = rewrite.unsupportedTerms;
+            tracker.exit("llm-normalization", "unsupported", 0, void 0, {
+              ...rewriteMeta,
+              unsupportedTerms: rewrite.unsupportedTerms.join("; ").slice(0, 300)
+            });
+          } else {
+            tracker.exit("llm-normalization", "unavailable", 0, void 0, rewriteMeta);
+          }
+        }
+      }
+      let result = declinedTerms ? {
+        success: false,
+        rows: [],
+        rowCount: 0,
+        error: "Unable to resolve question.",
+        answerability: { status: "not_directly_answerable", reason: "semantic-incomplete" }
+      } : await runPipeline();
+      if (preNormalizeAttempted && pendingClarification && !result.success && result.answerability?.status !== "ambiguous") {
+        result = { ...result, error: pendingClarification };
+      } else if (!result.success && result.answerability?.status !== "ambiguous" && llmFallback && !request.llmFallbackAttempted && !preNormalizeAttempted && !request.dryRun) {
         const rewrite = await llmFallback(request.question);
         if (rewrite && "canonicalQuestion" in rewrite && rewrite.canonicalQuestion !== request.question) {
           return engine.execute({
             ...request,
             question: rewrite.canonicalQuestion,
-            llmFallbackAttempted: true
+            llmFallbackAttempted: true,
+            rewrittenFrom: request.question
           });
         }
         if (rewrite && "clarification" in rewrite) {
@@ -766,12 +868,26 @@ function matchClarificationResponse(userResponse, options) {
     (o) => o.state && typeof o.state === "string" && o.state.toLowerCase() === normalized
   );
   if (stateMatches.length === 1) return stateMatches[0] || null;
+  const [cityPart, statePart, ...extraParts] = normalized.split(",").map((part) => part.trim());
+  if (cityPart && statePart && extraParts.length === 0) {
+    const cityStateMatches = options.filter(
+      (o) => typeof o.city === "string" && typeof o.state === "string" && o.city.toLowerCase() === cityPart && o.state.toLowerCase() === statePart
+    );
+    if (cityStateMatches.length === 1) return cityStateMatches[0] || null;
+  }
   const labelMatches = options.filter((o) => {
     const label = typeof o.displayLabel === "string" ? o.displayLabel.toLowerCase() : "";
     return label.includes(normalized) || normalized.includes(label);
   });
   if (labelMatches.length === 1) return labelMatches[0] || null;
   return null;
+}
+function matchClarificationPair(userResponse, options) {
+  const sides = (userResponse ?? "").split(/\s+(?:and|&)\s+/i);
+  if (sides.length !== 2) return null;
+  const first = matchClarificationResponse(sides[0], options);
+  const second = matchClarificationResponse(sides[1], options);
+  return first && second && first !== second ? [first, second] : null;
 }
 
 // src/continuation/match-guidance.ts
@@ -845,6 +961,7 @@ export {
   consumePendingInteraction,
   createPendingInteraction,
   createRuntimeEngine,
+  matchClarificationPair,
   matchClarificationResponse,
   matchGuidanceResponse,
   reconstructClarificationRequest,

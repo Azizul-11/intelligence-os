@@ -4,7 +4,7 @@ import { assessPlanCompleteness, hasRelationshipWithoutBenchmark, detectSubsumed
 import type { SqlExecutor } from "@intelligence/sql-executor";
 import type { SemanticResolver } from "@intelligence/semantic";
 import type { ExecutionPlan, ExecutionFilter } from "@intelligence/contracts";
-import type { MetricDefinition, SqlTemplateParameter, SuggestionContext } from "@intelligence/domain-sdk";
+import type { EntityDefinition, MetricDefinition, SqlTemplateParameter, SuggestionContext } from "@intelligence/domain-sdk";
 
 import type { RuntimeEngine } from "./runtime-engine";
 import type { RuntimeRequest } from "./runtime-request";
@@ -12,7 +12,7 @@ import type { RuntimeResult } from "./runtime-result";
 import type { CoverageFact } from "./coverage-fact";
 import { buildClarificationMessage } from "./build-clarification-message";
 import { buildGuidanceMessage } from "./build-guidance-message";
-import { PhaseGateTracker } from "./phase-gate-tracker";
+import { PhaseGateTracker, type PhaseGateDetail } from "./phase-gate-tracker";
 
 /**
  * Phase 8.8: structural equality for a filter's resolved value against a
@@ -134,6 +134,28 @@ function discoverAlternatives(
   return alternatives;
 }
 
+/**
+ * Phase 3.6 (LLM-First Front Door, 2026-09-18): staged-rollout feature
+ * flag for Layer 0.5 (see the doc comment above its call site below).
+ * Read directly from the process environment - a generic ops toggle,
+ * not a Healthcare-specific concern, so this does not cross the
+ * Universal-vs-Domain boundary any more than
+ * packages/llm-model-gateway's own direct `process.env.*` reads for
+ * provider API keys already do. Read via `globalThis` rather than a
+ * bare `process` reference so this package needs no new `@types/node`
+ * dependency (packages/runtime-engine has never previously touched
+ * process env - keeping the diff to exactly the 2 files this task
+ * scopes real logic changes to, per its own Decision Ladder guardrail).
+ * Defaults to disabled: the pre-existing conditional-on-failure Layer 1
+ * behavior remains the production default until this flag is
+ * explicitly set to the literal string "true".
+ */
+function isLlmFirstFrontDoorEnabled(): boolean {
+  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } })
+    .process?.env;
+  return env?.LLM_FIRST_FRONT_DOOR_ENABLED === "true";
+}
+
 type CreateRuntimeEngineOptions = {
   runtime: DomainRuntime;
   semantic: SemanticResolver;
@@ -154,10 +176,26 @@ type CreateRuntimeEngineOptions = {
    * replaces the gate's raw error text with the LLM's own natural-
    * language follow-up question, for cases where guessing a rewrite
    * would require inventing a scope (e.g. a state) the user never gave.
+   *
+   * `meta` (R7): optional opaque diagnostics from whatever answered (which
+   * service, attempts, latency). Layer 0.5 records it verbatim as `detail` on
+   * the "llm-normalization" trace entry and never reads it; a result with only
+   * `meta` means "no usable answer" and is traced as "unavailable".
+   *
+   * `unsupportedTerms` (Batch 1, Step 1.3): the hook declining the question
+   * AND naming what it asks for that the domain cannot answer. Unlike "no
+   * usable answer" this is binding: Layer 0.5 refuses the request (0 SQL)
+   * instead of running the deterministic pipeline on the raw text, where
+   * those words would be silently dropped. A hook that cannot name the terms
+   * keeps returning `{ meta }` / `null` and the pipeline still gets its turn.
    */
-  llmFallback?: (
-    question: string,
-  ) => Promise<{ canonicalQuestion: string } | { clarification: string } | null>;
+  llmFallback?: (question: string) => Promise<
+    | { canonicalQuestion: string; meta?: PhaseGateDetail }
+    | { clarification: string; meta?: PhaseGateDetail }
+    | { unsupportedTerms: readonly string[]; meta?: PhaseGateDetail }
+    | { meta: PhaseGateDetail }
+    | null
+  >;
   /**
    * Bug L Beyond (Phase 2, 2026-09-17): optional hook, supplied only by
    * the orchestrator's bootstrap - a domain-owned, deterministic,
@@ -288,7 +326,23 @@ console.log("=====================================");
       if (request.companionEntities && request.companionEntities.length > 0) {
         for (const companion of request.companionEntities) {
           const entityDefinition = runtime.registry.getEntity(companion.canonicalKey);
-          
+
+          // Batch 4: a companion that is one of an ambiguity's own candidates
+          // settles that ambiguity too (a two-slot reply to a comparison,
+          // "ABILENE and GONZALES", names both facilities at once). By value
+          // only, like the forced candidate above.
+          const settledIndex = (semanticResult.identityAmbiguities ?? []).findIndex((ambiguity) =>
+            (ambiguity.candidates ?? []).some(
+              (candidate) =>
+                valuesMatch(candidate, companion.value) ||
+                valuesMatch((candidate as { value?: unknown } | null)?.value, companion.value),
+            ),
+          );
+
+          if (settledIndex !== -1) {
+            semanticResult.identityAmbiguities!.splice(settledIndex, 1);
+          }
+
           if (entityDefinition) {
             semanticResult.matches.push({
               phrase: "", // Companion entity phrase not needed for execution
@@ -302,6 +356,13 @@ console.log("=====================================");
             });
           }
         }
+      }
+
+      // Batch 4: an injected identity is a real semantic candidate. A Turn 2
+      // whose only candidates were the ambiguities it just settled ("Compare
+      // Memorial Hospital vs Memorial Hospital") is no longer "unresolved".
+      if (!semanticResult.resolved && semanticResult.matches.length > 0) {
+        semanticResult.resolved = true;
       }
 
       // Phase 8.1: an entity mention resolved to more than one legitimate
@@ -331,6 +392,23 @@ console.log("=====================================");
       // itself (this check's condition, its whole-request-refusal
       // granularity) is otherwise unchanged from Phase 8.1/8.3.
       tracker.enter("entity-identity-ambiguity");
+
+      // Batch 4: a named entity whose qualifying place holds none of its
+      // candidates ("Memorial Hospital in Alabama") is refused, never
+      // answered without the name and never turned into a question about
+      // candidates the user did not ask about. 0 SQL.
+      if (semanticResult.identityNotFound && semanticResult.identityNotFound.length > 0) {
+        const missing = semanticResult.identityNotFound[0]!;
+
+        return {
+          success: false,
+          rows: [],
+          rowCount: 0,
+          error: `I couldn't find a ${missing.entityId} matching "${missing.phrase}" in the place you named, so I can't answer about it. Check the name and the place, or ask about ${missing.entityId}s there in general.`,
+          answerability: { status: "not_directly_answerable", reason: "data-unavailable" },
+        };
+      }
+
       if (semanticResult.identityAmbiguities && semanticResult.identityAmbiguities.length > 0) {
         return {
           success: false,
@@ -368,6 +446,45 @@ console.log("=====================================");
           // an LLM rewrite attempt, never any other refusal reason.
           answerability: { status: "not_directly_answerable", reason: "semantic-incomplete" },
         };
+      }
+
+      // Batch 1 (Step 1.2): unaccounted-word gate for an LLM-rewritten
+      // question. A word the user typed, that the rewrite kept and that no
+      // semantic candidate accounted for (a qualifier the domain has no
+      // vocabulary for) is a constraint the pipeline would silently drop and
+      // answer without - a broader answer returned as if it satisfied the
+      // request. Refused honestly before any planning or SQL (0 SQL, the same
+      // `semantic-incomplete` reason as the dead end above, so the orchestrator
+      // shows its usual guidance). Deliberately scoped to the rewritten run:
+      // measured against the 600-query baseline this catches real drops with
+      // no regression, while the same rule on a first pass would refuse
+      // correct answers that merely carry a harmless extra word (filler or
+      // comparison wording) - those first-pass words are judged by the LLM
+      // (its `unsupported_terms`), not by vocabulary here.
+      // A word the rewrite introduced itself is ignored (see
+      // QueryPlanner.findUnaccountedWords). Domain-agnostic: no vocabulary.
+      if (request.rewrittenFrom) {
+        const dropped = planner.findUnaccountedWords(
+          semanticResult.normalizedQuery,
+          semanticResult.matches,
+          runtime.domain.entities,
+          request.rewrittenFrom,
+        );
+
+        if (dropped.length > 0) {
+          tracker.enter("unaccounted-word-guard");
+          tracker.exit("unaccounted-word-guard", "refused", 0, "not_directly_answerable", {
+            unaccountedWords: dropped.join(" "),
+          });
+
+          return {
+            success: false,
+            rows: [],
+            rowCount: 0,
+            error: "Unable to resolve question.",
+            answerability: { status: "not_directly_answerable", reason: "semantic-incomplete" },
+          };
+        }
       }
 
       // F5 safety gate: a recognized negation/exclusion marker was
@@ -1097,7 +1214,170 @@ return {
 };
       };
 
-      let result = await runPipeline();
+      // LLM Integration Layer 0.5 (LLM-First Canonical Ingress
+      // Normalizer, Phase 3.6, 2026-09-18): feature-flagged (see
+      // isLlmFirstFrontDoorEnabled() above), defaulting to OFF so the
+      // pre-existing Layer 1 (below) is the unmodified production
+      // behavior until explicitly enabled. Calls the exact same
+      // `llmFallback` hook Layer 1 already uses - not a new mechanism,
+      // just a new trigger condition: unconditionally, BEFORE the
+      // deterministic pipeline's first attempt, instead of only after
+      // it fails. This matters because several real bugs this campaign
+      // fixed (e.g. "safest hospitals in Texas" before its own alias
+      // fix, "Huston, Texas" before its own typo fix) returned
+      // `success:true` with silently WRONG data, never `success:false`
+      // - Layer 1's on-failure trigger structurally never had a chance
+      // to run for those cases at all.
+      //
+      // Skipped entirely for: a Layer-2 continuation re-execution
+      // (`identityAlreadyResolved`/`forcedIdentityCandidate`/
+      // `forcedIntent`/`companionEntities` present - these are short,
+      // already-structured Turn 2 responses matched deterministically by
+      // continuation.ts, not free natural language Layer 0.5 should
+      // rewrite), an internal suggestion dry-run (`request.dryRun` -
+      // already-clean, machine-generated candidate text), and a request
+      // that already went through this exact path once
+      // (`llmFallbackAttempted`, the same recursion guard Layer 1 below
+      // already relies on).
+      //
+      // Fast-path bypass (narrow, deliberately conservative first cut -
+      // see docs/LLM-FIRST-FRONT/05_IMPLEMENTATION_PLAN.md §2 step 1):
+      // when the raw, unmodified question already contains a uniquely-
+      // identified entity match (the concrete "tell me about Mayo
+      // Clinic" example that motivated this bypass), skip Layer 0.5
+      // entirely - an exact, already-registered proper name needs no
+      // language normalization, and this guarantees zero added LLM
+      // latency for that class of query, unchanged from today. This
+      // does not attempt to replicate query-planner.ts's own, more
+      // thorough `hasUnaccountedSubstantiveToken()` check (private to
+      // that package, and not a signal `create-runtime-engine.ts` can
+      // cheaply reuse without a 3rd file's worth of new exports) - a
+      // query that isn't an exact unique-record match simply goes
+      // through Layer 0.5, at the cost of one extra LLM round-trip for
+      // some already-fine queries. That is a latency trade-off, never a
+      // correctness one: the full, unmodified Phase 8 gate stack below
+      // still runs on whatever text results either way.
+      //
+      // Second bypass (R7 follow-up, 2026-09-19 - found via frontend
+      // testing): `planner.isFullyUnderstood()`. A question whose every
+      // word the deterministic layers already resolved (a suggestion chip,
+      // a canonical question, an aliased phrase like "goverment hospital
+      // in CA") has nothing left for an LLM to fix - it can only change
+      // what was already understood, and a chip is proven answerable by
+      // its own dry-run, which never went through the LLM. It goes
+      // straight to the deterministic pipeline. A typo, an unregistered
+      // word ("heart pain") or a lowercase state code ("oh") is NOT fully
+      // understood and still goes through Layer 0.5. If a fully-understood
+      // question then fails deterministically, the on-failure Layer 1
+      // below still gets its one attempt (`preNormalizeAttempted` stays
+      // false), exactly as with the flag off.
+      //
+      // Never trusted directly: a `canonicalQuestion` rewrite is handed
+      // to a fresh recursive `engine.execute()` (marked
+      // `llmFallbackAttempted: true`), which re-runs the ENTIRE pipeline
+      // - semantic resolution through every Phase 8 gate through
+      // execution - from the top, exactly as if the user had typed the
+      // canonical phrasing themselves. This function's own outer scope
+      // never inspects or shortcuts what that recursive call decides.
+      let preNormalizeAttempted = false;
+      let pendingClarification: string | undefined;
+      let declinedTerms: readonly string[] | undefined;
+
+      if (
+        llmFallback &&
+        !request.llmFallbackAttempted &&
+        !request.dryRun &&
+        !request.identityAlreadyResolved &&
+        !request.forcedIdentityCandidate &&
+        !request.forcedIntent &&
+        !request.companionEntities &&
+        isLlmFirstFrontDoorEnabled()
+      ) {
+        const resolved = semantic.resolve(request.question);
+        const hasUniqueRecordMatch = resolved.matches.some(
+          (candidate) =>
+            candidate.semanticType === "entity" &&
+            (candidate.definition as EntityDefinition).identifiesUniqueRecord === true,
+        );
+        const fullyUnderstood = planner.isFullyUnderstood(resolved.normalizedQuery, resolved.matches, runtime.domain.entities);
+
+        if (!hasUniqueRecordMatch && !fullyUnderstood) {
+          preNormalizeAttempted = true;
+          tracker.enter("llm-normalization");
+          const rewrite = await llmFallback(request.question);
+          const rewriteMeta = rewrite?.meta;
+
+          if (
+            rewrite &&
+            "canonicalQuestion" in rewrite &&
+            rewrite.canonicalQuestion !== request.question
+          ) {
+            // Batch 1 (D3): the trace records what the question was rewritten
+            // to, so a wrong rewrite can be attributed from the live response.
+            tracker.exit("llm-normalization", "rewritten", 0, undefined, {
+              ...rewriteMeta,
+              canonicalQuestion: rewrite.canonicalQuestion.slice(0, 300),
+            });
+            // The recursive call below builds its OWN fresh tracker (a
+            // new request/response cycle for the rewritten text) - its
+            // own trace would otherwise start silently after this
+            // request's "llm-normalization" step with no record that
+            // step ever happened. Stitching this tracker's own gates
+            // onto the front of the recursive result's trace keeps the
+            // full picture visible end-to-end without threading a new
+            // field through RuntimeRequest.
+            const recursiveResult = await engine.execute({
+              ...request,
+              question: rewrite.canonicalQuestion,
+              llmFallbackAttempted: true,
+              rewrittenFrom: request.question,
+            });
+            return {
+              ...recursiveResult,
+              trace: [...tracker.gates, ...(recursiveResult.trace ?? [])],
+            };
+          }
+
+          if (rewrite && "clarification" in rewrite) {
+            pendingClarification = rewrite.clarification;
+            tracker.exit("llm-normalization", "clarification", 0, undefined, rewriteMeta);
+          } else if (rewrite && "canonicalQuestion" in rewrite) {
+            tracker.exit("llm-normalization", "unchanged", 0, undefined, rewriteMeta);
+          } else if (rewrite && "unsupportedTerms" in rewrite) {
+            // Batch 1 (D2 / D3): a binding decline - refuse below with 0 SQL and
+            // show which terms the LLM could not map.
+            declinedTerms = rewrite.unsupportedTerms;
+            tracker.exit("llm-normalization", "unsupported", 0, undefined, {
+              ...rewriteMeta,
+              unsupportedTerms: rewrite.unsupportedTerms.join("; ").slice(0, 300),
+            });
+          } else {
+            // All configured providers failed, timed out, or returned a
+            // response that could not be parsed into the expected shape
+            // (see llm-model-gateway.ts's own runChain() - a provider
+            // that responds but ignores the "JSON only" instruction now
+            // advances to the next tier instead of failing outright, but
+            // if every tier is exhausted or quota-limited, this is the
+            // visible result). Falls through to the deterministic
+            // pipeline on the original, unmodified question - never a
+            // crash, never a fabricated result.
+            tracker.exit("llm-normalization", "unavailable", 0, undefined, rewriteMeta);
+          }
+        }
+      }
+
+      // Batch 1 (D2): an LLM decline that named unsupported terms is refused
+      // here (0 SQL, the same `semantic-incomplete` refusal as the dead end
+      // above) rather than run through the pipeline on the raw text.
+      let result: RuntimeResult = declinedTerms
+        ? {
+            success: false,
+            rows: [],
+            rowCount: 0,
+            error: "Unable to resolve question.",
+            answerability: { status: "not_directly_answerable", reason: "semantic-incomplete" },
+          }
+        : await runPipeline();
 
       // LLM Integration Layer 1 (Messy Input Normalizer). PrePhase 9.5
       // broadened this from ONLY "semantic-incomplete" to any
@@ -1121,11 +1401,35 @@ return {
       // original), the ORIGINAL result - whatever gate it came from,
       // including any guidance message it already carries - is returned
       // completely unchanged, never replaced with something worse.
+      //
+      // Layer 0.5 (above) already spent this request's one LLM attempt
+      // when `preNormalizeAttempted` is true - its own clarification (if
+      // any) is overlaid first, and this block is skipped rather than
+      // spending a second, redundant LLM call on the same original text.
+      //
+      // `!request.dryRun` (LLM call-count audit, R1): a suggestion-
+      // validation dry-run is a machine-generated candidate proving "would
+      // this be answerable" - when it fails it is because of a CAPABILITY
+      // gap (e.g. a metric with no ranking template), never wording an LLM
+      // could fix. Without this term every failing candidate spent a full
+      // ~3.8K-token normalizer call (measured: ~40% of successful queries,
+      // flag ON or OFF). A dry-run never executes SQL, so Phase 8.13 is
+      // untouched; the failing candidate is simply dropped, as it always
+      // effectively was.
       if (
+        preNormalizeAttempted &&
+        pendingClarification &&
+        !result.success &&
+        result.answerability?.status !== "ambiguous"
+      ) {
+        result = { ...result, error: pendingClarification };
+      } else if (
         !result.success &&
         result.answerability?.status !== "ambiguous" &&
         llmFallback &&
-        !request.llmFallbackAttempted
+        !request.llmFallbackAttempted &&
+        !preNormalizeAttempted &&
+        !request.dryRun
       ) {
         const rewrite = await llmFallback(request.question);
         if (
@@ -1137,6 +1441,7 @@ return {
             ...request,
             question: rewrite.canonicalQuestion,
             llmFallbackAttempted: true,
+            rewrittenFrom: request.question,
           });
         }
         // PrePhase 9.5: the LLM can determine a rewrite isn't safe to

@@ -467,6 +467,7 @@ var SemanticPipeline = class {
     let semanticCandidates = [];
     const identityAmbiguities = [];
     const identityConflicts = [];
+    const notFoundAttempts = [];
     for (const phrase of phrases) {
       const aliasResult = this.aliasResolver.resolve(phrase.value);
       if (aliasResult.matched) {
@@ -509,6 +510,12 @@ var SemanticPipeline = class {
             entityId: entity.entityId,
             phrase: entity.phrase
           });
+          notFoundAttempts.push({
+            start: phrase.start,
+            end: phrase.end,
+            entityId: entity.entityId,
+            phrase: entity.phrase
+          });
         }
         continue;
       }
@@ -536,7 +543,7 @@ var SemanticPipeline = class {
         if (candidateB === candidateA || candidateB.semanticType !== "entity") {
           return false;
         }
-        const spansOverlap = !(candidateA.end <= candidateB.start || candidateB.end <= candidateA.start);
+        const spansOverlap = candidateA.start <= candidateB.end && candidateB.start <= candidateA.end;
         if (!spansOverlap) {
           return false;
         }
@@ -579,9 +586,16 @@ var SemanticPipeline = class {
         (entityCandidate) => entityCandidate.start <= candidate.start && entityCandidate.end >= candidate.end
       );
     });
+    const identityNotFoundSpans = notFoundAttempts.filter(
+      (attempt) => !resolvedEntitySpans.some(
+        (candidate) => candidate.canonicalKey === attempt.entityId && attempt.start <= candidate.end && candidate.start <= attempt.end
+      )
+    );
     const candidateSuppressedIdentityAmbiguities = identityAmbiguities.filter(
       (ambiguity) => !resolvedEntitySpans.some(
         (candidate) => candidate.canonicalKey === ambiguity.result.entityId && ambiguity.start <= candidate.end && candidate.start <= ambiguity.end
+      ) && !identityNotFoundSpans.some(
+        (attempt) => attempt.entityId === ambiguity.result.entityId && attempt.start <= ambiguity.start && attempt.end >= ambiguity.end
       )
     );
     const filteredIdentityAmbiguities = candidateSuppressedIdentityAmbiguities.filter(
@@ -590,6 +604,10 @@ var SemanticPipeline = class {
       )
     );
     for (const candidate of semanticCandidates) {
+      const triggers = rewritten.appliedReplacements.filter((applied) => applied.replacement.includes(candidate.phrase)).map((applied) => applied.pattern);
+      if (triggers.length > 0) {
+        candidate.consumedText = triggers.join(" ");
+      }
       if (candidate.semanticType !== "metric") {
         continue;
       }
@@ -605,13 +623,14 @@ var SemanticPipeline = class {
       if (candidate.semanticType !== "metric") {
         continue;
       }
-      const direction = this.directionResolver.resolve(
+      const resolvedDirection = this.directionResolver.resolveDetailed(
         originalTokenValues,
         modifierTokenIndices,
         candidate.phrase
       );
-      if (direction) {
-        candidate.direction = direction;
+      if (resolvedDirection) {
+        candidate.direction = resolvedDirection.direction;
+        candidate.directionBasis = resolvedDirection.basis;
       }
     }
     for (const candidate of semanticCandidates) {
@@ -624,11 +643,12 @@ var SemanticPipeline = class {
       if (!matchedRule) {
         continue;
       }
-      const direction = this.directionResolver.resolveFromText(
+      const resolvedDirection = this.directionResolver.resolveFromTextDetailed(
         matchedRule.pattern
       );
-      if (direction) {
-        candidate.direction = direction;
+      if (resolvedDirection) {
+        candidate.direction = resolvedDirection.direction;
+        candidate.directionBasis = resolvedDirection.basis;
       }
     }
     const metricCandidates = semanticCandidates.filter(
@@ -677,6 +697,7 @@ var SemanticPipeline = class {
       ...ambiguityError !== void 0 ? { ambiguityError } : {},
       ...unsupportedNegation ? { unsupportedNegation } : {},
       ...filteredIdentityAmbiguities.length > 0 ? { identityAmbiguities: filteredIdentityAmbiguities.map((a) => a.result) } : {},
+      ...identityNotFoundSpans.length > 0 ? { identityNotFound: identityNotFoundSpans.map(({ entityId, phrase }) => ({ entityId, phrase })) } : {},
       ...temporalCandidates.length > 0 ? { temporalCandidates } : {}
     };
   }
@@ -852,10 +873,27 @@ var ASCENDING_MODIFIERS = /* @__PURE__ */ new Set([
   "bottom",
   "smallest"
 ]);
+var PERFORMANCE_MODIFIERS = /* @__PURE__ */ new Set([
+  "best",
+  "top",
+  "worst",
+  "bottom"
+]);
 
 // src/direction/modifier-direction-resolver.ts
+function classifyModifier(word) {
+  const direction = DESCENDING_MODIFIERS.has(word) ? "desc" : ASCENDING_MODIFIERS.has(word) ? "asc" : void 0;
+  if (direction === void 0) {
+    return void 0;
+  }
+  return { direction, basis: PERFORMANCE_MODIFIERS.has(word) ? "performance" : "magnitude" };
+}
 var ModifierDirectionResolver = class {
   resolve(originalTokens, modifierTokenIndices, candidatePhrase) {
+    return this.resolveDetailed(originalTokens, modifierTokenIndices, candidatePhrase)?.direction;
+  }
+  /** Same association as resolve(), also reporting which kind of modifier word it found (Batch 3, D1). */
+  resolveDetailed(originalTokens, modifierTokenIndices, candidatePhrase) {
     if (modifierTokenIndices.length === 0) {
       return void 0;
     }
@@ -875,13 +913,7 @@ var ModifierDirectionResolver = class {
     if (!modifierWord) {
       return void 0;
     }
-    if (DESCENDING_MODIFIERS.has(modifierWord)) {
-      return "desc";
-    }
-    if (ASCENDING_MODIFIERS.has(modifierWord)) {
-      return "asc";
-    }
-    return void 0;
+    return classifyModifier(modifierWord);
   }
   /**
    * Finds the first contiguous occurrence of `words` within `tokens`.
@@ -945,13 +977,15 @@ var ModifierDirectionResolver = class {
    * method never inspects domain or metric identity.
    */
   resolveFromText(text) {
+    return this.resolveFromTextDetailed(text)?.direction;
+  }
+  /** Same as resolveFromText(), also reporting the kind of modifier word (Batch 3, D1). */
+  resolveFromTextDetailed(text) {
     const words = text.split(" ").filter(Boolean);
     for (const word of words) {
-      if (DESCENDING_MODIFIERS.has(word)) {
-        return "desc";
-      }
-      if (ASCENDING_MODIFIERS.has(word)) {
-        return "asc";
+      const resolved = classifyModifier(word);
+      if (resolved) {
+        return resolved;
       }
     }
     return void 0;
@@ -1223,6 +1257,7 @@ export {
   ModifierDirectionResolver,
   Normalizer,
   Ontology,
+  PERFORMANCE_MODIFIERS,
   PhraseExtractor,
   ReferenceValidator,
   RelationshipValidator,

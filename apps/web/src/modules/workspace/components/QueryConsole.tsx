@@ -7,6 +7,7 @@ import { cn } from "@/shared/lib/utils";
 import {
   askOrchestrator,
   type ChatResponse,
+  type LlmCall,
   type PhaseGateTraceEntry,
 } from "../api/orchestrator";
 
@@ -29,6 +30,20 @@ const GATE_LABELS: Record<string, string> = {
 const GATE_ORDER = Object.keys(GATE_LABELS);
 
 /**
+ * Phase 3.6 (LLM-First Front Door): a conditional, optional phase - only
+ * present in `trace` when Layer 0.5 actually ran for this exact request
+ * (it is deliberately skipped for the fast-path/continuation/flag-
+ * disabled cases - by design, not a failure). Unlike the 7 mandatory
+ * GATE_ORDER gates above, this is never added to the "not reached" list
+ * when absent, and - since it genuinely runs BEFORE semantic extraction,
+ * not after execution - is always rendered first when present, rather
+ * than falling into the generic "unknown trailing phase" bucket.
+ */
+const LLM_PHASE = "llm-normalization";
+const LLM_PHASE_LABEL = "LLM Normalization";
+const LLM_PHASE_SUCCESS_STATUSES = new Set(["rewritten", "unchanged"]);
+
+/**
  * Example prompts covering already-verified capabilities only, per the
  * DOGFOODING 3.0 Fix / Defer Decision Report. These are plain examples that
  * populate the input - clicking one sends the identical text through the
@@ -49,6 +64,8 @@ interface HistoryEntry {
   id: string;
   question: string;
   result: ChatResponse | { success: false; error: string; answer: "" };
+  // Browser-measured round trip (network + cold start + server) for this request
+  clientMs?: number;
   // Phase 8.10 Layer 2: Track continuation state
   pendingInteractionId?: string;
   interactionKind?: "clarification" | "guidance";
@@ -75,6 +92,7 @@ export function QueryConsole() {
     // Phase 8.10 Layer 2: Capture current pending state before mutation
     const currentPendingId = activePendingInteraction?.id;
     const isContinuation = activePendingInteraction !== null;
+    const startedAt = performance.now();
 
     mutation.mutate(
       { 
@@ -87,8 +105,9 @@ export function QueryConsole() {
           setHistory((prev) => [
             { 
               id: crypto.randomUUID(), 
-              question: trimmed, 
+              question: trimmed,
               result,
+              clientMs: Math.round(performance.now() - startedAt),
               pendingInteractionId: result.pendingInteractionId,
               interactionKind: result.interactionKind,
             },
@@ -119,6 +138,7 @@ export function QueryConsole() {
                     ? error.message
                     : "Request failed.",
               },
+              clientMs: Math.round(performance.now() - startedAt),
             },
             ...prev,
           ]);
@@ -293,11 +313,11 @@ function ResultCard({
         <PhasePipeline trace={result.trace} />
       )}
 
+      {"llmCalls" in result && <CallTrace result={result} clientMs={entry.clientMs} />}
+
       {"metadata" in result && result.metadata?.rowCount !== undefined && (
         <p className="mb-2 text-xs text-muted-foreground">
           rowCount: {result.metadata.rowCount}
-          {result.metadata.executionTimeMs !== undefined &&
-            ` · ${result.metadata.executionTimeMs}ms`}
         </p>
       )}
       
@@ -406,8 +426,9 @@ function PhasePipeline({ trace }: { trace: PhaseGateTraceEntry[] }) {
   }
 
   const orderedPhases = [
+    ...(seenOrder.includes(LLM_PHASE) ? [LLM_PHASE] : []),
     ...GATE_ORDER.filter((phase) => seenOrder.includes(phase)),
-    ...seenOrder.filter((phase) => !GATE_ORDER.includes(phase)),
+    ...seenOrder.filter((phase) => phase !== LLM_PHASE && !GATE_ORDER.includes(phase)),
   ];
   const unreached = GATE_ORDER.filter((phase) => !seenOrder.includes(phase));
 
@@ -415,7 +436,11 @@ function PhasePipeline({ trace }: { trace: PhaseGateTraceEntry[] }) {
     <div className="mb-2 flex flex-wrap items-center gap-1.5 text-xs">
       {orderedPhases.map((phase) => {
         const last = lastByPhase.get(phase)!;
-        const stopped = last.status !== "enter" && last.status !== "ok";
+        const stopped =
+          phase === LLM_PHASE
+            ? !LLM_PHASE_SUCCESS_STATUSES.has(last.status) && last.status !== "ok"
+            : last.status !== "enter" && last.status !== "ok";
+        const label = phase === LLM_PHASE ? LLM_PHASE_LABEL : (GATE_LABELS[phase] ?? phase);
         return (
           <span
             key={phase}
@@ -427,7 +452,7 @@ function PhasePipeline({ trace }: { trace: PhaseGateTraceEntry[] }) {
                 : "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300",
             )}
           >
-            {stopped ? "⏸" : "✅"} {GATE_LABELS[phase] ?? phase}
+            {stopped ? "⏸" : "✅"} {label}
           </span>
         );
       })}
@@ -440,6 +465,66 @@ function PhasePipeline({ trace }: { trace: PhaseGateTraceEntry[] }) {
           — {GATE_LABELS[phase]}
         </span>
       ))}
+    </div>
+  );
+}
+
+const LLM_ROLES: LlmCall["role"][] = ["normalizer", "summary", "suggestions"];
+
+function fmtMs(ms: number): string {
+  return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
+}
+
+function describeCall(call: LlmCall, summaryShown: boolean): string {
+  const tiers = call.tiers.replaceAll(">", " → ");
+  if (call.provider === "none") {
+    return `failed or timed out after ${fmtMs(call.latencyMs)}${tiers ? ` (tried ${tiers})` : ""}`;
+  }
+  return [
+    `${call.model} · ${call.provider} · ${fmtMs(call.latencyMs)}`,
+    call.fallbackUsed ? `fallback, tried ${tiers}` : "",
+    call.role === "summary" && !summaryShown ? "answered but not shown (a number or name in it is not in the rows)" : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+/**
+ * Where the time went for this exact response and which LLM (if any) served
+ * each role. Everything is read from what the backend returned - `llmCalls`
+ * (one entry per gateway call; a role with no entry was not called),
+ * `metadata.executionTimeMs` (server total) and the gate timestamps (the
+ * warehouse query runs from the execution gate to the response gate). The only
+ * value measured here is the browser round trip.
+ */
+function CallTrace({ result, clientMs }: { result: ChatResponse; clientMs?: number | undefined }) {
+  const calls = result.llmCalls ?? [];
+  const trace = result.trace ?? [];
+  const execution = trace.find((gate) => gate.phase === "deterministic-warehouse-execution");
+  const response = trace.find((gate) => gate.phase === "response");
+  const timings = [
+    clientMs !== undefined ? `browser ${fmtMs(clientMs)}` : "",
+    result.metadata?.executionTimeMs !== undefined ? `server ${fmtMs(result.metadata.executionTimeMs)}` : "",
+    execution && response ? `warehouse query ${fmtMs(response.timestamp - execution.timestamp)}` : "",
+  ].filter(Boolean);
+  const roles = calls.some((call) => call.role === "conversational") ? [...LLM_ROLES, "conversational" as const] : LLM_ROLES;
+
+  return (
+    <div className="mb-2 rounded-md bg-muted/40 p-2 text-xs text-muted-foreground">
+      {timings.length > 0 && <p>⏱ {timings.join(" · ")}</p>}
+      <ul>
+        {roles.map((role) => {
+          const roleCalls = calls.filter((call) => call.role === role);
+          return (
+            <li key={role}>
+              <span className="font-medium text-foreground">{role}</span>:{" "}
+              {roleCalls.length === 0
+                ? "not called"
+                : roleCalls.map((call) => describeCall(call, !!result.summary)).join("; ")}
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

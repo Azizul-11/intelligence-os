@@ -148,7 +148,28 @@ export class HealthcareExecutionStrategy
     );
 
     if (!geoFilter) {
-      return undefined;
+      // Batch 4: a star-rating filter with no geographic scope at all ("show
+      // me 5 star hospitals") would return an arbitrary 10 of the nationwide
+      // matches as if that answered the question, so it asks for a state. A
+      // grouped or aggregated request ("how many 5 star hospitals by state")
+      // is nationwide by design and is left alone.
+      const needsStateForStarFilter =
+        executionPlan.filters.some((filter) => filter.field === "overallRating") &&
+        !executionPlan.grouping &&
+        executionPlan.operation !== "aggregate";
+
+      return needsStateForStarFilter
+        ? [
+            {
+              found: false,
+              entityId: "state",
+              value: null,
+              phrase: "state",
+              status: "ambiguous",
+              candidates: [...STATE_NAMES_BY_CODE].map(([code, name]) => ({ value: code, label: name })),
+            },
+          ]
+        : undefined;
     }
 
     const directory = geoFilter.field === "county" ? COUNTIES : CITIES;
@@ -273,16 +294,28 @@ export class HealthcareExecutionStrategy
     // silently drop the hospital filter (the new template declares no
     // hospital/hospitalId parameter at all) - exactly the F8 entity-drop
     // shape Tier0 Task 2 already closed elsewhere.
+    // Batch 3: "non-profit hospitals in Florida for pneumonia mortality" names the metric AFTER the listing phrase
+    // "hospitals in", so the plan's positional primary metric is `hospital-list` and the condition's own measure
+    // (already resolved into `measureCode`) was silently dropped: a plain 97-row Florida listing answered a pneumonia
+    // mortality question. When the plan carries a condition measure and a mortality / readmission metric alongside the
+    // listing metric, that metric decides the template; the ownership / state filters still ride along.
+    const routedMetric =
+      executionPlan.metric === "hospital-list" && measureCodeFilter
+        ? (executionPlan.metrics?.find(
+            (candidate) => candidate.metric === "mortality-rate" || candidate.metric === "readmission-rate",
+          )?.metric ?? executionPlan.metric)
+        : executionPlan.metric;
+
     if (
       measureCodeFilter &&
       (executionPlan.operation === "rank" ||
         (executionPlan.operation === "lookup" && !hasHospitalFilter))
     ) {
-      if (executionPlan.metric === "mortality-rate") {
+      if (routedMetric === "mortality-rate") {
         return "hospital-condition-mortality-ranking";
       }
 
-      if (executionPlan.metric === "readmission-rate") {
+      if (routedMetric === "readmission-rate") {
         return "hospital-condition-readmission-ranking";
       }
     }

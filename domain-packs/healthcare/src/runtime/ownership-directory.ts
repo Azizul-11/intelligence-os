@@ -38,6 +38,9 @@ export const OWNERSHIP = new Map<string, OwnershipValue>([
 
   ["government", { label: "government", likePattern: "Government%" }],
   ["government owned", { label: "government", likePattern: "Government%" }],
+  // Batch 3: "state owned" names one sub-label, not all government ownership (the warehouse's own value is
+  // "Government - State"); a broader "Government%" match returned county and federal hospitals as state-owned ones.
+  ["state owned", { label: "government", likePattern: "Government - State%" }],
   ["public", { label: "government", likePattern: "Government%" }],
   // Bug L Part A (2026-09-15): common misspellings of "government" -
   // confirmed live that these previously matched nothing at all (exact-

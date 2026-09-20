@@ -11,8 +11,27 @@ import type {
 
 import type { QueryPlan } from "./query-plan";
 import type { QueryIntent } from "./query-intent";
-import type { EntityDefinition, ConceptDefinition } from "@intelligence/domain-sdk";
+import type { EntityDefinition, ConceptDefinition, MetricDefinition } from "@intelligence/domain-sdk";
+import type { SemanticCandidate } from "@intelligence/semantic";
 import { groupEntityValues } from "./group-entity-values";
+
+/**
+ * Batch 3 (D1): generic English words that make a comparison a judgement of the RESULT ("performing above", "beat",
+ * "better than", "worse than", "outperform") rather than a statement about the NUMBER ("above", "lower than").
+ * Domain-agnostic, like PERFORMANCE_MODIFIERS in the semantic direction lexicon.
+ */
+const PERFORMANCE_COMPARISON_WORDS = new Set([
+  "performing",
+  "outperform",
+  "outperforms",
+  "outperforming",
+  "underperforming",
+  "beat",
+  "beats",
+  "beating",
+  "better",
+  "worse",
+]);
 
 /**
  * ExecutionPlanMapper
@@ -126,11 +145,38 @@ export class ExecutionPlanMapper {
 
       metrics.push({
         metric: candidate.canonicalKey,
-        direction: candidate.direction ?? "desc",
+        direction: this.performanceDirection(candidate) ?? "desc",
       });
     }
 
     return metrics;
+  }
+
+  /**
+   * Batch 3 (D1): the direction a ranking modifier asks for, normalized to ONE convention that every domain
+   * template can rely on: "desc" = best first, "asc" = worst first.
+   *
+   * The semantic layer reports the modifier's bucket (highest/best/top/largest -> "desc", lowest/worst/bottom/
+   * smallest -> "asc") and which kind of word it was. A performance word ("best", "worst") already says which end
+   * is good, so its bucket already is best-first / worst-first. A magnitude word ("highest", "lowest") names the
+   * number: for a metric where higher is better that is the same thing, but for a metric where LOWER is better
+   * (`MetricDefinition.lowerIsBetter`) "highest" means the worst hospitals first, so the bucket flips.
+   * A candidate with no modifier keeps the default of the caller.
+   */
+  private performanceDirection(candidate: SemanticCandidate): "asc" | "desc" | undefined {
+    const direction = candidate.direction;
+
+    if (!direction) {
+      return undefined;
+    }
+
+    const lowerIsBetter = (candidate.definition as MetricDefinition).lowerIsBetter === true;
+
+    if (lowerIsBetter && candidate.directionBasis === "magnitude") {
+      return direction === "desc" ? "asc" : "desc";
+    }
+
+    return direction;
   }
 
   /**
@@ -276,28 +322,19 @@ export class ExecutionPlanMapper {
       // relationship-based fallback below ran, which only ever flips
       // direction when a "below"-style relationship candidate is also
       // present (a separate, unrelated signal - see RCG-009).
-      if (primaryCandidate.direction) {
+      const requestedDirection = this.performanceDirection(primaryCandidate);
+
+      if (requestedDirection) {
         return {
           field: primaryMetric,
-          direction: primaryCandidate.direction,
+          direction: requestedDirection,
         };
       }
 
-      // Determine direction from relationships if present
-      const hasAbove = queryPlan.semantic.relationships.some(
-        (r) => r.canonicalKey === "above-comparison",
-      );
-      const hasBelow = queryPlan.semantic.relationships.some(
-        (r) => r.canonicalKey === "below-comparison",
-      );
-
-      // Default to descending for rankings (highest/best first)
-      let direction: "asc" | "desc" = "desc";
-
-      // If query explicitly asks for "lowest" or "below", use ascending
-      if (hasBelow) {
-        direction = "asc";
-      }
+      // Determine direction from relationships if present: default to descending for rankings (highest/best
+      // first); a "below" comparison (already normalized to the performance convention, see
+      // performanceComparison()) means worst first, so ascending.
+      const direction: "asc" | "desc" = this.performanceComparison(queryPlan) === "below" ? "asc" : "desc";
 
       return {
         field: primaryMetric,
@@ -356,6 +393,34 @@ export class ExecutionPlanMapper {
    * disambiguation rule, not one that inspects which canonical id is
    * involved.
    */
+  /**
+   * Batch 3 (D1): which side of a benchmark the request asks for, normalized to the same convention as the ranking
+   * direction: "above" = the better side, "below" = the worse side (a benchmark template compares PERFORMANCE).
+   * A comparison that judges the result ("performing below", "beat", "worse than", "better than") already says so.
+   * A bare "below" / "lower than" / "above" names the number: for a metric where LOWER is better
+   * (`MetricDefinition.lowerIsBetter`), "mortality rate lower than the national average" asks for the BETTER
+   * hospitals, so the side flips. Without a comparison word, or for a higher-is-better metric, nothing changes.
+   */
+  private performanceComparison(queryPlan: QueryPlan): "above" | "below" | undefined {
+    const { relationships, metrics } = queryPlan.semantic;
+    const below = relationships.find((r) => r.canonicalKey === "below-comparison");
+    const stated = below ?? relationships.find((r) => r.canonicalKey === "above-comparison");
+
+    if (!stated) {
+      return undefined;
+    }
+
+    const comparison: "above" | "below" = below ? "below" : "above";
+    const lowerIsBetter = (metrics[0]?.definition as MetricDefinition | undefined)?.lowerIsBetter === true;
+    const judgesResult = stated.phrase.split(" ").some((word) => PERFORMANCE_COMPARISON_WORDS.has(word));
+
+    if (lowerIsBetter && !judgesResult) {
+      return comparison === "below" ? "above" : "below";
+    }
+
+    return comparison;
+  }
+
   private buildBenchmark(
     queryPlan: QueryPlan,
   ): ExecutionBenchmark | undefined {
@@ -365,13 +430,7 @@ export class ExecutionPlanMapper {
       return undefined;
     }
 
-    const comparison: "above" | "below" | undefined = relationships.some(
-      (r) => r.canonicalKey === "below-comparison",
-    )
-      ? "below"
-      : relationships.some((r) => r.canonicalKey === "above-comparison")
-        ? "above"
-        : undefined;
+    const comparison = this.performanceComparison(queryPlan);
 
     if (!comparison) {
       return undefined;

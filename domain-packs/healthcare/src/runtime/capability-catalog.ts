@@ -29,6 +29,16 @@ export interface CapabilityCatalog {
    * pipeline already recognizes.
    */
   concepts: { displayName: string; aliases: string[]; metrics: string[] }[];
+  /**
+   * Batch 1 (D2): topics this domain KNOWS it cannot answer yet. Two sources, both derived so that registering a
+   * capability removes the entry with no other edit: (1) registered concepts with no measure behind them
+   * (`measureCodesByMetric` absent: stroke, sepsis, emergency department) - the exact complement of `concepts`
+   * above; (2) `KNOWN_UNSUPPORTED_TOPICS` below, minus any phrase that has since become a registered alias.
+   * The normalizer reports what it cannot map in `unsupported_terms`; an LLM decline is binding only when a reported
+   * term names one of these topics (exact literal, word boundary), so an over-cautious LLM cannot refuse a question
+   * the platform answers correctly.
+   */
+  unsupportedTopics: string[];
   /** A handful of real, pre-verified-working questions - the same shape SAFE_FALLBACK_SUGGESTIONS already uses, extended for onboarding/capability-explanation prompts. */
   exampleAnswerableQuestions: string[];
   /** Illustrative only - what the platform is explicitly NOT for, so the LLM never tries to force-fit an off-topic question into a metric. */
@@ -46,6 +56,46 @@ const METRIC_DISPLAY_NAME_BY_ID = new Map(healthcareMetrics.map((m) => [m.id, m.
  * analytical fact the deterministic pipeline can't actually honor.
  */
 const CONCEPTS_WITH_REAL_MEASURES = concepts.filter((c) => c.measureCodesByMetric);
+const CONCEPTS_WITHOUT_MEASURES = concepts.filter((c) => !c.measureCodesByMetric);
+
+/**
+ * Batch 1 (D2): what the warehouse holds or users ask for but the platform does not answer today (2026-09-20 DB
+ * audit and the DogfoodingV1 catalog's UNREGISTERED / NO-DATA / UNSUPPORTED rows): measures not registered (HCAHPS
+ * sub-scores, PSI family, hospital-wide mortality), hospital attributes not exposed as filters (type, emergency
+ * services, birthing-friendly), ownership sub-labels, columns not projected (address, phone), time windows (only the
+ * latest snapshot is loaded) and plainly off-topic requests. Lower-case exact phrases; matched on word boundaries
+ * against what the normalizer reports, never fuzzily. A phrase that becomes a registered alias drops out (below).
+ * Batch 3: the same list now also drives a deterministic pre-check on the raw question (normalizer-hook.ts), so
+ * a phrase here must be unsupported wherever it appears in a question - "last year" left (it trips on "my dad had a
+ * heart attack last year", a narrative sentence, not a time-window request).
+ */
+const KNOWN_UNSUPPORTED_TOPICS = [
+  "pressure ulcer", "pressure ulcers", "patient safety indicator", "patient safety indicators", "psi", "in-hospital falls",
+  "falls with fracture", "blood clot", "blood clots", "hospital acquired infection", "hospital acquired infections",
+  "kidney injury", "hospital wide", "all cause", "trouble breathing", "breathing problems", "lung infection",
+  "heart surgery", "heart problem", "checkup",
+  "nurse communication", "doctor communication", "communication", "cleanliness", "cleanest", "sanitary", "quietest",
+  "quiet", "sleep", "responsiveness", "communication about medicines", "discharge information",
+  "instructions for going home", "would recommend", "recommend", "courtesy", "listen carefully",
+  "emergency services", "birthing friendly", "birthing-friendly", "hospital type", "acute care", "critical access",
+  "childrens", "children's", "psychiatric", "rural emergency", "physician owned", "tribal", "military",
+  "department of defense", "church owned",
+  "address", "phone number", "patient records", "poem",
+  "since", "over time", "years ago", "decile",
+  // Batch 3: DC is a jurisdiction the platform does not register (10 hospitals in the warehouse, no state filter for it),
+  // written three ways; the deterministic pre-check matches each literally, whatever punctuation the LLM would add.
+  "dc", "d.c.", "district of columbia",
+];
+
+const REGISTERED_ALIAS_PHRASES = new Set(
+  healthcareAliases.flatMap((alias) => alias.aliases).map((phrase) => phrase.toLowerCase()),
+);
+
+// A registered METRIC alias is supported vocabulary, whatever concept shares the phrase: "patient satisfaction" is a
+// concept with no measure behind it, but it is also an alias of the Patient Experience metric, which the platform answers.
+const METRIC_ALIAS_PHRASES = new Set(
+  healthcareAliases.filter((alias) => alias.type === "metric").flatMap((alias) => alias.aliases).map((phrase) => phrase.toLowerCase()),
+);
 
 export const DOMAIN_CAPABILITIES: CapabilityCatalog = {
   metrics: healthcareMetrics.map((metric) => ({
@@ -61,6 +111,15 @@ export const DOMAIN_CAPABILITIES: CapabilityCatalog = {
       (metricId) => METRIC_DISPLAY_NAME_BY_ID.get(metricId) ?? metricId,
     ),
   })),
+  unsupportedTopics: Array.from(
+    new Set([
+      ...CONCEPTS_WITHOUT_MEASURES.flatMap((concept) => [
+        concept.displayName.toLowerCase(),
+        ...(healthcareAliases.find((alias) => alias.canonical === concept.id)?.aliases ?? []).map((phrase) => phrase.toLowerCase()),
+      ]).filter((topic) => !METRIC_ALIAS_PHRASES.has(topic)),
+      ...KNOWN_UNSUPPORTED_TOPICS.filter((topic) => !REGISTERED_ALIAS_PHRASES.has(topic)),
+    ]),
+  ),
   exampleAnswerableQuestions: [
     "Best hospitals in Texas",
     "Show me non-profit hospitals with lowest mortality rate",

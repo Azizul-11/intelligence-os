@@ -15,6 +15,9 @@ export const readmissionRateMetric: MetricDefinition = {
 
   rankable: true,
 
+  // Batch 3 (D1): a lower readmission rate is the better one; "highest readmission rate" means the worst hospitals first.
+  lowerIsBetter: true,
+
   benchmarkable: true,
 
   aggregatable: true,

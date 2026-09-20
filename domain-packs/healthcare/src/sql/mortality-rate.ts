@@ -8,7 +8,7 @@ export const mortalityRateSqlTemplate: SqlTemplateDefinition = {
   displayName: "Mortality Rate",
 
   description:
-    "Returns the mortality rate for a specific hospital.",
+    "Returns the mortality rate for a specific hospital. Batch 3: with no condition named (`:measureCode` NULL) it returns the mortality family only (the 30-day MORT_* measures and the hip/knee complications measure the hip/knee concept files under mortality); before, `Mayo Clinic mortality rate` returned the hospital's first 20 measures alphabetically, including safety indicators.",
 
   template: `
 SELECT
@@ -22,7 +22,10 @@ SELECT
   higher_estimate
 FROM warehouse_hospital_clinical_outcomes
 WHERE facility_id = :hospitalId
-  AND (:measureCode IS NULL OR measure_code = :measureCode)
+  AND (
+    (:measureCode IS NULL AND (measure_code LIKE 'MORT%' OR measure_code = 'COMP_HIP_KNEE'))
+    OR measure_code = :measureCode
+  )
 ORDER BY measure_code;
 `.trim(),
 

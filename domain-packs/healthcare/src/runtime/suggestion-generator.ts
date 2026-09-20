@@ -4,7 +4,9 @@ import { llmGateway } from "@intelligence/llm-model-gateway";
 import { healthcareMetrics } from "../metrics";
 import { concepts } from "../concepts";
 import { healthcareAliases } from "../aliases";
+import { healthcareSqlTemplates } from "../sql";
 import { STATE_NAMES_BY_CODE } from "./execution-strategy";
+import { HealthcareTemplateSelector } from "./template-selector";
 
 /**
  * PrePhase 9.5 Round 3 (suggestion diversity for concept queries): the
@@ -114,6 +116,27 @@ function metricDisplayName(metricId: string): string | undefined {
   return healthcareMetrics.find((metric) => metric.id === metricId)?.displayName;
 }
 
+/**
+ * LLM call-count audit (R1 companion, 2026-09-18): `rankable: true` on a
+ * MetricDefinition is a declaration, not proof a ranking template exists -
+ * "Emergency Department Visits" and "Length of Stay" both declare it but
+ * ship no `<metric>-ranking` template, so every "Show me hospitals with
+ * best <that metric>" suggestion built from them ALWAYS failed its own
+ * dry-run validation (measured: exactly 2 such candidates in every
+ * 11-19 entry pool, ~40% odds one is picked). Derived from the domain's
+ * own registered templates via the same selector the runtime uses - never
+ * a hardcoded metric-id list - so a metric that later gains a ranking
+ * template is offered again automatically.
+ */
+const ENABLED_TEMPLATE_IDS: ReadonlySet<string> = new Set(
+  healthcareSqlTemplates.filter((template) => template.enabled !== false).map((template) => template.id),
+);
+const rankingTemplateSelector = new HealthcareTemplateSelector();
+
+function hasRankingTemplate(metricId: string): boolean {
+  return ENABLED_TEMPLATE_IDS.has(rankingTemplateSelector.select(metricId, "ranking"));
+}
+
 function filterValues(value: unknown): string[] {
   return (Array.isArray(value) ? value : [value]).map(String);
 }
@@ -127,8 +150,11 @@ function filterValues(value: unknown): string[] {
  * metric is declared first). Which metric gets suggested now varies with
  * which metric the question is already about.
  */
-function nextComparableMetric(currentMetricId: string) {
-  const pool = healthcareMetrics.filter((metric) => metric.rankable || metric.comparable);
+function nextComparableMetric(currentMetricId: string, requireRankingTemplate = false) {
+  const pool = healthcareMetrics.filter(
+    (metric) =>
+      (metric.rankable || metric.comparable) && (!requireRankingTemplate || hasRankingTemplate(metric.id)),
+  );
   if (pool.length === 0) {
     return undefined;
   }
@@ -210,7 +236,7 @@ function successPathSuggestions(context: SuggestionContext): string[] {
   } else {
     // Depth probe: a different comparable/rankable metric, same scope -
     // rotates with the current metric (see nextComparableMetric).
-    const alternateMetric = nextComparableMetric(plan.metric);
+    const alternateMetric = nextComparableMetric(plan.metric, true);
     if (alternateMetric) {
       const scope = stateNames.length > 0 ? ` in ${stateNames.join(" and ")}` : "";
       candidates.push(`Show me hospitals with best ${alternateMetric.displayName}${scope}`);
@@ -299,8 +325,10 @@ function buildSuccessSuggestionPool(context: SuggestionContext): string[] {
     }
     pool.push(`Tell me about ${hospitalName}`);
   } else {
-    // Depth probe: every OTHER comparable metric, not just the next one.
+    // Depth probe: every OTHER comparable metric, not just the next one -
+    // only those with a registered ranking template (see hasRankingTemplate).
     for (const metric of allComparableMetricsExcept(plan.metric)) {
+      if (!hasRankingTemplate(metric.id)) continue;
       pool.push(`Show me hospitals with best ${metric.displayName}${scopeSuffix}`);
     }
 
@@ -540,7 +568,7 @@ export async function generateHealthcareSuggestionsWithLLMRephrasing(
       return pool;
     }
     const selected = await raceWithTimeout(
-      llmGateway.selectAndRephraseSuggestions(pool, { resolvedMetric, resolvedState }, 3),
+      llmGateway.selectAndRephraseSuggestions(pool, { resolvedMetric, resolvedState }, 3, LLM_REPHRASE_RACE_TIMEOUT_MS),
       LLM_REPHRASE_RACE_TIMEOUT_MS,
     );
     return selected && selected.length === 3 ? selected : deterministic.slice(0, 3);
@@ -556,12 +584,15 @@ export async function generateHealthcareSuggestionsWithLLMRephrasing(
   }
 
   const rephrased = await raceWithTimeout(
-    llmGateway.synthesizeSuggestions({
-      question: context.question,
-      resolvedMetric,
-      resolvedState,
-      candidates: toRephrase,
-    }),
+    llmGateway.synthesizeSuggestions(
+      {
+        question: context.question,
+        resolvedMetric,
+        resolvedState,
+        candidates: toRephrase,
+      },
+      LLM_REPHRASE_RACE_TIMEOUT_MS,
+    ),
     LLM_REPHRASE_RACE_TIMEOUT_MS,
   );
 

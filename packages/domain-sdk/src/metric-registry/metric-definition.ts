@@ -21,6 +21,15 @@ export interface MetricDefinition {
   aggregatable?: boolean;
 
   /**
+   * Batch 3 (D1): true when a LOWER value of this metric is the better one (a mortality rate, a readmission ratio).
+   * The planner uses it to keep two kinds of ranking word apart: a performance word ("best", "worst") already says
+   * which end is good, while a magnitude word ("highest", "lowest") names the number itself, so "highest death rate"
+   * means the worst hospitals first. Optional: absent means higher is better, which is what every ranking word
+   * already assumed.
+   */
+  lowerIsBetter?: boolean;
+
+  /**
    * True when this metric is a genuine, deterministic per-entity value
    * that a Domain SDK explicitly considers suitable for a metric-less
    * multi-entity comparison ("Compare A and B", no metric named).

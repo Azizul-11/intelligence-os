@@ -7,7 +7,7 @@ export const clinicalOutcomesAliases: AliasDefinition = {
 
   aliases: [
     "clinical outcomes",
-    "outcomes",
+    // Batch 3: bare "outcomes" moved to the mortality-rate metric alias (one phrase, one canonical).
     "patient outcomes",
     "treatment outcomes",
   ],

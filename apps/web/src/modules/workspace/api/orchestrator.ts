@@ -24,6 +24,20 @@ export interface PhaseGateTraceEntry {
   status: string;
   sqlCalls: number;
   answerability?: string;
+  /** Opaque diagnostics from the backend; on "llm-normalization" it is which LLM tier answered. */
+  detail?: Record<string, string | number | boolean>;
+}
+
+/** One LLM gateway call the backend made for a response. `provider: "none"` = every tier failed or the deadline ran out. */
+export interface LlmCall {
+  role: "normalizer" | "summary" | "suggestions" | "conversational";
+  provider: string;
+  model: string;
+  keyId: string;
+  attempts: number;
+  latencyMs: number;
+  tiers: string;
+  fallbackUsed: boolean;
 }
 
 export interface ChatResponse {
@@ -45,6 +59,8 @@ export interface ChatResponse {
   suggestions?: string[];
   // LLM Integration Layer 3: optional, numerically-verified 1-2 sentence summary of answer's rows
   summary?: string;
+  // Every LLM call made for this response (absent role = not called)
+  llmCalls?: LlmCall[];
 }
 
 const ORCHESTRATOR_URL = import.meta.env.VITE_ORCHESTRATOR_URL as

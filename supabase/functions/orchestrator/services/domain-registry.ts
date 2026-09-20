@@ -12,6 +12,7 @@ import { llmGateway } from "@intelligence/llm-model-gateway";
 import { DOMAIN_CAPABILITIES, expandUppercaseStateAbbreviations } from "@intelligence/healthcare-domain";
 
 import { supabase } from "../../shared/supabase.ts";
+import { normalizeQuestion } from "./normalizer-hook.ts";
 
 import type { RuntimeEngine } from "@intelligence/runtime-engine";
 
@@ -71,16 +72,17 @@ export function getRuntimeEngine(): RuntimeEngine {
     // guess a missing scope, e.g. a state, rather than inventing one)
     // is surfaced as a clarification instead of being treated the same
     // as "fallback" (silently give up, keep the original raw error).
-    llmFallback: async (question: string) => {
-      const result = await llmGateway.normalizeMessyLanguage(question, DOMAIN_CAPABILITIES);
-      if (result.status === "ok" && result.canonical_question) {
-        return { canonicalQuestion: result.canonical_question };
-      }
-      if (result.status === "need_clarification" && result.reason) {
-        return { clarification: result.reason };
-      }
-      return null;
-    },
+    //
+    // R7: `meta` carries which tier answered (provider/model/attempts/
+    // latency/tiers tried) onto the "llm-normalization" trace entry. Universal
+    // Core records it verbatim and never reads it; a result with only `meta`
+    // (no usable answer) is traced as "unavailable", exactly like `null`.
+    // Batch 1 (Step 1.3): the mapping lives in normalizer-hook.ts (shared with
+    // the local-live harness); a decline that names `unsupported_terms` is now
+    // a binding refusal instead of being discarded.
+    // Batch 3: a raw question that names an unsupported topic is refused here before the model is called.
+    llmFallback: async (question: string) =>
+      normalizeQuestion(question, DOMAIN_CAPABILITIES, (text) => llmGateway.normalizeMessyLanguage(text, DOMAIN_CAPABILITIES)),
   });
 
   return runtimeEngine;

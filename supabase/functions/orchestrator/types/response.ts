@@ -51,7 +51,15 @@ export interface ChatResponse {
    * directly too so the frontend pipeline view needs no separate
    * round-trip). Always present.
    */
-  trace?: { phase: string; timestamp: number; status: string; sqlCalls: number; answerability?: string }[];
+  trace?: {
+    phase: string;
+    timestamp: number;
+    status: string;
+    sqlCalls: number;
+    answerability?: string;
+    /** Opaque diagnostics recorded verbatim by Universal Core; on "llm-normalization" it is which LLM tier answered (provider/model/attempts/latencyMs/tiers/fallbackUsed). */
+    detail?: Record<string, string | number | boolean>;
+  }[];
 
   /**
    * Tier1 Task 6: 2-3 already-verified-answerable follow-up/recovery
@@ -61,6 +69,24 @@ export interface ChatResponse {
    * for the full contract doc comment.
    */
   suggestions?: string[];
+
+  /**
+   * Every LLM gateway call made while serving this request, in completion
+   * order. `provider: "none"` means every tier failed or the call's deadline
+   * ran out. A role that is absent was not called at all (e.g. no
+   * "normalizer" when the deterministic layers already understood the
+   * question).
+   */
+  llmCalls?: {
+    role: "normalizer" | "summary" | "suggestions" | "conversational";
+    provider: string;
+    model: string;
+    keyId: string;
+    attempts: number;
+    latencyMs: number;
+    tiers: string;
+    fallbackUsed: boolean;
+  }[];
 
   /**
    * LLM Integration Layer 3 (Executive Answer Synthesis): an optional

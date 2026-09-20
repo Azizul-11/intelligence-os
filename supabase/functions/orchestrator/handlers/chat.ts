@@ -4,9 +4,11 @@ import type { ChatResponse } from "../types/response.ts";
 import { supabase } from "../../shared/supabase.ts";
 import { executeRuntime } from "../services/runtime.ts";
 import { handleContinuation } from "../services/continuation.ts";
+import { isConversational, preflightClarification } from "../services/conversational.ts";
+import { findUngroundedNames } from "../services/summary-grounding.ts";
 import { createPendingInteraction } from "@intelligence/runtime-engine";
 import { getDomainMetrics, getDomainCapabilities, getRuntimeEngine } from "../services/domain-registry.ts";
-import { llmGateway } from "@intelligence/llm-model-gateway";
+import { llmGateway, withLlmCallLog } from "@intelligence/llm-model-gateway";
 
 /**
  * LLM Integration Layer 0 (Conversational Front-Door Router). A short
@@ -18,22 +20,10 @@ import { llmGateway } from "@intelligence/llm-model-gateway";
  * as a compiler failure on a user's very first message. This is a plain
  * regex classifier, not a semantic gate - it never decides whether a
  * REAL analytical question is answerable, only whether a message is
- * conversational enough to skip the pipeline entirely.
+ * conversational enough to skip the pipeline entirely. Batch 1: it now
+ * matches the WHOLE utterance (see services/conversational.ts), so a
+ * request that merely starts with a greeting reaches the pipeline.
  */
-const CONVERSATIONAL_PATTERNS: RegExp[] = [
-  /^(hi|hello|hey|hiya|howdy|greetings|yo)\b/i,
-  /^(what can you do|what do you do|capabilities|help|what is this|who are you|what are you)\b/i,
-  /^(thanks|thank you|bye|goodbye)\b/i,
-  /^(how (are|do) you work|explain (yourself|what you can do))\b/i,
-];
-
-function isConversational(question: string): boolean {
-  const trimmed = question.trim().toLowerCase();
-  if (trimmed.length === 0 || trimmed.length > 60) {
-    return false;
-  }
-  return CONVERSATIONAL_PATTERNS.some((pattern) => pattern.test(trimmed));
-}
 
 /**
  * Every suggestion chip from Layer 0 must still be dry-run validated
@@ -115,6 +105,12 @@ function softenBluntFailureMessage(error: string | undefined): string | undefine
   return "I specialize in US hospital clinical performance and healthcare analytics - I couldn't quite match that to something I track. Here are a few things I can help with:";
 }
 
+// The summary is decoration: the rows are already the answer. On the free
+// chain it took 10-44 s whenever the first tiers were rate-limited (live,
+// 2026-09-19), so the whole call gets a hard budget and a late summary is
+// simply left out - the same outcome as one the numeric cross-check rejects.
+const SUMMARY_DEADLINE_MS = 3500;
+
 async function buildVerifiedSummary(
   question: string,
   rows: Record<string, unknown>[],
@@ -123,15 +119,32 @@ async function buildVerifiedSummary(
     return undefined;
   }
 
-  const summary = await llmGateway.summarizeResult(question, rows);
+  const summary = await llmGateway.summarizeResult(question, rows, SUMMARY_DEADLINE_MS);
   if (!summary) {
     return undefined;
   }
 
   const numbers = extractNumericTokens(summary);
   const allNumbersVerified = numbers.every((token) => rowsContainNumber(rows, token));
+  if (!allNumbersVerified) {
+    return undefined;
+  }
 
-  return allNumbersVerified ? summary : undefined;
+  // The number check cannot see a hospital that is not in the table (live:
+  // "New England Medical Center", "AdventHealth Orlando" passed it).
+  const catalog = getDomainCapabilities();
+  const ungrounded = findUngroundedNames(summary, question, rows, [
+    ...catalog.states,
+    ...catalog.ownerships,
+    ...catalog.metrics.map((metric) => metric.displayName),
+    ...(catalog.concepts ?? []).map((concept) => concept.displayName),
+  ]);
+  if (ungrounded.length > 0) {
+    console.warn("[Summary dropped: names not in the rows]", ungrounded);
+    return undefined;
+  }
+
+  return summary;
 }
 
 // Tier0 Task 2 (F8) Phase 2: Query Tracer Observability. Persists the
@@ -163,7 +176,24 @@ async function persistTrace(
   }
 }
 
+/**
+ * Every response, whichever path produced it, carries how long the server took
+ * and every LLM call made for it (role, model that answered, latency) - the
+ * frontend renders both, so a slow query can be attributed without log access.
+ */
 export async function handleChat(
+  request: ChatRequest,
+): Promise<ChatResponse> {
+  const startedAt = Date.now();
+  const { result, calls } = await withLlmCallLog(() => runChat(request));
+  return {
+    ...result,
+    metadata: { ...result.metadata, executionTimeMs: Date.now() - startedAt },
+    llmCalls: calls,
+  };
+}
+
+async function runChat(
   request: ChatRequest,
 ): Promise<ChatResponse> {
   // Phase 8.10 Layer 2: Check if this is a continuation (Turn 2)
@@ -187,6 +217,20 @@ export async function handleChat(
     };
   }
 
+  // Batch 4: a question that cannot be run as typed (a follow-up with nothing
+  // to follow up on, "top 0") is asked about instead, with 0 SQL.
+  const preflight = preflightClarification(request.question);
+
+  if (preflight) {
+    return {
+      success: false,
+      answer: preflight,
+      error: preflight,
+      answerability: { status: "not_directly_answerable" },
+      suggestions: getDomainCapabilities().exampleAnswerableQuestions.slice(0, 3),
+    };
+  }
+
   const requestId = crypto.randomUUID();
 
   // Normal execution (Turn 1 or standalone query)
@@ -207,13 +251,17 @@ export async function handleChat(
         // Candidates from runtime are {value: facility_id, label: "CITY, COUNTY County, STATE"}
         // (see entity-provider.ts's toAmbiguousCandidate()) - a fixed
         // 3-part format, not 2-part - so matching needs the individual
-        // city/county/state fields split out accordingly.
+        // city/county/state fields split out accordingly. A hospital-family
+        // candidate (Batch 4) leads with the facility name, which may itself
+        // contain ", ": the last three parts are the place, the rest the name.
         const offeredOptions = result.answerability.candidates.map((candidate: any) => {
-          const [city, county, state] = (candidate.label || "").split(", ");
+          const parts = (candidate.label || "").split(", ");
+          const [city, county, state] = parts.slice(-3);
+          const hospitalName = parts.length > 3 ? parts.slice(0, -3).join(", ") : "";
 
           return {
             facility_id: candidate.value,
-            hospital_name: "", // Not available in generic candidate
+            hospital_name: hospitalName, // Only a hospital-family candidate carries it
             city: (city || "").trim(),
             county: (county || "").trim(),
             state: (state || "").trim(),

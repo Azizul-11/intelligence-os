@@ -2,11 +2,36 @@ import type { Direction } from "./direction";
 import {
   ASCENDING_MODIFIERS,
   DESCENDING_MODIFIERS,
+  PERFORMANCE_MODIFIERS,
+  type DirectionBasis,
 } from "./modifier-direction-lexicon";
 
 interface Span {
   start: number;
   end: number;
+}
+
+/**
+ * Batch 3 (D1): a modifier's direction plus which kind of word it was
+ * (see PERFORMANCE_MODIFIERS): a performance word or a magnitude word.
+ */
+export interface ResolvedDirection {
+  direction: Direction;
+  basis: DirectionBasis;
+}
+
+function classifyModifier(word: string): ResolvedDirection | undefined {
+  const direction: Direction | undefined = DESCENDING_MODIFIERS.has(word)
+    ? "desc"
+    : ASCENDING_MODIFIERS.has(word)
+      ? "asc"
+      : undefined;
+
+  if (direction === undefined) {
+    return undefined;
+  }
+
+  return { direction, basis: PERFORMANCE_MODIFIERS.has(word) ? "performance" : "magnitude" };
 }
 
 /**
@@ -31,6 +56,15 @@ export class ModifierDirectionResolver {
     modifierTokenIndices: readonly number[],
     candidatePhrase: string,
   ): Direction | undefined {
+    return this.resolveDetailed(originalTokens, modifierTokenIndices, candidatePhrase)?.direction;
+  }
+
+  /** Same association as resolve(), also reporting which kind of modifier word it found (Batch 3, D1). */
+  resolveDetailed(
+    originalTokens: readonly string[],
+    modifierTokenIndices: readonly number[],
+    candidatePhrase: string,
+  ): ResolvedDirection | undefined {
     if (modifierTokenIndices.length === 0) {
       return undefined;
     }
@@ -59,15 +93,7 @@ export class ModifierDirectionResolver {
       return undefined;
     }
 
-    if (DESCENDING_MODIFIERS.has(modifierWord)) {
-      return "desc";
-    }
-
-    if (ASCENDING_MODIFIERS.has(modifierWord)) {
-      return "asc";
-    }
-
-    return undefined;
+    return classifyModifier(modifierWord);
   }
 
   /**
@@ -150,15 +176,18 @@ export class ModifierDirectionResolver {
    * method never inspects domain or metric identity.
    */
   resolveFromText(text: string): Direction | undefined {
+    return this.resolveFromTextDetailed(text)?.direction;
+  }
+
+  /** Same as resolveFromText(), also reporting the kind of modifier word (Batch 3, D1). */
+  resolveFromTextDetailed(text: string): ResolvedDirection | undefined {
     const words = text.split(" ").filter(Boolean);
 
     for (const word of words) {
-      if (DESCENDING_MODIFIERS.has(word)) {
-        return "desc";
-      }
+      const resolved = classifyModifier(word);
 
-      if (ASCENDING_MODIFIERS.has(word)) {
-        return "asc";
+      if (resolved) {
+        return resolved;
       }
     }
 

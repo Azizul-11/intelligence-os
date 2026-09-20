@@ -58,6 +58,16 @@ export const healthcareLexicalRewrites: readonly LexicalRewriteRule[] = [
   // failing cleanly. "overall ratings" is specific enough to carry no
   // such collision.
   { pattern: "overall ratings", replacement: "hospital overall rating" },
+  // Batch 4: ranking phrasings that name no metric ("hospitals ranked by
+  // state", "which hospital comes out on top") and "for each <unit>" as a
+  // grouping. Same idiom, same fallback metric as above: an explicitly named
+  // metric still wins. Deliberately no "hospitals lead ...": "lead" cannot be
+  // a ranking word (a real hospital is named "MONUMENT HEALTH LEAD-DEADWOOD").
+  { pattern: "hospitals ranked", replacement: "hospital overall rating" },
+  { pattern: "hospital comes out on top", replacement: "hospital overall rating" },
+  { pattern: "best experience", replacement: "patient experience" },
+  { pattern: "for each state", replacement: "by state" },
+  { pattern: "for each county", replacement: "by county" },
 ];
 
 /**
@@ -87,4 +97,11 @@ export const healthcareLexicalRewrites: readonly LexicalRewriteRule[] = [
  */
 export const healthcareMisspellingRewrites: readonly LexicalRewriteRule[] = [
   { pattern: "huston", replacement: "houston" },
+  // Batch 4: the two misspellings of the domain's own core word that the
+  // 600-query catalog actually contains ("best hosptials", "show 5 star
+  // hospitls"). Left to the LLM front door they were clarified about half the
+  // time ("Which metric should I rank by?"): a coin flip on a question the
+  // deterministic layers answer once the word is spelled right.
+  { pattern: "hosptials", replacement: "hospitals" },
+  { pattern: "hospitls", replacement: "hospitals" },
 ];

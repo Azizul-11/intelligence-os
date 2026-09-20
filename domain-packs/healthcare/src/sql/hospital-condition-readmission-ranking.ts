@@ -9,7 +9,8 @@ export const hospitalConditionReadmissionRankingSqlTemplate: SqlTemplateDefiniti
 
   description:
     "Returns hospitals ranked by a specific CMS condition/procedure readmission measure (e.g. AMI, CABG, COPD, Hip/Knee, Heart Failure, Pneumonia readmission), scoped by :measureCode. Tier1 Task 5 balanced-limits fix: top 10 overall for a single-state/nationwide request; top 5 PER named state for a multi-state request (ROW_NUMBER() OVER PARTITION BY state), so no single state's tied hospitals crowd out another's. " +
-    "PrePhase 9.5 Round 3: `excess_readmission_ratio` is a raw badness value (>1 means more readmissions than expected) - lower is always better. The ORDER BY is unconditionally ascending (lowest/best first) regardless of `:direction`, which used to flip it via a CASE expression - see the identical fix/rationale in hospital-condition-mortality-ranking.ts's own description (same lexical-ambiguity root cause: \"lowest\"/\"worst\" share one generic direction bucket upstream). ponytail: same known ceiling (no \"worst-first\" support for this measure), same upgrade path.",
+    "PrePhase 9.5 Round 3: `excess_readmission_ratio` is a raw badness value (>1 means more readmissions than expected) - lower is always better. The ORDER BY is unconditionally ascending (lowest/best first) regardless of `:direction`, which used to flip it via a CASE expression - see the identical fix/rationale in hospital-condition-mortality-ranking.ts's own description (same lexical-ambiguity root cause: \"lowest\"/\"worst\" share one generic direction bucket upstream). ponytail: same known ceiling (no \"worst-first\" support for this measure), same upgrade path. " +
+    "Batch 3 (D1) delivered that path: `:direction` is normalized by the planner (\"DESC\" = best first, \"ASC\" = worst first, from the kind of ranking word and `MetricDefinition.lowerIsBetter`) and is honoured here again: DESC (default) orders by ratio ascending, ASC by ratio descending.",
 
   template: `
 WITH ranked_facilities AS (
@@ -26,7 +27,7 @@ WITH ranked_facilities AS (
         r.excess_readmission_ratio,
         ROW_NUMBER() OVER (
             PARTITION BY (CASE WHEN :multiState = true THEN h.state ELSE 'ALL' END)
-            ORDER BY r.excess_readmission_ratio ASC NULLS LAST, h.hospital_name ASC
+            ORDER BY (CASE WHEN :direction = 'ASC' THEN -r.excess_readmission_ratio ELSE r.excess_readmission_ratio END) ASC NULLS LAST, h.hospital_name ASC
         ) AS rank_within_scope
     FROM warehouse_hospitals h
     JOIN warehouse_hospital_readmissions r ON h.facility_id = r.facility_id
@@ -56,7 +57,7 @@ WHERE
     (:multiState = true AND rank_within_scope <= 5)
     OR (:multiState = false AND rank_within_scope <= 10)
 ORDER BY
-    excess_readmission_ratio ASC NULLS LAST,
+    (CASE WHEN :direction = 'ASC' THEN -excess_readmission_ratio ELSE excess_readmission_ratio END) ASC NULLS LAST,
     state ASC, hospital_name ASC
 `.trim(),
 
@@ -116,7 +117,7 @@ ORDER BY
       type: "string",
       required: false,
       description:
-        "PrePhase 9.5 Round 3: no longer consumed by this template's ORDER BY - see the ponytail comment on the template description for why.",
+        "Batch 3 (D1): DESC (default) = best first, lowest excess ratio first; ASC = worst first, highest ratio first. Normalized upstream from the ranking word and MetricDefinition.lowerIsBetter - see the template description.",
     },
   ],
 

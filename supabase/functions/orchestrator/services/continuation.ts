@@ -16,6 +16,7 @@ import {
   retrievePendingInteraction,
   consumePendingInteraction,
   matchClarificationResponse,
+  matchClarificationPair,
   matchGuidanceResponse,
   reconstructClarificationRequest,
   reconstructGuidanceRequest,
@@ -80,13 +81,13 @@ const COMPARISON_KEYWORDS = ["compare", "vs", "versus"];
  * misfiring on an unrelated "compare" mention with no pending
  * multi-entity identity at all.
  */
-function wasComparisonQuery(originalQuestion: string, originalSemanticResult: unknown): boolean {
-  const lowerQuestion = originalQuestion.toLowerCase();
-  const hasComparisonKeyword = COMPARISON_KEYWORDS.some((keyword) =>
-    lowerQuestion.split(/\s+/).includes(keyword),
-  );
+function hasComparisonKeyword(question: string): boolean {
+  const words = question.toLowerCase().split(/\s+/);
+  return COMPARISON_KEYWORDS.some((keyword) => words.includes(keyword));
+}
 
-  if (!hasComparisonKeyword || !Array.isArray(originalSemanticResult)) {
+function wasComparisonQuery(originalQuestion: string, originalSemanticResult: unknown): boolean {
+  if (!hasComparisonKeyword(originalQuestion) || !Array.isArray(originalSemanticResult)) {
     return false;
   }
 
@@ -131,10 +132,25 @@ export async function handleContinuation(
     } | null = null;
 
     if (interaction.kind === "clarification") {
-      const selectedOption = matchClarificationResponse(
+      let selectedOption = matchClarificationResponse(
         request.continuationResponse!,
         interaction.offeredOptions as any[]
       );
+
+      // Batch 4: a comparison has two slots, and one reply may fill both
+      // ("ABILENE and GONZALES"). The second option joins as a companion below.
+      let secondOption: any = null;
+
+      if (!selectedOption && hasComparisonKeyword(interaction.originalQuestion)) {
+        const pair = matchClarificationPair(
+          request.continuationResponse!,
+          interaction.offeredOptions as any[]
+        );
+
+        if (pair) {
+          [selectedOption, secondOption] = pair;
+        }
+      }
 
       if (!selectedOption) {
         return {
@@ -249,16 +265,19 @@ export async function handleContinuation(
         // For clarification, reconstruct by appending explicit location qualifier
         // "Northwest Medical Center" → "Northwest Medical Center in Tucson, AZ"
         // This makes the mention unambiguous for re-resolution
-        const locationQualifier = [selectedOption.city, selectedOption.state]
-          .filter(Boolean)
-          .join(", ");
+        // A two-slot reply names two places, so nothing is appended: both
+        // facilities are injected by identity instead (see the companion below).
+        const locationQualifier = secondOption
+          ? ""
+          : [selectedOption.city, selectedOption.state].filter(Boolean).join(", ");
 
         // Comparison continuation fix: if Turn 1 was a comparison query
         // (2+ comparable entities), preserve comparison intent in Turn 2
         // so metric injection doesn't overwrite it with bare lookup metric.
-        const forcedIntentForTurn2 = wasComparisonQuery(interaction.originalQuestion, interaction.originalSemanticResult)
-          ? "comparison"
-          : undefined;
+        const forcedIntentForTurn2 =
+          secondOption || wasComparisonQuery(interaction.originalQuestion, interaction.originalSemanticResult)
+            ? "comparison"
+            : undefined;
 
         // Bug fix: Multi-entity continuation (comparison with one ambiguous entity).
         // When Turn 1 had 2+ entities (e.g., "compare memorial hospital vs ANIMAS"),
@@ -292,6 +311,10 @@ export async function handleContinuation(
               value: entity.resolvedValue,
               canonicalKey: entity.canonicalKey,
             }));
+        }
+
+        if (secondOption) {
+          companionEntities.push({ value: secondOption.facility_id, canonicalKey: "hospital" });
         }
 
         reconstructed = {

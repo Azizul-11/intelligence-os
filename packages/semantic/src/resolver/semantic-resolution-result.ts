@@ -56,6 +56,16 @@ export interface SemanticResolutionResult {
   identityAmbiguities?: EntityResolutionResult[];
 
   /**
+   * Batch 4: entity mentions the Domain SDK recognised by name but reported
+   * `not_found` because the place the user attached to them holds none of
+   * the candidates ("Memorial Hospital in Alabama": no such hospital there),
+   * with no resolved entity of the same type left over the mention. Nothing
+   * is left to ask about - the request names something that does not exist.
+   * Absent (not merely an empty array) when there is none.
+   */
+  identityNotFound?: { entityId: string; phrase: string }[];
+
+  /**
    * Phase 8.6A: literal point-year values recognized in the query (e.g.
    * "2021"), kept entirely separate from `matches`/`SemanticCandidate` -
    * a literal year has no Domain-registered `SemanticDefinition` and is

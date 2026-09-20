@@ -1,7 +1,8 @@
 import type { SemanticResolutionResult, SemanticCandidate } from "@intelligence/semantic";
+import { Normalizer } from "@intelligence/semantic";
 import type { MetricDefinition, EntityDefinition } from "@intelligence/domain-sdk";
 
-import { QueryIntentDetector } from "./query-intent-detector";
+import { INTENT_KEYWORDS, QueryIntentDetector } from "./query-intent-detector";
 
 import type { QueryPlanResult } from "./query-plan-result";
 import type { QueryIntent } from "./query-intent";
@@ -77,6 +78,43 @@ const QUESTION_FILLER_WORDS = new Set([
   "on",
   "and",
   "or",
+]);
+
+/**
+ * Plain English function words that carry no topic - a SECOND, separate set,
+ * used only by `isFullyUnderstood()`. It is kept apart from
+ * QUESTION_FILLER_WORDS on purpose: widening that one would loosen Bug E's
+ * off-topic refusal, which must stay exactly as it is.
+ */
+const FUNCTION_WORDS = new Set([
+  "with",
+  "have",
+  "has",
+  "had",
+  "from",
+  "by",
+  "at",
+  "than",
+  "that",
+  "this",
+  "these",
+  "those",
+  "it",
+  "its",
+  "their",
+  "them",
+  "they",
+  "be",
+  "been",
+  "being",
+  "also",
+  "between",
+  "among",
+  // Batch 3: the participle of the "highest rated / top rated hospitals" idiom. A domain's lexical rewrite consumes
+  // the whole idiom ("highest rated hospitals" -> its rating metric), so "rated" is never left as a candidate phrase
+  // and was reported unaccounted, sending every such question to the LLM front door, which can drop the rest of it
+  // ("... in New York by county" lost "by county" about half the time). It carries no constraint of its own.
+  "rated",
 ]);
 
 export class QueryPlanner {
@@ -326,7 +364,17 @@ export class QueryPlanner {
     // intent whose template convention already returns an ordered list,
     // which is what a benchmark-filtered request needs regardless of
     // whether an explicit ranking modifier was also present.
-    if (intent === "aggregation" && collections.relationships.length > 0) {
+    //
+    // Batch 3: the same holds when the reference value is worded without an
+    // aggregation keyword ("above the national BENCHMARK for overall
+    // rating"): the detector reads such a question as a plain "lookup",
+    // which never reaches the benchmark template and answered a generic
+    // ranking with the comparison silently dropped. A relationship AND a
+    // benchmark together are the comparison signal, whatever the wording.
+    if (
+      (intent === "aggregation" && collections.relationships.length > 0) ||
+      (intent === "lookup" && collections.relationships.length > 0 && collections.benchmarks.length > 0)
+    ) {
       intent = "ranking";
     }
 
@@ -683,10 +731,74 @@ export class QueryPlanner {
     allMatches: readonly SemanticCandidate[],
     domainEntities: readonly EntityDefinition[],
   ): boolean {
+    return this.unaccountedWords(normalizedQuery, allMatches, domainEntities).length > 0;
+  }
+
+  /**
+   * True when the deterministic layers understood EVERY word of the question:
+   * each word is part of a resolved semantic phrase, a registered entity id, a
+   * generic filler/function word, or a word the intent detector acts on
+   * (ranking / comparison / trend / aggregation). A typo ("Houson"), an
+   * unregistered word ("heart pain", "weather") or a lowercase state code
+   * ("oh") is left over, so it returns false. The runtime engine uses this to
+   * skip an LLM rewrite that could only change a question it already
+   * understood - a suggestion chip, a canonical question, an aliased phrase.
+   * Structural and domain-agnostic, like hasUnaccountedSubstantiveToken().
+   */
+  isFullyUnderstood(
+    normalizedQuery: string,
+    allMatches: readonly SemanticCandidate[],
+    domainEntities: readonly EntityDefinition[],
+  ): boolean {
+    return (
+      this.unaccountedWords(normalizedQuery, allMatches, domainEntities, (word) => FUNCTION_WORDS.has(word) || INTENT_KEYWORDS.has(word))
+        .length === 0
+    );
+  }
+
+  /**
+   * Batch 1 (Step 1.2): the words of `normalizedQuery` that nothing resolved,
+   * with the same allowance isFullyUnderstood() applies (question-filler,
+   * function and intent words count as understood). When `originalQuestion`
+   * is given, only words the user actually typed are returned: an LLM rewrite
+   * can introduce words of its own (a concept's display name, "performance")
+   * that no alias registers, and those are harmless - a word the user typed,
+   * that survived the rewrite and that nothing resolved is a dropped
+   * constraint. Structural and domain-agnostic: never inspects what a word
+   * means, only whether some semantic candidate accounted for it.
+   */
+  findUnaccountedWords(
+    normalizedQuery: string,
+    allMatches: readonly SemanticCandidate[],
+    domainEntities: readonly EntityDefinition[],
+    originalQuestion?: string,
+  ): string[] {
+    const words = this.unaccountedWords(
+      normalizedQuery,
+      allMatches,
+      domainEntities,
+      (word) => FUNCTION_WORDS.has(word) || INTENT_KEYWORDS.has(word),
+    );
+
+    if (originalQuestion === undefined) {
+      return words;
+    }
+
+    const typed = new Set(new Normalizer().normalize(originalQuestion).split(" ").filter(Boolean));
+
+    return words.filter((word) => typed.has(word));
+  }
+
+  private unaccountedWords(
+    normalizedQuery: string,
+    allMatches: readonly SemanticCandidate[],
+    domainEntities: readonly EntityDefinition[],
+    alsoIgnore: (word: string) => boolean = () => false,
+  ): string[] {
     const consumedWords = new Set<string>();
 
     for (const match of allMatches) {
-      for (const word of match.phrase.toLowerCase().split(/\s+/)) {
+      for (const word of `${match.phrase} ${match.consumedText ?? ""}`.toLowerCase().split(/\s+/)) {
         if (word) {
           consumedWords.add(word);
         }
@@ -706,8 +818,8 @@ export class QueryPlanner {
 
     const queryWords = normalizedQuery.split(/\s+/).filter(Boolean);
 
-    return queryWords.some(
-      (word) => !consumedWords.has(word) && !QUESTION_FILLER_WORDS.has(word),
+    return queryWords.filter(
+      (word) => !consumedWords.has(word) && !QUESTION_FILLER_WORDS.has(word) && !alsoIgnore(word),
     );
   }
 
