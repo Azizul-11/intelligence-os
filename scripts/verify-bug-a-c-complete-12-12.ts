@@ -6,9 +6,17 @@
  * Tests all 12 single-hospital queries + comparison queries + controls
  * Verifies no regressions on previously passing queries
  *
+ * Runs against the DEPLOYED orchestrator using the current wire contract
+ * (the same request the frontend sends): POST { question, domain } with the
+ * anon key in `apikey` + `Authorization`; the response carries the rows as a
+ * JSON string in `answer`. (The original request body { query, sessionId }
+ * without auth returns HTTP 500 on the current function.)
+ *
  * Usage:
  *   pnpm tsx scripts/verify-bug-a-c-complete-12-12.ts
  */
+
+import { env } from "./shared/env";
 
 const SUPABASE_URL = "https://uejnblmhappddtbablki.supabase.co/functions/v1/orchestrator";
 
@@ -163,10 +171,12 @@ async function runTest(testCase: TestCase): Promise<boolean> {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        apikey: env.supabaseAnonKey,
+        Authorization: `Bearer ${env.supabaseAnonKey}`,
       },
       body: JSON.stringify({
-        query: testCase.query,
-        sessionId: `verify-bug-a-c-${Date.now()}`,
+        question: testCase.query,
+        domain: "healthcare",
       }),
     });
 
@@ -185,8 +195,16 @@ async function runTest(testCase: TestCase): Promise<boolean> {
       return false;
     }
 
+    // Rows come back as a JSON string in `answer` (current wire contract)
+    let rows: any[] = [];
+    try {
+      rows = typeof result.answer === "string" ? JSON.parse(result.answer) : result.answer ?? [];
+    } catch {
+      rows = [];
+    }
+
     // Check row count
-    const actualRows = result.result?.rows?.length || 0;
+    const actualRows = rows.length;
     const expectedRows = testCase.expectedRows;
 
     if (expectedRows === "1+") {
@@ -199,10 +217,8 @@ async function runTest(testCase: TestCase): Promise<boolean> {
       if (actualRows !== expectedRows) {
         console.error(`❌ ${testCase.name}`);
         console.error(`   Expected ${expectedRows} row(s), got ${actualRows}`);
-        if (actualRows > 0 && result.result.rows[0].facility_id) {
-          console.error(
-            `   Facility IDs: ${result.result.rows.map((r: any) => r.facility_id).join(", ")}`
-          );
+        if (actualRows > 0 && rows[0].facility_id) {
+          console.error(`   Facility IDs: ${rows.map((r: any) => r.facility_id).join(", ")}`);
         }
         return false;
       }
@@ -214,8 +230,7 @@ async function runTest(testCase: TestCase): Promise<boolean> {
         ? testCase.expectedFacilityId
         : [testCase.expectedFacilityId];
 
-      const actualIds =
-        result.result?.rows?.map((r: any) => r.facility_id).filter(Boolean) || [];
+      const actualIds = rows.map((r: any) => r.facility_id).filter(Boolean);
 
       for (const expectedId of expectedIds) {
         if (!actualIds.includes(expectedId)) {
@@ -228,8 +243,8 @@ async function runTest(testCase: TestCase): Promise<boolean> {
     }
 
     console.log(`✅ ${testCase.name}`);
-    if (actualRows > 0 && result.result.rows[0].facility_id) {
-      const facilityIds = result.result.rows.map((r: any) => r.facility_id).join(", ");
+    if (actualRows > 0 && rows[0].facility_id) {
+      const facilityIds = rows.map((r: any) => r.facility_id).join(", ");
       console.log(`   ${actualRows} row(s): ${facilityIds}`);
     } else {
       console.log(`   ${actualRows} row(s)`);
