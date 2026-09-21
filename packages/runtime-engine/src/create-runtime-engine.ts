@@ -397,7 +397,25 @@ console.log("=====================================");
       // candidates ("Memorial Hospital in Alabama") is refused, never
       // answered without the name and never turned into a question about
       // candidates the user did not ask about. 0 SQL.
-      if (semanticResult.identityNotFound && semanticResult.identityNotFound.length > 0) {
+      //
+      // Not for a Layer 2 continuation: its identities are pinned by value
+      // (`forcedIdentityCandidate`, `companionEntities`), and the reconstructed
+      // text ends with the place the user just chose - which, in a comparison
+      // ("compare memorial hospital vs CUERO REGIONAL HOSPITAL in CARTHAGE, IL"),
+      // lands on the LAST named hospital and contradicts it. That "not found"
+      // is an artifact of the appended qualifier, never a fact about the
+      // request (Turn 1 would already have refused a real one). Refusing here
+      // dropped the second hospital of every comparison Turn 2.
+      const identitiesPinnedByContinuation =
+        request.identityAlreadyResolved === true ||
+        request.forcedIdentityCandidate !== undefined ||
+        (request.companionEntities?.length ?? 0) > 0;
+
+      if (
+        !identitiesPinnedByContinuation &&
+        semanticResult.identityNotFound &&
+        semanticResult.identityNotFound.length > 0
+      ) {
         const missing = semanticResult.identityNotFound[0]!;
 
         return {

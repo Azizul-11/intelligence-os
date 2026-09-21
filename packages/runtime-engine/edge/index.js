@@ -226,7 +226,8 @@ function createRuntimeEngine({
           semanticResult.resolved = true;
         }
         tracker.enter("entity-identity-ambiguity");
-        if (semanticResult.identityNotFound && semanticResult.identityNotFound.length > 0) {
+        const identitiesPinnedByContinuation = request.identityAlreadyResolved === true || request.forcedIdentityCandidate !== void 0 || (request.companionEntities?.length ?? 0) > 0;
+        if (!identitiesPinnedByContinuation && semanticResult.identityNotFound && semanticResult.identityNotFound.length > 0) {
           const missing = semanticResult.identityNotFound[0];
           return {
             success: false,

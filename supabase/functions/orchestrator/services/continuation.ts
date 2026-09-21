@@ -9,6 +9,8 @@ import { getRuntimeEngine, lookupHospitalOverallRating } from "./domain-registry
 // suggestions from an actual engine.execute() result.
 import { SAFE_FALLBACK_SUGGESTIONS } from "@intelligence/healthcare-domain";
 
+import { continuationQuestion } from "./continuation-question.ts";
+
 import type { ChatRequest } from "../types/request.ts";
 import type { ChatResponse } from "../types/response.ts";
 
@@ -50,6 +52,11 @@ function hadMetricOrConcept(originalSemanticResult: unknown): boolean {
 // (the same pattern chat.ts's own CONVERSATIONAL_PATTERNS already uses).
 const COMPARISON_KEYWORDS = ["compare", "vs", "versus"];
 
+function hasComparisonKeyword(question: string): boolean {
+  const words = question.toLowerCase().split(/\s+/);
+  return COMPARISON_KEYWORDS.some((keyword) => words.includes(keyword));
+}
+
 /**
  * Comparison continuation fix: whether Turn 1 was a multi-entity
  * comparison query (e.g. "compare memorial hospital vs ANIMAS").
@@ -81,11 +88,6 @@ const COMPARISON_KEYWORDS = ["compare", "vs", "versus"];
  * misfiring on an unrelated "compare" mention with no pending
  * multi-entity identity at all.
  */
-function hasComparisonKeyword(question: string): boolean {
-  const words = question.toLowerCase().split(/\s+/);
-  return COMPARISON_KEYWORDS.some((keyword) => words.includes(keyword));
-}
-
 function wasComparisonQuery(originalQuestion: string, originalSemanticResult: unknown): boolean {
   if (!hasComparisonKeyword(originalQuestion) || !Array.isArray(originalSemanticResult)) {
     return false;
@@ -262,22 +264,12 @@ export async function handleContinuation(
         // Reconstruct clarification request
         const reconResult = reconstructClarificationRequest(interaction, selectedOption);
 
-        // For clarification, reconstruct by appending explicit location qualifier
-        // "Northwest Medical Center" → "Northwest Medical Center in Tucson, AZ"
-        // This makes the mention unambiguous for re-resolution
-        // A two-slot reply names two places, so nothing is appended: both
-        // facilities are injected by identity instead (see the companion below).
-        const locationQualifier = secondOption
-          ? ""
-          : [selectedOption.city, selectedOption.state].filter(Boolean).join(", ");
-
         // Comparison continuation fix: if Turn 1 was a comparison query
         // (2+ comparable entities), preserve comparison intent in Turn 2
         // so metric injection doesn't overwrite it with bare lookup metric.
-        const forcedIntentForTurn2 =
-          secondOption || wasComparisonQuery(interaction.originalQuestion, interaction.originalSemanticResult)
-            ? "comparison"
-            : undefined;
+        const isComparisonTurn2 =
+          Boolean(secondOption) || wasComparisonQuery(interaction.originalQuestion, interaction.originalSemanticResult);
+        const forcedIntentForTurn2 = isComparisonTurn2 ? "comparison" : undefined;
 
         // Bug fix: Multi-entity continuation (comparison with one ambiguous entity).
         // When Turn 1 had 2+ entities (e.g., "compare memorial hospital vs ANIMAS"),
@@ -318,9 +310,12 @@ export async function handleContinuation(
         }
 
         reconstructed = {
-          question: locationQualifier
-            ? `${interaction.originalQuestion} in ${locationQualifier}`
-            : interaction.originalQuestion,
+          // "Northwest Medical Center" → "Northwest Medical Center in Tucson, AZ";
+          // a comparison of hospitals appends nothing (see continuation-question.ts).
+          question: continuationQuestion(interaction.originalQuestion, selectedOption, {
+            isComparison: isComparisonTurn2,
+            twoSlot: Boolean(secondOption),
+          }),
           forcedCandidate: selectedOption,
           // Tier0 Task 6: `reconResult.forcedIdentity` (until now computed
           // and never used) IS `selectedOption` - Turn 1's own already-
