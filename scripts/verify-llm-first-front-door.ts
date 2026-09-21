@@ -180,8 +180,10 @@ async function main() {
   }
   {
     const r = await engine.execute({ question: "lung disease" });
-    console.log(`    [A4] "lung disease" (deliberately ambiguous) -> success=${r.success}`);
-    check("A4", '"lung disease" -> honest refusal, not a guess (deliberately ambiguous, same class as "heart issue")', r.success === false, `success=${r.success} rowCount=${r.rowCount}`);
+    console.log(`    [A4] "lung disease" (plain wording, mapped) -> success=${r.success}`);
+    // Batch 5A-1 (D1/D3): this used to assert the Rule 4c refusal ("deliberately ambiguous, same class as heart issue").
+    // Plain wording is mapped now (lung disease -> COPD mortality, with a note), never refused.
+    check("A4", '"lung disease" -> mapped to COPD mortality (plain wording is answered, not refused)', r.success === true && r.rowCount > 0, `success=${r.success} rowCount=${r.rowCount}`);
   }
 
   console.log("\n--- B. City typos (new capability) ---");
@@ -374,7 +376,9 @@ async function main() {
     };
     await probe.normalizeMessyLanguage("x", DOMAIN_CAPABILITIES);
     console.log(`    [I1] normalizer system prompt = ${prompt.length} chars (was 15,906)`);
-    check("I1", "normalizer prompt <= 9,000 chars (was 15,906 = 3,730 tokens)", prompt.length > 0 && prompt.length <= 9000, `chars=${prompt.length}`);
+    // Batch 5A-2: 9,000 -> 10,200. The `unsupported` / `closest` contract, the vague-request rule and three format examples
+    // add about 1,250 chars (8,795 -> 10,059); still a third under the 15,906 this guard was written against.
+    check("I1", "normalizer prompt <= 10,200 chars (was 15,906 = 3,730 tokens)", prompt.length > 0 && prompt.length <= 10200, `chars=${prompt.length}`);
     check("I2", 'normalizer prompt keeps the city slot and the missing-"in" rule (the frontend-failure fix)', prompt.includes("in <City>, <State>") && prompt.includes('the "in" may be missing'), "city-slot / no-in rule text missing from prompt");
   }
 

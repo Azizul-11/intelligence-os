@@ -157,6 +157,7 @@ function createRuntimeEngine({
         request.requestId ?? crypto.randomUUID(),
         request.question
       );
+      let frontDoorUnaccounted = [];
       let capturedExecutionPlan;
       const runPipeline = async () => {
         console.log(">>> RuntimeEngine.execute()");
@@ -294,6 +295,12 @@ function createRuntimeEngine({
               answerability: { status: "not_directly_answerable", reason: "semantic-incomplete" }
             };
           }
+        } else if (frontDoorUnaccounted.length > 0) {
+          tracker.enter("unaccounted-word-guard");
+          tracker.exit("unaccounted-word-guard", "annotated", 0, void 0, {
+            unaccountedWords: frontDoorUnaccounted.join(" "),
+            scope: "front-door-declined"
+          });
         }
         if (semanticResult.unsupportedNegation) {
           return {
@@ -662,7 +669,8 @@ function createRuntimeEngine({
           ...primaryResult,
           completeness,
           answerability: { status: "answerable" },
-          ...coverageFacts.length > 0 ? { coverage: coverageFacts } : {}
+          ...coverageFacts.length > 0 ? { coverage: coverageFacts } : {},
+          executedParameters: parameters
         };
       };
       let preNormalizeAttempted = false;
@@ -709,6 +717,12 @@ function createRuntimeEngine({
           } else {
             tracker.exit("llm-normalization", "unavailable", 0, void 0, rewriteMeta);
           }
+          if (!declinedTerms) {
+            const rewriteWords = new Set(
+              (runtime.domain.lexicalRewrites ?? []).flatMap((rule) => rule.pattern.toLowerCase().split(/\s+/))
+            );
+            frontDoorUnaccounted = planner.findUnaccountedWords(resolved.normalizedQuery, resolved.matches, runtime.domain.entities).filter((word) => !rewriteWords.has(word));
+          }
         }
       }
       let result = declinedTerms ? {
@@ -723,12 +737,34 @@ function createRuntimeEngine({
       } else if (!result.success && result.answerability?.status !== "ambiguous" && llmFallback && !request.llmFallbackAttempted && !preNormalizeAttempted && !request.dryRun) {
         const rewrite = await llmFallback(request.question);
         if (rewrite && "canonicalQuestion" in rewrite && rewrite.canonicalQuestion !== request.question) {
-          return engine.execute({
+          tracker.enter("llm-normalization");
+          tracker.exit("llm-normalization", "rewritten", 0, void 0, {
+            ...rewrite.meta,
+            canonicalQuestion: rewrite.canonicalQuestion.slice(0, 300)
+          });
+          const recursiveResult = await engine.execute({
             ...request,
             question: rewrite.canonicalQuestion,
             llmFallbackAttempted: true,
             rewrittenFrom: request.question
           });
+          return {
+            ...recursiveResult,
+            trace: [...tracker.gates, ...recursiveResult.trace ?? []]
+          };
+        }
+        if (rewrite) {
+          tracker.enter("llm-normalization");
+          tracker.exit(
+            "llm-normalization",
+            "clarification" in rewrite ? "clarification" : "unsupportedTerms" in rewrite ? "unsupported" : "unavailable",
+            0,
+            void 0,
+            {
+              ...rewrite.meta,
+              ..."unsupportedTerms" in rewrite ? { unsupportedTerms: rewrite.unsupportedTerms.join("; ").slice(0, 300) } : {}
+            }
+          );
         }
         if (rewrite && "clarification" in rewrite) {
           result = { ...result, error: rewrite.clarification };
@@ -741,6 +777,7 @@ function createRuntimeEngine({
         result.answerability?.status
       );
       const finalResult = { ...result, trace: tracker.gates };
+      request.onResult?.(finalResult);
       if (!request.includeSuggestions || !runtime.domain.executionStrategy.generateSuggestions) {
         return finalResult;
       }

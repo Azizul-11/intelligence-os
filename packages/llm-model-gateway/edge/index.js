@@ -89,6 +89,18 @@ var AICREDITS_QWEN_30B_TIER = {
 };
 var AICREDITS_NORMALIZER_TIERS = [AICREDITS_QWEN_FLASH_TIER, AICREDITS_QWEN_30B_TIER];
 var NORMALIZER_CHAIN = [...AICREDITS_NORMALIZER_TIERS, ...FALLBACK_CHAIN];
+var AICREDITS_QWEN_FLASH_DECORATION_TIER = {
+  ...AICREDITS_QWEN_FLASH_TIER,
+  timeoutMs: 2500,
+  keyId: "aicredits-qwen3.7-flash-decoration",
+  circuitKey: "aicredits-qwen3.7-flash-decoration"
+};
+var AICREDITS_QWEN_FLASH_SUMMARY_TIER = { ...AICREDITS_QWEN_FLASH_DECORATION_TIER, timeoutMs: 3300 };
+var DECORATION_CHAIN = [AICREDITS_QWEN_FLASH_DECORATION_TIER, ...FALLBACK_CHAIN];
+var SUMMARY_CHAIN = [
+  AICREDITS_QWEN_FLASH_SUMMARY_TIER,
+  ...FALLBACK_CHAIN.filter((tier) => tier.keyId !== "groq-allam-2-7b")
+];
 function stripReasoning(text) {
   return text.replace(/<thought>[\s\S]*?<\/thought>/gi, "").replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
 }
@@ -391,45 +403,117 @@ async function runChain(chain, systemPrompt, userMessage, sampling, isValid, tra
   }
   throw new Error("all configured LLM providers failed or were unavailable");
 }
+var NEUTRAL_WORDING = {
+  normalizer: {
+    subject: "the platform's data",
+    rules: [
+      "RULE 1 - SLOT PRESERVATION: never add, drop or broaden a place, category, metric or name that is in the original question in some form (correct, misspelled or abbreviated); a question that is already clean and complete is returned unchanged.",
+      "",
+      `RULE 2 - WHEN NOT TO REWRITE: status "unsupported" (canonical_question null) when the question is not about the platform's data or maps to nothing in the lists below.`
+    ],
+    examples: []
+  },
+  suggestionPhrasing: [
+    "You are a suggestion-phrasing assistant.",
+    "You will be given a list of already-decided, already-verified follow-up questions.",
+    "Rephrase each one to sound more natural and varied - do NOT change what each one refers to.",
+    "Do NOT add a new fact. Do NOT combine two suggestions into one. Do NOT invent anything not already",
+    "present in the input list. Return a JSON array of strings, same length and same order as",
+    "the input, one rephrased line per input line."
+  ],
+  suggestionSelector: [
+    "You are a suggestion selector.",
+    "You will be given a POOL of already-decided, already-verified follow-up questions - ALL are",
+    "answerable. Your job: SELECT the most diverse and relevant ones, then rephrase each to sound",
+    "natural. Diversity means covering different dimensions - do not select several that all differ only in",
+    "wording, not in fact. Do NOT invent a new fact, do NOT combine two pool items into one, do NOT",
+    "select or invent anything outside the given pool.",
+    "Return a JSON array of exactly {count} rephrased strings, each corresponding to one selected pool item."
+  ],
+  summary: [
+    "Summarize this table of real data in 1-2 sentences.",
+    "You may ONLY state numbers, names, and values that literally appear in the JSON rows below.",
+    "Never compute an average, a total, or any derived number yourself - only restate what a row",
+    "already shows. Never state a fact about an entity not present in the rows.",
+    "Return plain text, not JSON."
+  ],
+  conversational: {
+    intro: [
+      "You are a data analytics assistant. A user just sent a casual message",
+      "(greeting, a question about what you can do, or something off-topic) - NOT an analytical",
+      "question. Respond warmly in 2-3 sentences, explaining what you can help with."
+    ],
+    outro: [
+      "Suggest 3-4 concrete, varied example questions built only from what is declared above. Never invent anything not declared above.",
+      'Return ONLY this JSON shape: {"answer": string, "suggestions": string[]}'
+    ],
+    fallbackAnswer: "Hi! I'm a data analytics assistant. Try one of these:"
+  },
+  catalog: {
+    full: {
+      metrics: "You may ONLY use these exact metric display names: {list}.",
+      states: "You may reference any of these places if the user's question names one: {list}.",
+      ownerships: "You may reference any of these categories: {list}.",
+      concepts: "You may also reference these concepts (use ONLY the exact display name shown, never invent your own name): {list}.",
+      examples: "Example questions this platform CAN answer: {list}.",
+      nonAnswerable: "This platform CANNOT answer questions outside its data, e.g.: {list}."
+    },
+    compact: {
+      metrics: "METRICS (exact names only): {list}.",
+      ownerships: "CATEGORIES: {list}.",
+      concepts: "CONCEPTS - use only the exact display name before the brackets; the bracketed phrases are what users say for it: {list}.",
+      states: "PLACES: any place the user names, written in full."
+    }
+  }
+};
+var fillList = (template, list) => template.replace("{list}", list);
 function describeCapabilities(capabilities) {
   if (!capabilities) {
-    return "You may ONLY use these exact metric display names: Hospital Overall Rating, Mortality Rate, Readmission Rate, Patient Experience, Safety Performance, AMI Mortality, CABG Readmission, COPD Mortality, Heart Failure Mortality, Hip-Knee Readmission, Pneumonia Mortality.";
+    return "You may ONLY use the exact metric display names the platform declares.";
   }
+  const words = (capabilities.prompts?.catalog ?? NEUTRAL_WORDING.catalog).full;
   const metricLines = capabilities.metrics.map((m) => `${m.displayName}${m.description ? ` (${m.description})` : ""}`).join("; ");
   const conceptLines = (capabilities.concepts ?? []).map((c) => `${c.displayName} (say any of: ${c.aliases.join(", ")}; supports ${c.metrics.join(" and ")})`).join("; ");
   return [
-    `You may ONLY use these exact metric display names: ${metricLines}.`,
-    `You may reference any of these US states if the user's question names one: ${capabilities.states.join(", ")}.`,
-    `You may reference any of these ownership categories: ${capabilities.ownerships.join(", ")}.`,
-    conceptLines ? `You may also reference these clinical conditions (use ONLY the exact display name shown, never invent your own condition name): ${conceptLines}.` : "",
-    `Example questions this platform CAN answer: ${capabilities.exampleAnswerableQuestions.join(" | ")}.`,
-    `This platform CANNOT answer general knowledge, weather, or non-healthcare-analytics questions, e.g.: ${capabilities.nonAnswerableExamples.join(", ")}.`
+    fillList(words.metrics, metricLines),
+    fillList(words.states, capabilities.states.join(", ")),
+    fillList(words.ownerships, capabilities.ownerships.join(", ")),
+    conceptLines ? fillList(words.concepts, conceptLines) : "",
+    fillList(words.examples, capabilities.exampleAnswerableQuestions.join(" | ")),
+    fillList(words.nonAnswerable, capabilities.nonAnswerableExamples.join(", "))
   ].filter(Boolean).join(" ");
 }
 function describeCapabilitiesCompact(capabilities) {
   if (!capabilities) {
     return describeCapabilities();
   }
+  const words = (capabilities.prompts?.catalog ?? NEUTRAL_WORDING.catalog).compact;
   const conditions = (capabilities.concepts ?? []).map((c) => `${c.displayName} (${c.aliases.join(", ")})`).join("; ");
   return [
-    `METRICS (exact names only): ${capabilities.metrics.map((m) => m.displayName).join(", ")}.`,
-    `OWNERSHIPS: ${capabilities.ownerships.join(", ")}.`,
-    conditions ? `CONDITIONS - use only the exact display name before the brackets; the bracketed phrases are what users say for it: ${conditions}.` : "",
-    "STATES: any US state, written as its full name."
+    fillList(words.metrics, capabilities.metrics.map((m) => m.displayName).join(", ")),
+    fillList(words.ownerships, capabilities.ownerships.join(", ")),
+    conditions ? fillList(words.concepts, conditions) : "",
+    words.states
   ].filter(Boolean).join("\n");
 }
 var LLMModelGateway = class {
   /**
    * `chain` serves every role; `rewriteChain` serves the question-rewrite role
-   * (normalizeMessyLanguage) only and defaults to `chain`, so a gateway built
-   * with one chain - every existing caller and test - behaves exactly as before.
+   * (normalizeMessyLanguage) only, `decorationChain` the suggestion roles and
+   * `summaryChain` the summary role (Batch 5A-1). Each defaults to the one before,
+   * so a gateway built with one chain - every existing caller and test - behaves
+   * exactly as before.
    */
-  constructor(chain = FALLBACK_CHAIN, rewriteChain = chain) {
+  constructor(chain = FALLBACK_CHAIN, rewriteChain = chain, decorationChain = chain, summaryChain = decorationChain) {
     this.chain = chain;
     this.rewriteChain = rewriteChain;
+    this.decorationChain = decorationChain;
+    this.summaryChain = summaryChain;
   }
   chain;
   rewriteChain;
+  decorationChain;
+  summaryChain;
   async complete(systemPrompt, userMessage, options = { temperature: 0.9 }) {
     return runChain(this.chain, systemPrompt, userMessage, options);
   }
@@ -459,48 +543,14 @@ var LLMModelGateway = class {
    * (SAFE_FALLBACK_SUGGESTIONS) takes over, never a crash.
    */
   async normalizeMessyLanguage(question, capabilities) {
+    const wording = capabilities?.prompts?.normalizer ?? NEUTRAL_WORDING.normalizer;
     const systemPrompt = [
-      "You rewrite ONE user question about US hospital analytics into ONE canonical question that a deterministic pipeline can resolve. You never answer questions, never write SQL, never invent facts.",
-      'Return ONLY this JSON, nothing else: {"status": "ok" | "need_clarification" | "fallback", "canonical_question": string | null, "reason": string | null, "unsupported_terms": string[]}',
+      `You rewrite ONE user question about ${wording.subject} into ONE canonical question that a deterministic pipeline can resolve. You never answer questions, never write SQL, never invent facts.`,
+      'Return ONLY this JSON, nothing else: {"status": "ok" | "need_clarification" | "unsupported", "canonical_question": string | null, "reason": string | null, "unsupported_terms": string[], "interpretation": string | null, "filler_dropped": string[], "closest": string[]}',
       "",
-      "RULE 1 - SLOT PRESERVATION (highest priority, beats every other rule):",
-      'Never ADD a state, city, county, ownership type, metric or condition that is not in the original question in some form (correct, misspelled or abbreviated). Never DROP or BROADEN one that is: a named city stays a city ("in Houston" is never widened to the state or the nation), an ownership word stays (government, non-profit, for-profit...), a state stays. If the question names no location, the canonical question names none - never guess one, and never attach a state to a bare city. A hospital, clinic or health-system NAME (Mayo Clinic, Johns Hopkins, Cleveland Clinic, NYU Langone, Memorial Hospital) is a name, never a place: a question about a named hospital is returned exactly as written (status ok, identical text).',
+      ...wording.rules,
       "",
-      "RULE 2 - FIX THE WRITING, KEEP THE MEANING:",
-      'Correct typos in any word: metrics ("saftey" -> safety), ownership ("goverment"/"govt"/"gov" -> government, "nonprofit" -> non-profit, "for profit" -> for-profit), cities ("Houson"/"Huston" -> Houston), states ("Calfornia" -> California). A two-letter US state code in ANY letter case placed right after "in" or next to "hospital(s)" is a state ("hospitals in oh" -> Ohio, "in tx" -> Texas, "hospital in IN" -> Indiana); "CA" is California, never Canada; the ordinary word "in" is never a state; "VA hospitals" is the Veterans ownership alias - leave it as written (only "in VA" means Virginia). Always write full, proper-case state names. Expand an informal name only when it names exactly one place: cali -> California, tex -> Texas, philly -> Philadelphia, NYC -> New York City; leave ambiguous or multi-city forms (LA, DFW) exactly as written. A question that is already clean and complete is returned unchanged.',
-      "",
-      'RULE 3 - THE REQUEST SHAPES (the "in" may be missing in the original):',
-      '(a) LISTING - a location (state, city, or city + state) and no metric or ranking word is a COMPLETE request: "Show me hospitals in <location>", with an ownership word before "hospitals" when present ("Show me government hospitals in <location>"). Status ok. Never ask for clarification when a location is present.',
-      `(b) RANKING - "Show me hospitals with <best|top|highest|lowest|worst> <metric>", then "in <City>", "in <City>, <State>" or "in <State>" - only the location parts the original had (an ownership word goes before "hospitals": "Show me non-profit hospitals with lowest Mortality Rate in Ohio"). good/great/excellent = best; bad/poor = worst; "safest" = best Safety Performance; every superlative (safest, strongest, top-rated) is a ranking word. For Mortality Rate and Readmission Rate lower is better: best/good -> lowest, worst/bad -> highest ("hospital with good mortality" -> "Show me hospitals with lowest Mortality Rate"). Use the metric's exact display name from METRICS; a metric name alone is never a canonical question. A ranking needs NO location.`,
-      '(c) CONDITION - a listed clinical condition (see CONDITIONS) with no ranking word defaults to "lowest" of its mortality or readmission measure ("bypass surgery readmission" -> "Show me hospitals with lowest CABG Readmission"); with a ranking word keep its direction. A condition never needs a location.',
-      '(d) STAR RATING - "3 star", "3 start", "5-star" is a Hospital Overall Rating filter, always written "N-star" (never "Hospital Overall Rating of N"), e.g. "Show me 3-star hospitals in Georgia". It needs a state - with none in the question, status need_clarification.',
-      "",
-      "RULE 4 - HEART LANGUAGE:",
-      '(a) Symptom words - "heart pain", "chest pain", "chest discomfort", "my chest hurts", "my heart hurts", "heart ache" - mean a heart attack: "Show me hospitals with lowest Mortality Rate for Acute Myocardial Infarction" (plus the location if one was given).',
-      '(b) General heart-care quality - "heart care", "heart attack dead" - means Mortality Rate: "best heart care hospital" -> "Show me hospitals with lowest Mortality Rate".',
-      '(c) Only a BARE "heart issue" / "heart problem", "lung disease", "shortness of breath" or "checkup", with no word from (a) or (b), is ambiguous - status fallback, never guessed.',
-      "",
-      "RULE 5 - WHEN NOT TO REWRITE:",
-      'status "fallback" (canonical_question null) when the question is not about US hospital performance (weather, trivia, people, jobs...) or maps to nothing in the lists below. status "need_clarification" (reason = one short question, e.g. "Which state should I look in?") ONLY when the request names a metric or star rating, has NO location, and has NO ranking word (best, top, highest, lowest, worst, good, great, excellent, bad, poor, safest, or any other superlative), or is genuinely ambiguous between two metrics. A question with a ranking word or a location is never need_clarification for lack of a location.',
-      "",
-      "RULE 6 - REPORT WHAT IS NOT SUPPORTED (a report only: it never changes status, canonical_question or any other rule):",
-      `Fill unsupported_terms with the user's EXACT words (copied from the question) for anything they ask FOR that is outside METRICS, CONDITIONS, OWNERSHIPS, STATES, US places and hospital names: a condition or measure that is not listed, a symptom (except the heart language in RULE 4), a hospital attribute or service (hospital type, emergency services, cleanliness, staff communication), a time window (a year, "since 2020"). Never list comparison words, hospital names, typos or informal wording of a LISTED thing, or code fragments. Choose status and canonical_question exactly as the other rules say; when nothing is unsupported, unsupported_terms is [].`,
-      "",
-      "EXAMPLES - they show FORMAT only. Never copy a place, ownership type or metric from an example into a question that does not contain it.",
-      '"goverment hospital in California" -> "Show me government hospitals in California"',
-      '"show me hospital Houson Texas" -> "Show me hospitals in Houston, Texas"',
-      '"best hospital for heart pain Houston" -> "Show me hospitals with lowest Mortality Rate for Acute Myocardial Infarction in Houston"',
-      '"best hospital for heart pain Phoenix" -> "Show me hospitals with lowest Mortality Rate for Acute Myocardial Infarction in Phoenix"',
-      '"best hospital for chest pain in Columbus, Ohio" -> "Show me hospitals with lowest Mortality Rate for Acute Myocardial Infarction in Columbus, Ohio"',
-      '"show me hospital for heart pain" -> "Show me hospitals with lowest Mortality Rate for Acute Myocardial Infarction"',
-      '"Which hospitals have the lowest mortality rates?" -> "Show me hospitals with lowest Mortality Rate"',
-      '"good saftey" -> "Show me hospitals with best Safety Performance"',
-      '"safest hosptials" -> "Show me hospitals with best Safety Performance"',
-      '"best heart care hospital" -> "Show me hospitals with lowest Mortality Rate"',
-      '"3 start hospitals in Georgia" -> "Show me 3-star hospitals in Georgia"',
-      '"hospitals with a 4 star rating" -> status need_clarification, reason "Which state should I look in?"',
-      '"hospitals in ok" -> "Show me hospitals in Oklahoma"',
-      `"what's the weather in Dallas?" -> status fallback`,
+      ...wording.examples,
       "",
       describeCapabilitiesCompact(capabilities)
     ].join("\n");
@@ -514,7 +564,7 @@ var LLMModelGateway = class {
         { temperature: 0, forRewrite: true },
         trace
       );
-      if (result && (result.status === "ok" || result.status === "need_clarification" || result.status === "fallback")) {
+      if (result && (result.status === "ok" || result.status === "need_clarification" || result.status === "fallback" || result.status === "unsupported")) {
         return { ...result, provenance: toProvenance(trace, startedAt) };
       }
       return { status: "fallback", reason: "malformed gateway response", provenance: toProvenance(trace, startedAt) };
@@ -533,19 +583,11 @@ var LLMModelGateway = class {
    * whatever this returns, so a bad rephrase costs nothing beyond one
    * dropped candidate at that call site, never a broken response.
    */
-  async synthesizeSuggestions(context, deadlineMs) {
+  async synthesizeSuggestions(context, deadlineMs, wording) {
     if (context.candidates.length === 0) {
       return context.candidates;
     }
-    const systemPrompt = [
-      "You are a suggestion-phrasing assistant for a healthcare analytics platform.",
-      "You will be given a list of already-decided, already-verified follow-up questions.",
-      "Rephrase each one to sound more natural and varied - do NOT change which metric, state,",
-      "hospital, or ownership category each one refers to. Do NOT add a new fact. Do NOT combine",
-      "two suggestions into one. Do NOT invent any metric, hospital name, or place not already",
-      "present in the input list. Return a JSON array of strings, same length and same order as",
-      "the input, one rephrased line per input line."
-    ].join(" ");
+    const systemPrompt = (wording?.suggestionPhrasing ?? NEUTRAL_WORDING.suggestionPhrasing).join(" ");
     const userMessage = JSON.stringify({
       resolvedMetric: context.resolvedMetric,
       resolvedState: context.resolvedState,
@@ -554,7 +596,7 @@ var LLMModelGateway = class {
     const startedAt = Date.now();
     const trace = { attempts: 0, tiers: [] };
     try {
-      const result = await this.runJSON(this.chain, systemPrompt, userMessage, { temperature: 0.6, deadlineMs }, trace);
+      const result = await this.runJSON(this.decorationChain, systemPrompt, userMessage, { temperature: 0.6, deadlineMs }, trace);
       if (Array.isArray(result) && result.length === context.candidates.length && result.every((s) => typeof s === "string" && s.length > 0)) {
         return result;
       }
@@ -575,22 +617,16 @@ var LLMModelGateway = class {
    * Returns an empty string on any failure - the caller must treat an
    * empty string identically to "no summary available".
    */
-  async summarizeResult(question, rows, deadlineMs) {
+  async summarizeResult(question, rows, deadlineMs, wording) {
     if (rows.length === 0) {
       return "";
     }
-    const systemPrompt = [
-      "Summarize this table of real healthcare data in 1-2 sentences.",
-      "You may ONLY state numbers, names, and values that literally appear in the JSON rows below.",
-      "Never compute an average, a total, or any derived number yourself - only restate what a row",
-      "already shows. Never state a fact about a hospital not present in the rows.",
-      "Return plain text, not JSON."
-    ].join(" ");
+    const systemPrompt = (wording?.summary ?? NEUTRAL_WORDING.summary).join(" ");
     const userMessage = JSON.stringify({ question, rows: rows.slice(0, 20) });
     const startedAt = Date.now();
     const trace = { attempts: 0, tiers: [] };
     try {
-      const summary = await runChain(this.chain, systemPrompt, userMessage, { temperature: 0.2, deadlineMs }, void 0, trace);
+      const summary = await runChain(this.summaryChain, systemPrompt, userMessage, { temperature: 0.2, deadlineMs }, void 0, trace);
       return summary.trim();
     } catch (error) {
       logFallbackEvent("summarizeResult", "all providers exhausted", error);
@@ -612,11 +648,9 @@ var LLMModelGateway = class {
    * provider is down.
    */
   async handleConversational(question, capabilities) {
+    const conversational = capabilities.prompts?.conversational ?? NEUTRAL_WORDING.conversational;
     const systemPrompt = [
-      "You are IntelligenceOS, a healthcare analytics platform. A user just sent a casual message",
-      "(greeting, a question about what you can do, or something off-topic) - NOT an analytical",
-      "question. Respond warmly in 2-3 sentences, like ChatGPT/Claude's own onboarding tone, explaining",
-      "what you can help with.",
+      ...conversational.intro,
       describeCapabilities(capabilities),
       // PrePhase 9.5 Round 3: previously restricted to only the fixed
       // 5-item example list, which made every conversational turn
@@ -628,14 +662,10 @@ var LLMModelGateway = class {
       // validated by the caller (chat.ts's validateConversationalSuggestions)
       // before ever being shown, so a less-common combination here is
       // exactly as safe as the fixed list was.
-      "Suggest 3-4 concrete, varied example questions - combine a metric, a state, an ownership",
-      "category, or a clinical concept from what's declared above, or use one from the platform's own",
-      "example list - vary which ones you pick between turns rather than always the same set. Never",
-      "invent a metric, state, ownership category, or condition not declared above.",
-      'Return ONLY this JSON shape: {"answer": string, "suggestions": string[]}'
+      ...conversational.outro
     ].join(" ");
     const fallback = {
-      answer: "Hey! I'm IntelligenceOS, your healthcare analytics co-pilot. I can help you find the best hospitals by overall rating, safety, mortality, readmission, or patient experience, in any US state. Try one of these:",
+      answer: conversational.fallbackAnswer,
       suggestions: capabilities.exampleAnswerableQuestions.slice(0, 4)
     };
     const startedAt = Date.now();
@@ -665,21 +695,12 @@ var LLMModelGateway = class {
    * `count` pool entries unchanged - the caller's own dry-run validation
    * is what actually guarantees every returned suggestion is answerable.
    */
-  async selectAndRephraseSuggestions(pool, context, count = 3, deadlineMs) {
+  async selectAndRephraseSuggestions(pool, context, count = 3, deadlineMs, wording) {
     const fallback = pool.slice(0, count);
     if (pool.length <= count) {
       return pool;
     }
-    const systemPrompt = [
-      "You are a suggestion selector for a healthcare analytics platform.",
-      "You will be given a POOL of already-decided, already-verified follow-up questions - ALL are",
-      "answerable. Your job: SELECT the most diverse and relevant ones, then rephrase each to sound",
-      "natural. Diversity means covering different dimensions (a different metric, a different",
-      "state/ownership, an entity-specific question) - do not select several that all differ only in",
-      "wording, not in fact. Do NOT invent a new fact, do NOT combine two pool items into one, do NOT",
-      "select or invent anything outside the given pool.",
-      `Return a JSON array of exactly ${count} rephrased strings, each corresponding to one selected pool item.`
-    ].join(" ");
+    const systemPrompt = (wording?.suggestionSelector ?? NEUTRAL_WORDING.suggestionSelector).join(" ").replace("{count}", String(count));
     const userMessage = JSON.stringify({
       resolvedMetric: context.resolvedMetric,
       resolvedState: context.resolvedState,
@@ -689,7 +710,7 @@ var LLMModelGateway = class {
     const startedAt = Date.now();
     const trace = { attempts: 0, tiers: [] };
     try {
-      const result = await this.runJSON(this.chain, systemPrompt, userMessage, { temperature: 0.8, deadlineMs }, trace);
+      const result = await this.runJSON(this.decorationChain, systemPrompt, userMessage, { temperature: 0.8, deadlineMs }, trace);
       if (Array.isArray(result) && result.length === count && result.every((s) => typeof s === "string" && s.length > 0)) {
         return result;
       }
@@ -702,14 +723,18 @@ var LLMModelGateway = class {
     }
   }
 };
-var llmGateway = new LLMModelGateway(FALLBACK_CHAIN, NORMALIZER_CHAIN);
+var llmGateway = new LLMModelGateway(FALLBACK_CHAIN, NORMALIZER_CHAIN, DECORATION_CHAIN, SUMMARY_CHAIN);
 export {
   AICREDITS_NORMALIZER_TIERS,
   AICREDITS_QWEN_30B_TIER,
+  AICREDITS_QWEN_FLASH_DECORATION_TIER,
+  AICREDITS_QWEN_FLASH_SUMMARY_TIER,
   AICREDITS_QWEN_FLASH_TIER,
+  DECORATION_CHAIN,
   FALLBACK_CHAIN,
   LLMModelGateway,
   NORMALIZER_CHAIN,
+  SUMMARY_CHAIN,
   llmGateway,
   withLlmCallLog
 };

@@ -1,8 +1,17 @@
 import type { QueryIntent } from "@intelligence/query-planner";
+import type { RuntimeResult } from "./runtime-result";
 
 export interface RuntimeRequest {
   question: string;
   parameters?: Record<string, unknown>;
+
+  /**
+   * Batch 5A-1: called once with the final result of the execution that answers this request (a rewrite's recursive
+   * run included), before the suggestions are generated. It lets the caller start work on the rows (the summary)
+   * while the suggestions are still being produced instead of after them. Purely observational: nothing about the
+   * result changes because a callback is set. Never inherited by a suggestion's dry run.
+   */
+  onResult?: (result: RuntimeResult) => void;
 
   /**
    * Tier0 Task 2 (F8) Phase 2: caller-supplied request identifier, used to

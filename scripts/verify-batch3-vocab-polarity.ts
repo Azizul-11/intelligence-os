@@ -47,7 +47,7 @@ const topics = DOMAIN_CAPABILITIES.unsupportedTopics;
 
 for (const topic of [
   "dc", "d.c.", "district of columbia", "stroke", "sepsis", "emergency department", "birthing friendly", "hospital wide",
-  "all cause", "military", "church owned", "department of defense", "decile", "heart surgery", "sanitary", "cleanest",
+  "all cause", "military", "church owned", "department of defense", "decile", "ed waits", "sanitary", "cleanest",
   "emergency services", "hospital type",
 ]) {
   check(`topic list names "${topic}"`, topics.includes(topic), `list has ${topics.length} entries`);
@@ -58,7 +58,8 @@ check(`"last year" is not a topic (narrative use trips it)`, !topics.includes("l
 console.log("\n3.0 - pre-check on the raw question");
 
 const REFUSED: [string, string][] = [
-  ["show me hospital for heart surgery", "heart surgery"],
+  // Batch 5A-1: "heart surgery" is a layperson phrase now (it maps to bypass surgery), no longer refused; ED waits took its place.
+  ["show me hospital ED waits in Texas", "ed waits"],
   ["stroke mortality", "stroke"],
   ["best hospitals for stroke", "stroke"],
   ["sepsis mortality", "sepsis"],
@@ -115,8 +116,10 @@ check(
   const refused = catalog.filter((row) => precheckUnsupported(row.query, DOMAIN_CAPABILITIES).length > 0);
   const wrong = refused.filter((row) => row.expectedBehavior !== "REFUSE");
   check(`catalog (${catalog.length} rows): 0 answer/clarify-expected rows refused by the pre-check`, wrong.length === 0, wrong.map((row) => row.id).join(","));
-  check(`catalog: the pre-check catches at least 76 REFUSE-expected rows`, refused.length - wrong.length >= 76, `caught ${refused.length - wrong.length}`);
-  for (const id of ["A096", "A104", "A105", "B022", "D010", "D011", "D074", "D090", "D091", "C023", "C076"]) {
+  // Batch 5A-1 (D3): 79 -> 73. Rows A073, A095-A099 (heart checkup / heart problem / heart surgery / trouble breathing /
+  // breathing problems / lung infection) are layperson asks now expected to be answered (catalog revision), no longer REFUSE.
+  check(`catalog: the pre-check catches at least 73 REFUSE-expected rows`, refused.length - wrong.length >= 73, `caught ${refused.length - wrong.length}`);
+  for (const id of ["A100", "A104", "A105", "B022", "D010", "D011", "D074", "D090", "D091", "C023", "C076"]) {
     check(`catalog row ${id} is caught by the pre-check`, refused.some((row) => row.id === id));
   }
   check("F055 (my dad had a heart attack last year) is not caught", !refused.some((row) => row.id === "F055"));

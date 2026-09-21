@@ -52,6 +52,14 @@ export interface RuntimeResult<T = unknown> {
   coverage?: CoverageFact[];
 
   /**
+   * Batch 5A-1: the parameters the answering template ran with (the resolved filters and the like), present only on a
+   * successful execution. Lets a Domain describe its own result exactly (for instance how many records tie for the
+   * top value IN THIS SCOPE) without re-deriving the scope from the rows. Diagnostic and additive: nothing about
+   * success, `rows` or `rowCount` changes because this field exists.
+   */
+  executedParameters?: Record<string, unknown>;
+
+  /**
    * Tier0 Task 2 (F8) Phase 2: the ordered gate trace PhaseGateTracker
    * recorded for this exact execution - present on every response,
    * whatever gate it stopped at. Diagnostic only, additive: nothing about

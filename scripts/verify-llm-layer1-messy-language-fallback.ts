@@ -16,6 +16,7 @@
 import "dotenv/config"; // MUST be first - see verify-llm-layer2-suggestion-rephrasing.ts's own doc comment for why.
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
+import { DOMAIN_CAPABILITIES } from "../domain-packs/healthcare/src/runtime/capability-catalog";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";
 import { createRuntimeEngine } from "../packages/runtime-engine/src/create-runtime-engine";
@@ -43,7 +44,7 @@ const engineWithLLM = createRuntimeEngine({
   executionPlanMapper: mapper,
   executor,
   llmFallback: async (question: string) => {
-    const result = await llmGateway.normalizeMessyLanguage(question);
+    const result = await llmGateway.normalizeMessyLanguage(question, DOMAIN_CAPABILITIES);
     return result.status === "ok" && result.canonical_question
       ? { canonicalQuestion: result.canonical_question }
       : null;

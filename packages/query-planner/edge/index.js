@@ -225,6 +225,16 @@ var FUNCTION_WORDS = /* @__PURE__ */ new Set([
   "rated"
 ]);
 var QueryPlanner = class _QueryPlanner {
+  /**
+   * Batch 5A-1: filler words the DOMAIN declares, as data: words people add that ask for nothing measurable in that
+   * domain. Read like QUESTION_FILLER_WORDS, so one of them left over no longer stops a default ranking or sends a
+   * fully understood question to the model. This package names no domain word; a planner built without options
+   * behaves exactly as before.
+   */
+  domainFillerWords;
+  constructor(options = {}) {
+    this.domainFillerWords = new Set((options.fillerWords ?? []).map((word) => word.toLowerCase()));
+  }
   intentDetector = new QueryIntentDetector();
   collector = new SemanticCollector();
   entityParameterResolver = new EntityParameterResolver();
@@ -653,7 +663,7 @@ var QueryPlanner = class _QueryPlanner {
     }
     const queryWords = normalizedQuery.split(/\s+/).filter(Boolean);
     return queryWords.filter(
-      (word) => !consumedWords.has(word) && !QUESTION_FILLER_WORDS.has(word) && !alsoIgnore(word)
+      (word) => !consumedWords.has(word) && !QUESTION_FILLER_WORDS.has(word) && !this.domainFillerWords.has(word) && !alsoIgnore(word)
     );
   }
   /**

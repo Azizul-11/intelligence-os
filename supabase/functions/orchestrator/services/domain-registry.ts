@@ -9,7 +9,7 @@ import {
 } from "@intelligence/sql-executor";
 import { createRuntimeEngine } from "@intelligence/runtime-engine";
 import { llmGateway } from "@intelligence/llm-model-gateway";
-import { DOMAIN_CAPABILITIES, expandUppercaseStateAbbreviations } from "@intelligence/healthcare-domain";
+import { DOMAIN_CAPABILITIES, expandUppercaseStateAbbreviations, describeOverallRatingTies, correctPlaceCollidingTypos } from "@intelligence/healthcare-domain";
 
 import { supabase } from "../../shared/supabase.ts";
 import { normalizeQuestion } from "./normalizer-hook.ts";
@@ -35,7 +35,8 @@ export function getRuntimeEngine(): RuntimeEngine {
     runtime.entityProvider,
   );
 
-  const planner = new QueryPlanner();
+  // Batch 5A-1: the domain's own filler words ("checkup", "problem"), as data, so they stop blocking a default ranking.
+  const planner = new QueryPlanner({ fillerWords: DOMAIN_CAPABILITIES.fillerWords ?? [] });
 
   const executor = new SqlExecutor(
     new SupabaseDatabaseAdapter(supabase),
@@ -62,7 +63,9 @@ export function getRuntimeEngine(): RuntimeEngine {
     // across its multi-vendor fallback chain) abbreviation expansion.
     // See state-abbreviation-preprocessor.ts's own header comment for
     // why this is deliberately narrow (case-sensitive, "VA" excluded).
-    preprocessQuestion: expandUppercaseStateAbbreviations,
+    // Batch 5A-1: a misspelling that is also a place name ("hart" = Hart County) is corrected before resolution reads
+    // it as the place; the case-sensitive state abbreviations are expanded as before.
+    preprocessQuestion: (question: string) => expandUppercaseStateAbbreviations(correctPlaceCollidingTypos(question)),
     // LLM Integration Layer 1: the only place Universal Core's optional
     // llmFallback hook is ever supplied - packages/runtime-engine itself
     // stays 100% LLM-unaware. Maps the gateway's richer
@@ -109,6 +112,28 @@ export function getDomainMetrics(): readonly any[] {
     getRuntimeEngine();
   }
   return domainRuntime?.domain?.metrics || [];
+}
+
+/**
+ * Batch 5A-1 (D5): the domain's one-sentence description of an answer it knows how to describe better than the rows do
+ * (today: "384 hospitals nationwide hold a 5-star overall rating, displaying the first 10 alphabetically"). The
+ * SQL and the wording live in the domain pack; this only supplies the shared executor. `undefined` when there is
+ * nothing to say or the count failed - the answer never depends on it.
+ */
+export async function describeResultNote(
+  rows: readonly Record<string, unknown>[],
+  parameters: Record<string, unknown> | undefined,
+): Promise<string | undefined> {
+  try {
+    if (!sharedExecutor) {
+      getRuntimeEngine();
+    }
+
+    return await describeOverallRatingTies({ rows, parameters, run: (template, params) => sharedExecutor!.execute(template, params) });
+  } catch (error) {
+    console.error("[Result note failed]", error);
+    return undefined;
+  }
 }
 
 /**

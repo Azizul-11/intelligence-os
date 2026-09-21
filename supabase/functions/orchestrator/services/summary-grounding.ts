@@ -20,7 +20,20 @@
  * alias list.
  */
 
-const ABBREVIATION = /^(st|dr|mt|ft|inc|corp|ltd|co|jr|sr)\.$/i;
+// Batch 5A-1: "Co." (company) is an abbreviation, "CO." (Colorado) is a state code that ends a sentence
+// ("... in Castle Rock, CO. Other facilities ..."). Read as an abbreviation it glued the next sentence's first word
+// onto it ("CO Other"), so every summary of a table listing a Colorado hospital was rejected as naming a hospital
+// that is not in the rows (9 of 40 live answers, 2026-09-21).
+const ABBREVIATION = { test: (token: string): boolean => /^(st|dr|mt|ft|inc|corp|ltd|jr|sr)\.$/i.test(token) || token === "Co." };
+
+/**
+ * Batch 5A-2: a summary that prints a column name or a code ("avg_patient_satisfaction", "MORT_30_AMI") reads as a database
+ * dump, not as a sentence to a person. Any word joined by underscores is grounds to leave the sentence out (the rows and
+ * the note are unaffected); no hospital, place or plain word contains one.
+ */
+export function mentionsIdentifier(summary: string): boolean {
+  return /[A-Za-z0-9]+_[A-Za-z0-9_]+/.test(summary);
+}
 
 /** Words a sentence starts with that are capitalised only for that reason ("The Mayo Clinic ...") - never part of a name. */
 const SENTENCE_OPENERS = new Set([

@@ -5,9 +5,10 @@ import { supabase } from "../../shared/supabase.ts";
 import { executeRuntime } from "../services/runtime.ts";
 import { handleContinuation } from "../services/continuation.ts";
 import { isConversational, preflightClarification } from "../services/conversational.ts";
-import { findUngroundedNames } from "../services/summary-grounding.ts";
+import { findUngroundedNames, mentionsIdentifier } from "../services/summary-grounding.ts";
 import { createPendingInteraction } from "@intelligence/runtime-engine";
-import { getDomainMetrics, getDomainCapabilities, getRuntimeEngine } from "../services/domain-registry.ts";
+import { getDomainMetrics, getDomainCapabilities, getRuntimeEngine, describeResultNote } from "../services/domain-registry.ts";
+import { buildIgnoredNote, buildInterpretedRefusal, buildScopeMessage, buildUnaccountedMessage, composeSummary, droppedTerms, gateAlternates } from "../services/graceful-message.ts";
 import { llmGateway, withLlmCallLog } from "@intelligence/llm-model-gateway";
 
 /**
@@ -119,8 +120,13 @@ async function buildVerifiedSummary(
     return undefined;
   }
 
-  const summary = await llmGateway.summarizeResult(question, rows, SUMMARY_DEADLINE_MS);
+  const summary = await llmGateway.summarizeResult(question, rows, SUMMARY_DEADLINE_MS, getDomainCapabilities().prompts);
   if (!summary) {
+    return undefined;
+  }
+
+  if (mentionsIdentifier(summary)) {
+    console.warn("[Summary dropped: a column name or code in the text]");
     return undefined;
   }
 
@@ -145,6 +151,54 @@ async function buildVerifiedSummary(
   }
 
   return summary;
+}
+
+type TraceGate = { phase: string; status: string; detail?: Record<string, unknown> };
+
+/** The last trace entry of a phase (the tracker records an "enter" first and the outcome after it). */
+function lastGate(trace: unknown, phase: string): TraceGate | undefined {
+  return [...((trace as TraceGate[] | undefined) ?? [])].reverse().find((gate) => gate.phase === phase);
+}
+
+/**
+ * Batch 5A-1: a refusal that names what it could not do. A question the domain declined as unsupported ("stroke",
+ * "church owned") or one the pipeline refused rather than drop words from ("quiet environment") gets a reply that says
+ * what was understood and what is tracked, instead of the static "I specialize in ..." card. The tappable questions
+ * come with it as `suggestions` (the domain's guidance, validated by the engine).
+ */
+function gracefulFailureMessage(trace: unknown): string | undefined {
+  const capabilities = getDomainCapabilities();
+  const declined = lastGate(trace, "llm-normalization");
+
+  if (declined?.status === "unsupported" && typeof declined.detail?.unsupportedTerms === "string") {
+    return buildScopeMessage(declined.detail.unsupportedTerms.split("; "), capabilities.scopeGuidance ?? [], capabilities.coverageSummary);
+  }
+
+  const guard = lastGate(trace, "unaccounted-word-guard");
+
+  if (guard?.status === "refused" && typeof guard.detail?.unaccountedWords === "string") {
+    return buildUnaccountedMessage(guard.detail.unaccountedWords.split(" "), capabilities.coverageSummary);
+  }
+
+  return undefined;
+}
+
+/**
+ * Batch 5A-1: the one-tap alternatives a layperson mapping offers ("heart failure", "bypass surgery" for "heart
+ * problem") are complete questions, and like every other chip each is dry-run validated before it is shown (in
+ * parallel: a dry run never touches the warehouse).
+ */
+async function validateAlternates(candidates: string[]): Promise<string[]> {
+  if (candidates.length === 0) {
+    return [];
+  }
+
+  const engine = getRuntimeEngine();
+  const checked = await Promise.all(
+    candidates.map(async (candidate) => ((await engine.execute({ question: candidate, dryRun: true })).success ? candidate : undefined)),
+  );
+
+  return checked.filter((candidate): candidate is string => candidate !== undefined);
 }
 
 // Tier0 Task 2 (F8) Phase 2: Query Tracer Observability. Persists the
@@ -233,8 +287,18 @@ async function runChat(
 
   const requestId = crypto.randomUUID();
 
-  // Normal execution (Turn 1 or standalone query)
-  const result = await executeRuntime(request, requestId);
+  // Normal execution (Turn 1 or standalone query). Batch 5A-1: the summary and the tie note start the moment the
+  // answer exists, while the engine is still building the suggestions, so the two no longer run one after the other.
+  let early: { summary: Promise<string | undefined>; tie: Promise<string | undefined> } | undefined;
+  const result = await executeRuntime(request, requestId, (answer) => {
+    if (answer.success && answer.rows.length > 0 && !early) {
+      const rows = answer.rows as Record<string, unknown>[];
+      early = {
+        summary: buildVerifiedSummary(request.question, rows).catch(() => undefined),
+        tie: describeResultNote(rows, (answer as { executedParameters?: Record<string, unknown> }).executedParameters),
+      };
+    }
+  });
   await persistTrace(requestId, request.question, result);
 
   // Phase 8.10 Layer 2 Task 1: Automatic Turn 1 pending interaction creation
@@ -354,21 +418,54 @@ async function runChat(
   }
 
   if (!result.success) {
+    const graceful = gracefulFailureMessage(result.trace);
+    const declined = lastGate(result.trace, "llm-normalization");
+    // Batch 5A-2: a model decline that named what was asked for gets an intent-aware reply, and the nearest answerable
+    // questions it named (dry-run like every chip) come first among the chips.
+    const interpreted = graceful ? undefined : buildInterpretedRefusal(declined, result.error, BLUNT_FAILURE_MESSAGES, getDomainCapabilities().coverageSummary, request.question);
+    const closest = interpreted ? await validateAlternates(gateAlternates(declined)) : [];
+
     return {
       success: false,
       answer: "",
-      error: softenBluntFailureMessage(result.error),
+      error: graceful ?? interpreted ?? softenBluntFailureMessage(result.error),
       requestId,
       answerability: result.answerability,
       trace: result.trace,
-      suggestions: result.suggestions,
+      suggestions: closest.length > 0 ? [...new Set([...closest, ...(result.suggestions ?? [])])].slice(0, 3) : result.suggestions,
     };
   }
 
-  const summary = await buildVerifiedSummary(
-    request.question,
-    result.rows as Record<string, unknown>[],
+  // Batch 5A-1 (D4): what a layperson phrase was read as goes into the answer text, plain (apps/web renders `summary` in
+  // a bare <p>, no markdown), ahead of the tie disclosure and the model's sentence; the alternatives come first among
+  // the chips. `summary` is present whenever there is a note, even when the model's sentence was rejected or late.
+  // Only a rewrite that was actually used carries a reading: a `fallback` that the deterministic pipeline then answered
+  // on its own must never be shown with the model's (unused) interpretation.
+  const rewriteGate = lastGate(result.trace, "llm-normalization");
+  const lay = rewriteGate?.status === "rewritten" ? rewriteGate.detail : undefined;
+  const [verifiedSummary, tie, alternates] = await Promise.all([
+    early ? early.summary : buildVerifiedSummary(request.question, result.rows as Record<string, unknown>[]),
+    early ? early.tie : Promise.resolve(undefined),
+    validateAlternates(typeof lay?.alternates === "string" ? lay.alternates.split("\n").filter(Boolean) : []),
+  ]);
+  const ignored = lastGate(result.trace, "unaccounted-word-guard");
+  // Batch 5A-2: what the model reported as unsupported and rewrote without ("mental health"): the answer is broader than asked.
+  const dropped = lay
+    ? droppedTerms(
+        typeof lay.unsupported_terms === "string" ? lay.unsupported_terms.split("; ") : [],
+        typeof lay.interpretation === "string" ? lay.interpretation : undefined,
+        typeof lay.canonicalQuestion === "string" ? lay.canonicalQuestion : undefined,
+        request.question,
+      )
+    : [];
+  const summary = composeSummary(
+    typeof lay?.interpretation === "string" ? lay.interpretation : undefined,
+    dropped.length > 0 ? buildIgnoredNote(dropped) : undefined,
+    ignored?.status === "annotated" && typeof ignored.detail?.unaccountedWords === "string" ? buildIgnoredNote(ignored.detail.unaccountedWords.split(" ")) : undefined,
+    tie,
+    verifiedSummary,
   );
+  const suggestions = alternates.length > 0 ? [...new Set([...alternates, ...(result.suggestions ?? [])])].slice(0, 4) : result.suggestions;
 
   return {
     success: true,
@@ -376,7 +473,7 @@ async function runChat(
     requestId,
     answerability: result.answerability,
     trace: result.trace,
-    suggestions: result.suggestions,
+    suggestions,
     ...(summary ? { summary } : {}),
     metadata: {
       rowCount: result.rowCount,

@@ -1,7 +1,8 @@
 /**
  * Batch 1 (Step 1.3): maps the LLM gateway's normalizer result onto the narrow shape Universal
- * Core's optional `llmFallback` hook accepts. Pure and dependency-free, so the deployed function
- * (`domain-registry.ts`) and the local-live harness share ONE implementation.
+ * Core's optional `llmFallback` hook accepts. Pure and dependency-free (its one import is the equally
+ * pure `lay-mapper.ts`), so the deployed function (`domain-registry.ts`) and the local-live harness
+ * share ONE implementation.
  *
  * - `unsupported_terms` is the LLM's report of what the question asks for that the catalog cannot
  *   answer, made alongside whatever status it chose. A reported term that names a topic the domain's
@@ -16,16 +17,32 @@
  *   still gets its turn on the original text). Some correct answers depend on that.
  * - A response without the field behaves exactly as before, so the gateway change is backward compatible.
  */
+import { mapLayLanguage, type LayVocabularyLike } from "./lay-mapper.ts";
+
 export interface NormalizerResultLike {
-  status: "ok" | "need_clarification" | "fallback";
+  status: "ok" | "need_clarification" | "fallback" | "unsupported";
   canonical_question?: string | null;
   reason?: string | null;
   unsupported_terms?: readonly unknown[] | null;
+  /** Batch 5A-1: how the model read a plain phrase, and the filler it dropped. */
+  interpretation?: string | null;
+  filler_dropped?: readonly unknown[] | null;
+  /** Batch 5A-2: on "unsupported", the canonical questions nearest to what was asked; they become the one-tap alternates. */
+  closest?: readonly unknown[] | null;
   provenance?: Readonly<Record<string, string | number | boolean>>;
 }
 
 export interface UnsupportedTopicCatalog {
   unsupportedTopics?: readonly string[];
+  /** Batch 5A-1: the layperson vocabulary the domain owns (see services/lay-mapper.ts). */
+  layVocabulary?: LayVocabularyLike;
+  /** Batch 5A-1: the domain's place names (its states), so a leftover place word is recognised as a slot. */
+  states?: readonly string[];
+  /**
+   * Batch 5A-2: what a canonical question the model wrote that the pipeline cannot rank means in this domain (a rewrite of
+   * it, and the plain note that replaces the model's own reading). Applied to a model's rewrite only.
+   */
+  canonicalRepairs?: readonly { pattern: string; flags?: string; replacement: string; note: string }[];
 }
 
 type Meta = { meta: Record<string, string | number | boolean> };
@@ -45,8 +62,32 @@ function namesTopic(term: string, topics: readonly string[]): boolean {
   return topics.some((topic) => padded.includes(words(topic)));
 }
 
+/**
+ * The trace detail for a model answer: the provenance (which tier answered), plus (Batch 5A-1, R10) what the model
+ * itself said, which the trace never showed before: `reason`, `unsupported_terms` (as reported, binding or not),
+ * `interpretation` and `filler_dropped`. Only what is present is added, so a result without those fields has exactly
+ * the meta it always had.
+ */
+function metaOf(result: NormalizerResultLike): Partial<Meta> {
+  const extras: Record<string, string> = {};
+  const text = (value: unknown, max: number): string => (typeof value === "string" ? value.trim().slice(0, max) : "");
+  const list = (values: readonly unknown[] | null | undefined, max: number): string =>
+    (values ?? []).map((value) => String(value).trim()).filter(Boolean).join("; ").slice(0, max);
+
+  if (text(result.reason, 200)) extras.reason = text(result.reason, 200);
+  if (list(result.unsupported_terms, 300)) extras.unsupported_terms = list(result.unsupported_terms, 300);
+  // The note is shown to the user as plain text: nothing that reads as markup.
+  if (text(result.interpretation, 200) && !/[*_`#<>]/.test(text(result.interpretation, 200))) extras.interpretation = text(result.interpretation, 200);
+  if (list(result.filler_dropped, 200)) extras.filler_dropped = list(result.filler_dropped, 200);
+  // Complete questions the caller dry-runs before showing (at most 3, one per line, the same field the layperson mapping uses).
+  const closest = (result.closest ?? []).map((question) => String(question).trim()).filter((question) => question.length > 0 && question.length <= 200);
+  if (closest.length > 0) extras.alternates = closest.slice(0, 3).join("\n");
+
+  return result.provenance || Object.keys(extras).length > 0 ? { meta: { ...(result.provenance ?? {}), ...extras } } : {};
+}
+
 export function mapNormalizerResult(result: NormalizerResultLike, catalog?: UnsupportedTopicCatalog): NormalizerHookResult {
-  const meta: Partial<Meta> = result.provenance ? { meta: { ...result.provenance } } : {};
+  const meta: Partial<Meta> = metaOf(result);
   const topics = catalog?.unsupportedTopics ?? [];
   const terms = (result.unsupported_terms ?? [])
     .map((term) => String(term).trim())
@@ -61,7 +102,34 @@ export function mapNormalizerResult(result: NormalizerResultLike, catalog?: Unsu
   if (result.status === "need_clarification" && result.reason) {
     return { clarification: result.reason, ...meta };
   }
-  return result.provenance ? { meta: { ...result.provenance } } : null;
+  return meta.meta ? { meta: meta.meta } : null;
+}
+
+/**
+ * Batch 5A-2: the model's canonical question, repaired when the domain says it names something the pipeline cannot rank.
+ * The plain note replaces the model's reading (which described the wrong measure) and the question the model wrote is kept
+ * in the trace (`repaired`). Nothing else about the result changes.
+ */
+export function repairCanonical(result: NormalizerHookResult, catalog?: UnsupportedTopicCatalog): NormalizerHookResult {
+  if (!result || !("canonicalQuestion" in result)) {
+    return result;
+  }
+
+  for (const repair of catalog?.canonicalRepairs ?? []) {
+    const pattern = new RegExp(repair.pattern, repair.flags);
+
+    if (pattern.test(result.canonicalQuestion)) {
+      const meta = { ...(result.meta ?? {}) } as Record<string, string | number | boolean>;
+      delete meta.interpretation;
+
+      return {
+        canonicalQuestion: result.canonicalQuestion.replace(pattern, repair.replacement),
+        meta: { ...meta, interpretation: repair.note, repaired: result.canonicalQuestion.slice(0, 200) },
+      };
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -91,9 +159,16 @@ export function precheckUnsupported(question: string, catalog?: UnsupportedTopic
 
 /**
  * The whole `llmFallback` body, shared by the deployed function and the local-live harness: pre-check first, then
- * the normalizer (`normalize` is the gateway call), then the Batch 1 mapping. A pre-check refusal is the same
- * `{ unsupportedTerms }` shape the engine already treats as a binding refusal; `meta.source` marks it in the trace
- * (`llm-normalization` = `unsupported`, no provider or latency because no model was called).
+ * (Batch 5A-1) the domain's layperson vocabulary, then the normalizer (`normalize` is the gateway call), then the
+ * Batch 1 mapping. A pre-check refusal is the same `{ unsupportedTerms }` shape the engine already treats as a
+ * binding refusal; `meta.source` marks it in the trace (`llm-normalization` = `unsupported`, no provider or latency
+ * because no model was called).
+ *
+ * The vocabulary step is deterministic and free: an exact misspelling is corrected first (so "chruch owned" is refused
+ * as the "church owned" it is), and a layperson phrase becomes the canonical question the pipeline answers, with
+ * `meta` carrying what the trace and the answer note need (`source` = `lay-vocabulary`, `interpretation`,
+ * `filler_dropped`, `corrected`, `alternates`). No model is called for it. Anything it cannot map without guessing
+ * goes to the model on the corrected text, exactly as before.
  */
 export async function normalizeQuestion(
   question: string,
@@ -106,5 +181,43 @@ export async function normalizeQuestion(
     return { unsupportedTerms: hits, meta: { source: "pre-check" } };
   }
 
-  return mapNormalizerResult(await normalize(question), catalog);
+  const lay = catalog?.layVocabulary
+    ? mapLayLanguage(question, catalog.layVocabulary, {
+        placeWords: new Set((catalog.states ?? []).flatMap((state) => state.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean))),
+      })
+    : undefined;
+  const corrected = lay && lay.corrections.length > 0 ? lay.corrections.join("; ") : undefined;
+
+  if (lay && corrected) {
+    const correctedHits = precheckUnsupported(lay.correctedText, catalog);
+
+    if (correctedHits.length > 0) {
+      return { unsupportedTerms: correctedHits, meta: { source: "pre-check", corrected } };
+    }
+  }
+
+  if (lay?.mapped) {
+    const { canonicalQuestion, group, heard, interpretation, fillerDropped, alternates } = lay.mapped;
+
+    return {
+      canonicalQuestion,
+      meta: {
+        source: "lay-vocabulary",
+        group,
+        heard,
+        ...(interpretation ? { interpretation } : {}),
+        ...(fillerDropped.length > 0 ? { filler_dropped: fillerDropped.join("; ") } : {}),
+        ...(corrected ? { corrected } : {}),
+        ...(alternates.length > 0 ? { alternates: alternates.join("\n") } : {}),
+      },
+    };
+  }
+
+  const result = repairCanonical(mapNormalizerResult(await normalize(lay?.correctedText ?? question), catalog), catalog);
+
+  if (!corrected) {
+    return result;
+  }
+
+  return result === null ? { meta: { corrected } } : ({ ...result, meta: { ...("meta" in result ? result.meta : {}), corrected } } as NormalizerHookResult);
 }

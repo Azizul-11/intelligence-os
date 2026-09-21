@@ -12,6 +12,7 @@
 // already establishes for every other verify-*.ts script).
 import "dotenv/config";
 import { llmGateway, LLMModelGateway } from "../packages/llm-model-gateway/src/llm-model-gateway";
+import { DOMAIN_CAPABILITIES } from "../domain-packs/healthcare/src/runtime/capability-catalog";
 
 let pass = 0;
 let fail = 0;
@@ -42,7 +43,7 @@ async function main() {
 
   console.log("\n--- Group B: real live JSON round trip (Layer 1 shape) ---");
   {
-    const result = await llmGateway.normalizeMessyLanguage("hospitals with best safeties");
+    const result = await llmGateway.normalizeMessyLanguage("hospitals with best safeties", DOMAIN_CAPABILITIES);
     console.log(`    normalizeMessyLanguage: ${JSON.stringify(result)}`);
     check("B1-STATUS-VALID", "status is one of ok/need_clarification/fallback", ["ok", "need_clarification", "fallback"].includes(result.status), JSON.stringify(result));
     check(
@@ -53,7 +54,7 @@ async function main() {
     );
   }
   {
-    const result = await llmGateway.normalizeMessyLanguage("what is the weather like today?");
+    const result = await llmGateway.normalizeMessyLanguage("what is the weather like today?", DOMAIN_CAPABILITIES);
     console.log(`    normalizeMessyLanguage (off-topic): ${JSON.stringify(result)}`);
     check("B2-OFFTOPIC-NOT-OK", "genuinely off-topic input never returns status=ok", result.status !== "ok", JSON.stringify(result));
   }

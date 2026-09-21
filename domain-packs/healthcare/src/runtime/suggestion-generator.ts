@@ -6,6 +6,8 @@ import { concepts } from "../concepts";
 import { healthcareAliases } from "../aliases";
 import { healthcareSqlTemplates } from "../sql";
 import { STATE_NAMES_BY_CODE } from "./execution-strategy";
+import { scopeGuidanceChips } from "./lay-vocabulary";
+import { HEALTHCARE_PROMPT_WORDING } from "./prompt-wording";
 import { HealthcareTemplateSelector } from "./template-selector";
 
 /**
@@ -319,6 +321,12 @@ function buildSuccessSuggestionPool(context: SuggestionContext): string[] {
       ? (firstRow["hospital_name"] as string)
       : undefined;
 
+  // Batch 5A-1: the pool is built one dimension at a time (metric, concept, ownership, peer state) and interleaved at
+  // the end, so any first three of it - what the caller falls back to when the model is slow - already differ in kind.
+  const conceptItems: string[] = [];
+  const ownershipItems: string[] = [];
+  const peerItems: string[] = [];
+
   if (hospitalName) {
     for (const metric of allComparableMetricsExcept(plan.metric)) {
       pool.push(`What is ${hospitalName}'s ${metric.displayName.toLowerCase()}?`);
@@ -343,7 +351,7 @@ function buildSuccessSuggestionPool(context: SuggestionContext): string[] {
         if (!otherMetricId) continue;
         const otherWord = METRIC_WORDS_BY_ID[otherMetricId] ?? "rate";
         const shortName = conceptAliases(other.id)[0] ?? other.displayName;
-        pool.push(`Show me hospitals with lowest ${shortName} ${otherWord}${scopeSuffix}`);
+        conceptItems.push(`Show me hospitals with lowest ${shortName} ${otherWord}${scopeSuffix}`);
       }
     }
 
@@ -355,10 +363,10 @@ function buildSuccessSuggestionPool(context: SuggestionContext): string[] {
       ? `${conceptAliases(currentConcept.id)[0] ?? currentConcept.displayName} ${METRIC_WORDS_BY_ID[plan.metric] ?? ""}`.trim()
       : metricDisplayName(plan.metric) ?? "overall rating";
     if (ownershipFilter) {
-      pool.push(`Show me hospitals with best ${primaryDisplayName}${scopeSuffix}`);
+      ownershipItems.push(`Show me hospitals with best ${primaryDisplayName}${scopeSuffix}`);
     } else {
       for (const ownership of OWNERSHIP_ROTATION) {
-        pool.push(`Show me ${ownership} hospitals with best ${primaryDisplayName}`);
+        ownershipItems.push(`Show me ${ownership} hospitals with best ${primaryDisplayName}`);
       }
     }
 
@@ -375,16 +383,33 @@ function buildSuccessSuggestionPool(context: SuggestionContext): string[] {
         anchor = [...anchor, peer];
       }
       for (const peer of peers) {
-        pool.push(
+        peerItems.push(
           stateValues.length === 1
             ? `Best hospitals in ${stateNames[0]} and ${stateName(peer)}`
             : `Show me 5-star hospitals in ${stateNames.join(", ")} and ${stateName(peer)}`,
         );
       }
     }
+
+    // metric items are already in `pool`; take one of each kind in turn
+    const groups = [pool.splice(0, pool.length), conceptItems, ownershipItems, peerItems];
+    for (let index = 0; groups.some((group) => index < group.length); index++) {
+      for (const group of groups) {
+        const item = group[index];
+        if (item !== undefined) {
+          pool.push(item);
+        }
+      }
+    }
   }
 
-  pool.push(...SAFE_FALLBACK_SUGGESTIONS);
+  // Batch 5A-1: the static triple ("5-star Texas", "best Texas and California", "Tell me about Mayo Clinic") used to be
+  // appended to EVERY pool and was 6 of the 42 chips shown across 16 answers, whatever the question was about. It pads
+  // a pool that is too small to choose from and is otherwise left out.
+  if (pool.length < 3) {
+    pool.push(...SAFE_FALLBACK_SUGGESTIONS);
+  }
+
   return pool;
 }
 
@@ -467,6 +492,14 @@ function failurePathSuggestions(context: SuggestionContext): string[] {
     return candidates;
   }
 
+  // Batch 5A-1: a question that names something the platform does not answer ("stroke", "church owned") gets three
+  // questions that ARE answerable and close to what was asked, not the same static triple every time.
+  const guided = scopeGuidanceChips(context.question);
+
+  if (guided) {
+    return [...guided];
+  }
+
   const lowerQuestion = context.question.toLowerCase();
   const topicMatch = TOPIC_FALLBACKS.find((topic) =>
     topic.keywords.some((keyword) => lowerQuestion.includes(keyword)),
@@ -494,7 +527,7 @@ export function generateHealthcareSuggestions(context: SuggestionContext): strin
  * ceiling (never unbounded, always falls back to the instant
  * deterministic list past this point).
  */
-const LLM_REPHRASE_RACE_TIMEOUT_MS = 1800;
+const LLM_REPHRASE_RACE_TIMEOUT_MS = 2500; // Batch 5A-1: was 1800; the paid chip tier measured p95 2.0 s, max 2.2 s over 100 calls
 
 function raceWithTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | undefined> {
   return new Promise((resolve) => {
@@ -554,6 +587,11 @@ export async function generateHealthcareSuggestionsWithLLMRephrasing(
     return deterministic;
   }
 
+  // Batch 5A-1: the guidance chips for an unsupported topic are exact, pre-validated questions: no model rewords them.
+  if (!context.success && scopeGuidanceChips(context.question) !== undefined) {
+    return deterministic;
+  }
+
   const resolvedMetric = context.executionPlan?.metric;
   const stateFilterValue = context.executionPlan?.filters.find((filter) => filter.field === "state")?.value;
   const resolvedState = stateFilterValue !== undefined ? String(stateFilterValue) : undefined;
@@ -568,10 +606,35 @@ export async function generateHealthcareSuggestionsWithLLMRephrasing(
       return pool;
     }
     const selected = await raceWithTimeout(
-      llmGateway.selectAndRephraseSuggestions(pool, { resolvedMetric, resolvedState }, 3, LLM_REPHRASE_RACE_TIMEOUT_MS),
+      llmGateway.selectAndRephraseSuggestions(pool, { resolvedMetric, resolvedState }, 3, LLM_REPHRASE_RACE_TIMEOUT_MS, HEALTHCARE_PROMPT_WORDING),
       LLM_REPHRASE_RACE_TIMEOUT_MS,
     );
-    return selected && selected.length === 3 ? selected : deterministic.slice(0, 3);
+    // The fallback is the pool's first three, which the interleaving above makes differ in kind (metric / concept /
+    // ownership / peer state); before Batch 5A-1 it was the metric rotation, all in the same state.
+    if (!selected || selected.length !== 3) {
+      return pool.slice(0, 3);
+    }
+
+    // Batch 5A-1: a model picks freely (the paid tier, measured, tends to keep all three in the question's own scope,
+    // and phrases some so loosely that the runtime's dry run drops them). So the picks are followed by a chip that
+    // pivots the scope (another state, another ownership) if none of them does, and by the rest of the pool as
+    // backfill: the runtime validates in order and keeps the first three that answer, so 3 valid, varied chips
+    // come back whatever the model did.
+    const ownScope = filterValues(context.executionPlan?.filters.find((filter) => filter.field === "state")?.value).map((code) => stateName(code).toLowerCase());
+    const pivotsScope = (text: string): boolean => {
+      const lower = text.toLowerCase();
+      return (
+        OWNERSHIP_ROTATION.some((ownership) => lower.includes(ownership)) ||
+        PEER_STATE_CODES.some((code) => {
+          const name = stateName(code).toLowerCase();
+          return !ownScope.includes(name) && lower.includes(name);
+        })
+      );
+    };
+    const pivot = pool.find(pivotsScope);
+    const ordered = selected.some(pivotsScope) || !pivot ? selected : [selected[0]!, selected[1]!, pivot, selected[2]!];
+
+    return [...new Set([...ordered, ...pool])];
   }
 
   // Failure path: pool is already small/topic-specific
@@ -592,6 +655,7 @@ export async function generateHealthcareSuggestionsWithLLMRephrasing(
         candidates: toRephrase,
       },
       LLM_REPHRASE_RACE_TIMEOUT_MS,
+      HEALTHCARE_PROMPT_WORDING,
     ),
     LLM_REPHRASE_RACE_TIMEOUT_MS,
   );

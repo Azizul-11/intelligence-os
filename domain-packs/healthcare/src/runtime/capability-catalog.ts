@@ -13,6 +13,18 @@ import { healthcareAliases } from "../aliases";
 import { concepts } from "../concepts";
 import { STATE_NAMES_BY_CODE } from "./execution-strategy";
 import { OWNERSHIP } from "./ownership-directory";
+import type { PromptWording } from "@intelligence/llm-model-gateway";
+import {
+  CANONICAL_REPAIRS,
+  COVERAGE_SUMMARY,
+  HEALTHCARE_FILLER_WORDS,
+  LAY_VOCABULARY,
+  SCOPE_GUIDANCE,
+  type CanonicalRepair,
+  type LayVocabulary,
+  type ScopeGuidance,
+} from "./lay-vocabulary";
+import { HEALTHCARE_PROMPT_WORDING } from "./prompt-wording";
 
 export interface CapabilityCatalog {
   metrics: { displayName: string; description?: string }[];
@@ -43,6 +55,22 @@ export interface CapabilityCatalog {
   exampleAnswerableQuestions: string[];
   /** Illustrative only - what the platform is explicitly NOT for, so the LLM never tries to force-fit an off-topic question into a metric. */
   nonAnswerableExamples: string[];
+  /**
+   * Batch 5A-1: the domain's layperson vocabulary (runtime/lay-vocabulary.ts). The orchestrator's generic mapper turns
+   * a layperson phrase ("heart problem", "trouble breathing") into the canonical question the pipeline answers, before
+   * any model is called; the same data is quoted into the normalizer prompt.
+   */
+  layVocabulary?: LayVocabulary;
+  /** Batch 5A-1: for a topic the platform does not answer, what to say and which answerable questions to offer instead. */
+  scopeGuidance?: ScopeGuidance[];
+  /** Batch 5A-1: one sentence naming what the platform answers, for the "I currently track ..." reply. */
+  coverageSummary?: string;
+  /** Batch 5A-1: single words the query planner may leave unaccounted (filler that asks for nothing measurable). */
+  fillerWords?: string[];
+  /** Batch 5A-2: the domain's words for every prompt the gateway assembles (runtime/prompt-wording.ts); the gateway only quotes them. */
+  prompts?: PromptWording;
+  /** Batch 5A-2: what a canonical question the model wrote that the pipeline cannot rank means here (lay-vocabulary.ts). */
+  canonicalRepairs?: CanonicalRepair[];
 }
 
 const METRIC_DISPLAY_NAME_BY_ID = new Map(healthcareMetrics.map((m) => [m.id, m.displayName]));
@@ -68,20 +96,26 @@ const CONCEPTS_WITHOUT_MEASURES = concepts.filter((c) => !c.measureCodesByMetric
  * Batch 3: the same list now also drives a deterministic pre-check on the raw question (normalizer-hook.ts), so
  * a phrase here must be unsupported wherever it appears in a question - "last year" left (it trips on "my dad had a
  * heart attack last year", a narrative sentence, not a time-window request).
+ * Batch 5A-1: narrowed to what is really unanswerable. Layperson and everyday wording is NOT here any more: "heart
+ * problem", "trouble breathing", "lung infection", "heart surgery", "checkup", "recommend", "would recommend",
+ * "quiet", "sleep", "communication" and "courtesy" refused answerable asks (10 of 30 probe sentences, 19 of 50 messy
+ * queries) and are the domain's layperson vocabulary now (lay-vocabulary.ts). The multi-word survey phrases stay.
+ * Added: prices, wait times, volumes, doctors and time trends, which no table holds.
  */
 const KNOWN_UNSUPPORTED_TOPICS = [
   "pressure ulcer", "pressure ulcers", "patient safety indicator", "patient safety indicators", "psi", "in-hospital falls",
   "falls with fracture", "blood clot", "blood clots", "hospital acquired infection", "hospital acquired infections",
-  "kidney injury", "hospital wide", "all cause", "trouble breathing", "breathing problems", "lung infection",
-  "heart surgery", "heart problem", "checkup",
-  "nurse communication", "doctor communication", "communication", "cleanliness", "cleanest", "sanitary", "quietest",
-  "quiet", "sleep", "responsiveness", "communication about medicines", "discharge information",
-  "instructions for going home", "would recommend", "recommend", "courtesy", "listen carefully",
+  "kidney injury", "hospital wide", "all cause",
+  "nurse communication", "doctor communication", "cleanliness", "cleanest", "sanitary", "quietest",
+  "responsiveness", "communication about medicines", "discharge information",
+  "instructions for going home", "listen carefully",
   "emergency services", "birthing friendly", "birthing-friendly", "hospital type", "acute care", "critical access",
   "childrens", "children's", "psychiatric", "rural emergency", "physician owned", "tribal", "military",
   "department of defense", "church owned",
   "address", "phone number", "patient records", "poem",
   "since", "over time", "years ago", "decile",
+  "ed wait", "ed waits", "er wait", "er waits", "wait time", "wait times", "volumes", "price", "prices", "pricing",
+  "how much does", "how much is", "how much do", "doctors", "surgeons", "time trend", "time trends",
   // Batch 3: DC is a jurisdiction the platform does not register (10 hospitals in the warehouse, no state filter for it),
   // written three ways; the deterministic pre-check matches each literally, whatever punctuation the LLM would add.
   "dc", "d.c.", "district of columbia",
@@ -134,4 +168,10 @@ export const DOMAIN_CAPABILITIES: CapabilityCatalog = {
     "Show me 5-star hospitals in Texas",
   ],
   nonAnswerableExamples: ["weather today", "who is president", "stock price", "general trivia"],
+  layVocabulary: LAY_VOCABULARY,
+  scopeGuidance: [...SCOPE_GUIDANCE],
+  coverageSummary: COVERAGE_SUMMARY,
+  fillerWords: [...HEALTHCARE_FILLER_WORDS],
+  prompts: HEALTHCARE_PROMPT_WORDING,
+  canonicalRepairs: [...CANONICAL_REPAIRS],
 };

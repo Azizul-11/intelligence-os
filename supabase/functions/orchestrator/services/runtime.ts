@@ -19,6 +19,8 @@ import type { RuntimeResult } from "@intelligence/runtime-engine";
 export async function executeRuntime(
   request: ChatRequest,
   requestId?: string,
+  // Batch 5A-1: called with the answer before the suggestions are built, so the summary can start meanwhile.
+  onResult?: (result: RuntimeResult) => void,
 ): Promise<RuntimeResult> {
   console.log(">>> executeRuntime");
 
@@ -34,5 +36,6 @@ export async function executeRuntime(
     // place a fresh user question should get dry-run-validated
     // suggestions attached (see RuntimeRequest.includeSuggestions).
     includeSuggestions: true,
+    ...(onResult ? { onResult } : {}),
   });
 }

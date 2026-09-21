@@ -248,6 +248,12 @@ export function createRuntimeEngine({
         request.question,
       );
 
+      // Batch 5A-1 (scoped guard): the words of the RAW question that nothing resolved, set only when the LLM front
+      // door (Layer 0.5) was consulted because of such words and produced no rewrite. The pipeline below then runs on
+      // the raw text and would answer the rest of the question, silently dropping them (a default ranking returned
+      // for a question that also named something the domain does not know). See the guard in runPipeline.
+      let frontDoorUnaccounted: string[] = [];
+
       // Tier1 Task 6: captured as a side effect at the single point
       // below where execution-plan-mapper builds it, so the suggestion
       // generator can use the same plan this request already built
@@ -503,6 +509,22 @@ console.log("=====================================");
             answerability: { status: "not_directly_answerable", reason: "semantic-incomplete" },
           };
         }
+      } else if (frontDoorUnaccounted.length > 0) {
+        // Batch 5A-1: the scoped form of the same guard, and it ANNOTATES instead of refusing. The front door was
+        // consulted for these words and could not read them, so the deterministic answer that follows must not
+        // drop them silently: the trace records them and the caller says, in the answer, which words it ignored.
+        //
+        // Not a refusal because the recorded 600-query run says a refusal breaks working answers: of the 8 answered
+        // rows whose front door gave no rewrite, refusing would have turned 4 correct ones into refusals (rows B001,
+        // B014, D038, D058: harmless narration words) to fix 3 wrong ones. An annotation keeps every answer and
+        // discloses every drop. Still 0 extra SQL and no effect on any gate. Not applied to every first pass (the
+        // comment above): a question the deterministic layers fully understood never gets here, and one the front
+        // door rewrote is judged by the rewritten-run guard.
+        tracker.enter("unaccounted-word-guard");
+        tracker.exit("unaccounted-word-guard", "annotated", 0, undefined, {
+          unaccountedWords: frontDoorUnaccounted.join(" "),
+          scope: "front-door-declined",
+        });
       }
 
       // F5 safety gate: a recognized negation/exclusion marker was
@@ -1229,6 +1251,7 @@ return {
   completeness,
   answerability: { status: "answerable" },
   ...(coverageFacts.length > 0 ? { coverage: coverageFacts } : {}),
+  executedParameters: parameters as Record<string, unknown>,
 };
       };
 
@@ -1381,6 +1404,19 @@ return {
             // crash, never a fabricated result.
             tracker.exit("llm-normalization", "unavailable", 0, undefined, rewriteMeta);
           }
+
+          // Batch 5A-1: no rewrite came out of the front door (a clarification, `unchanged` or `unavailable`), so the
+          // pipeline runs on the raw text; the words the front door was consulted for are guarded (runPipeline).
+          if (!declinedTerms) {
+            // A word the domain's own lexical rewrites name ("hosptials", "huston") is one it corrects and understands,
+            // even though the rewrite chain consumed the corrected text rather than the typed one: not a dropped word.
+            const rewriteWords = new Set(
+              (runtime.domain.lexicalRewrites ?? []).flatMap((rule) => rule.pattern.toLowerCase().split(/\s+/)),
+            );
+            frontDoorUnaccounted = planner
+              .findUnaccountedWords(resolved.normalizedQuery, resolved.matches, runtime.domain.entities)
+              .filter((word) => !rewriteWords.has(word));
+          }
         }
       }
 
@@ -1455,12 +1491,24 @@ return {
           "canonicalQuestion" in rewrite &&
           rewrite.canonicalQuestion !== request.question
         ) {
-          return engine.execute({
+          // Batch 5A-1: this rewrite is recorded in the trace exactly like a Layer 0.5 one (it was not before), so
+          // what answered it (a layperson-vocabulary mapping, a model tier), what it was rewritten to and the note /
+          // alternatives that come with it reach the caller.
+          tracker.enter("llm-normalization");
+          tracker.exit("llm-normalization", "rewritten", 0, undefined, {
+            ...rewrite.meta,
+            canonicalQuestion: rewrite.canonicalQuestion.slice(0, 300),
+          });
+          const recursiveResult = await engine.execute({
             ...request,
             question: rewrite.canonicalQuestion,
             llmFallbackAttempted: true,
             rewrittenFrom: request.question,
           });
+          return {
+            ...recursiveResult,
+            trace: [...tracker.gates, ...(recursiveResult.trace ?? [])],
+          };
         }
         // PrePhase 9.5: the LLM can determine a rewrite isn't safe to
         // guess (e.g. a bare filter/list question with no geographic
@@ -1473,6 +1521,22 @@ return {
         // this batch was asked for. `result.success` stays false and
         // `answerability` is untouched: this is strictly a friendlier
         // error message, never a fabricated success.
+        // Batch 5A-2: what the front door said about a question it did not rewrite is recorded like a Layer 0.5 outcome (it
+        // was not), so the caller can echo what was asked instead of the generic dead end. Recording only: nothing here
+        // changes the decision or the message.
+        if (rewrite) {
+          tracker.enter("llm-normalization");
+          tracker.exit(
+            "llm-normalization",
+            "clarification" in rewrite ? "clarification" : "unsupportedTerms" in rewrite ? "unsupported" : "unavailable",
+            0,
+            undefined,
+            {
+              ...rewrite.meta,
+              ...("unsupportedTerms" in rewrite ? { unsupportedTerms: rewrite.unsupportedTerms.join("; ").slice(0, 300) } : {}),
+            },
+          );
+        }
         if (rewrite && "clarification" in rewrite) {
           result = { ...result, error: rewrite.clarification };
         }
@@ -1486,6 +1550,9 @@ return {
       );
 
       const finalResult: RuntimeResult = { ...result, trace: tracker.gates };
+
+      // Batch 5A-1: hand the caller the answer before the suggestions are built (see RuntimeRequest.onResult).
+      request.onResult?.(finalResult);
 
       // Tier1 Task 6: opt-in only (see RuntimeRequest.includeSuggestions's
       // own doc comment for why) - a request that doesn't ask for
