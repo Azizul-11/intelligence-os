@@ -215,7 +215,26 @@ type CreateRuntimeEngineOptions = {
    * matching short form is present).
    */
   preprocessQuestion?: (question: string) => string;
+  /**
+   * Batch 5C: optional, supplied by the orchestrator's bootstrap next to `llmFallback`: the domain's own deterministic
+   * scope check (the topics it knows it cannot answer, matched exactly on whole words; no model, no SQL, returns the topics
+   * found). Layer 0.5 runs it inside `llmFallback`, but a question the deterministic layers already understood (a named
+   * entity, a suggestion chip) skips Layer 0.5 and with it that check, so "was <hospital> better 5 years ago" was answered as
+   * a question about the hospital with the time ask dropped. Here it also runs on those questions, on what is left of the
+   * question after the words of every resolved entity are removed (an entity whose own name contains a topic word is not a
+   * request for that topic). A hit is the same binding refusal a model decline is (0 SQL). Ignored unless the front door is on.
+   */
+  unsupportedPrecheck?: (question: string) => readonly string[];
 };
+
+/** The words of `normalizedQuery` left after every resolved entity's own words are taken out (both are already normalized). */
+function withoutEntityPhrases(normalizedQuery: string, matches: readonly { semanticType: string; phrase: string }[]): string {
+  return matches
+    .filter((match) => match.semanticType === "entity")
+    .reduce((text, match) => text.split(` ${match.phrase} `).join(" "), ` ${normalizedQuery} `)
+    .trim();
+}
+
 export function createRuntimeEngine({
   runtime,
   semantic,
@@ -224,6 +243,7 @@ export function createRuntimeEngine({
   executor,
   llmFallback,
   preprocessQuestion,
+  unsupportedPrecheck,
 }: CreateRuntimeEngineOptions): RuntimeEngine {
   // Tier1 Task 6: `engine` is declared before `execute` runs so the
   // suggestion dry-run loop below can recursively call `engine.execute`
@@ -1417,6 +1437,20 @@ return {
               .findUnaccountedWords(resolved.normalizedQuery, resolved.matches, runtime.domain.entities)
               .filter((word) => !rewriteWords.has(word));
           }
+        } else if (unsupportedPrecheck) {
+          // Batch 5C: the question skipped the front door (a named entity, or every word already understood), so the
+          // domain's deterministic scope check that lives in the front door has not run. Run it here, on what is left of the
+          // question once the entities' own words are removed. Same refusal, same trace entry as the front door's own.
+          const topics = unsupportedPrecheck(withoutEntityPhrases(resolved.normalizedQuery, resolved.matches));
+
+          if (topics.length > 0) {
+            declinedTerms = topics;
+            tracker.enter("llm-normalization");
+            tracker.exit("llm-normalization", "unsupported", 0, undefined, {
+              source: "pre-check",
+              unsupportedTerms: topics.join("; ").slice(0, 300),
+            });
+          }
         }
       }
 
@@ -1521,6 +1555,29 @@ return {
         // this batch was asked for. `result.success` stays false and
         // `answerability` is untouched: this is strictly a friendlier
         // error message, never a fabricated success.
+        // Batch 5C: a comparison names two things. When the model wants to ask "which measure?" but a capitalised name in the
+        // question resolved to nothing, that thing does not exist: nothing is asked, the question is refused and the unknown
+        // words are named (0 SQL), instead of asking about a comparison that cannot be made. The model's clarification is then
+        // traced as not used ("unavailable"). Only a clarification the model gave for a plan that is a comparison is affected.
+        const unknownNames: string[] =
+          rewrite && "clarification" in rewrite && capturedExecutionPlan?.operation === "compare"
+            ? (() => {
+                const resolvedAgain = semantic.resolve(request.question);
+                const capitalised = new Set(
+                  request.question
+                    .split(/[^\p{L}\p{N}]+/u)
+                    .filter(Boolean)
+                    .slice(1)
+                    .filter((token) => /^\p{Lu}/u.test(token))
+                    .map((token) => token.toLowerCase()),
+                );
+
+                return planner
+                  .findUnaccountedWords(resolvedAgain.normalizedQuery, resolvedAgain.matches, runtime.domain.entities)
+                  .filter((word) => capitalised.has(word));
+              })()
+            : [];
+
         // Batch 5A-2: what the front door said about a question it did not rewrite is recorded like a Layer 0.5 outcome (it
         // was not), so the caller can echo what was asked instead of the generic dead end. Recording only: nothing here
         // changes the decision or the message.
@@ -1528,7 +1585,7 @@ return {
           tracker.enter("llm-normalization");
           tracker.exit(
             "llm-normalization",
-            "clarification" in rewrite ? "clarification" : "unsupportedTerms" in rewrite ? "unsupported" : "unavailable",
+            "clarification" in rewrite && unknownNames.length === 0 ? "clarification" : "unsupportedTerms" in rewrite ? "unsupported" : "unavailable",
             0,
             undefined,
             {
@@ -1537,7 +1594,19 @@ return {
             },
           );
         }
-        if (rewrite && "clarification" in rewrite) {
+        if (unknownNames.length > 0) {
+          tracker.enter("unaccounted-word-guard");
+          tracker.exit("unaccounted-word-guard", "refused", 0, "not_directly_answerable", {
+            unaccountedWords: unknownNames.join(" "),
+          });
+          result = {
+            success: false,
+            rows: [],
+            rowCount: 0,
+            error: "Unable to resolve question.",
+            answerability: { status: "not_directly_answerable", reason: "semantic-incomplete" },
+          };
+        } else if (rewrite && "clarification" in rewrite) {
           result = { ...result, error: rewrite.clarification };
         }
       }

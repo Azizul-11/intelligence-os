@@ -87,9 +87,19 @@ export interface CanonicalRepair {
 const WHOLE_HOSPITAL_METRICS = "(?:Safety Performance|Patient Experience|Hospital Overall Rating)";
 const REPAIR_NOTE = "Showing the condition's mortality rate: safety and patient experience are scored for a whole hospital, not for one condition.";
 
+// Batch 5C: a procedure is not a metric either ("best CABG", seen live for "my uncle needs a bypass, who is good in Michigan"):
+// what is ranked for a procedure is its 30-day mortality, exactly as for a condition. A bare "Show me hospitals" (seen for
+// "hospitals please") names no measure at all and is a dead end; it means the overall rating, as the vague-ask rule says.
+const CABG_NAMES = "(?:CABG|Coronary Artery Bypass(?: Graft(?:s|ing)?)?|Bypass(?: Surgery)?)";
+const CABG_NOTE = "Showing Bypass Surgery (CABG) Mortality, the bypass-surgery measure I track.";
+const VAGUE_NOTE = "You didn't name a measure, so I'm showing the highest overall-rated hospitals.";
+
 export const CANONICAL_REPAIRS: readonly CanonicalRepair[] = [
   { pattern: `^(Show me .*?hospitals with) (?:best|top) ${WHOLE_HOSPITAL_METRICS} for (.+)$`, flags: "i", replacement: "$1 lowest Mortality Rate for $2", note: REPAIR_NOTE },
   { pattern: `^(Show me .*?hospitals with) (?:worst|bottom) ${WHOLE_HOSPITAL_METRICS} for (.+)$`, flags: "i", replacement: "$1 highest Mortality Rate for $2", note: REPAIR_NOTE },
+  { pattern: `^(Show me .*?hospitals with) (?:best|top) ${CABG_NAMES}( in .+)?$`, flags: "i", replacement: "$1 lowest Mortality Rate for CABG$2", note: CABG_NOTE },
+  { pattern: `^(Show me .*?hospitals with) (?:worst|bottom) ${CABG_NAMES}( in .+)?$`, flags: "i", replacement: "$1 highest Mortality Rate for CABG$2", note: CABG_NOTE },
+  { pattern: "^Show me (?:all |some |the )?hospitals[.?!]*$", flags: "i", replacement: "Show me best hospitals", note: VAGUE_NOTE },
 ];
 
 // ------------------------------------------------------------------------------------------------ spellings
@@ -279,7 +289,8 @@ export const LAY_GROUPS: readonly LayGroup[] = [
 
 /** Dropped without comment: the request's scaffolding. */
 export const SCAFFOLD: readonly string[] = [
-  "please", "pls", "kindly", "hey", "hi", "hello", "can", "could", "would", "will", "you", "your", "i", "im", "ive", "me", "my", "we",
+  // "s": the possessive of a narrated relative ("my wife's heart checkup"); without it the lone letter kept the phrase from being read
+  "please", "pls", "kindly", "hey", "hi", "hello", "can", "could", "would", "will", "you", "your", "i", "im", "ive", "s", "me", "my", "we",
   "our", "us", "show", "tell", "give", "find", "get", "list", "need", "want", "wanna", "looking", "look", "help", "for", "the", "a", "an",
   "is", "are", "am", "was", "be", "to", "go", "do", "does", "what", "whats", "which", "where", "who", "how", "there", "that", "this",
   "with", "of", "about", "any", "some", "best", "good", "great", "top", "better", "hospital", "hospitals", "place", "places", "should",
@@ -389,7 +400,12 @@ export const SCOPE_GUIDANCE: readonly ScopeGuidance[] = [
   },
   { topics: ["dc", "d.c.", "district of columbia"], label: "hospitals in Washington DC", chips: ["Show me best hospitals in Maryland", "Show me best hospitals in Virginia", "Show me hospitals with best Patient Experience in Maryland"] },
   { topics: ["since", "over time", "years ago", "time trend", "time trends"], label: "results over time (I only have the latest data)", chips: [OVERALL, MORTALITY, READMIT] },
-  { topics: ["address", "phone number", "patient records"], label: "contact details or patient records", chips: [OVERALL, SAFETY, EXPERIENCE] },
+  { topics: ["address", "phone number", "phone numbers", "telephone", "patient records"], label: "contact details or patient records", chips: [OVERALL, SAFETY, EXPERIENCE] },
+  // Batch 5C: a region the platform has no concept of (it searches by state, county or city), a request for medical knowledge, and a
+  // request for hospitals like another hospital. Each is refused before any model call, whatever else the question names.
+  { topics: ["bay area"], label: "the Bay Area", chips: ["Show me best hospitals in California", "Show me hospitals with lowest Mortality Rate in California", "Show me hospitals with best Patient Experience in California"] },
+  { topics: ["symptoms of", "symptom of"], label: "medical information such as symptoms", chips: [MORTALITY, OVERALL, SAFETY] },
+  { topics: ["similar to"], label: "hospitals similar to another hospital", chips: [OVERALL, SAFETY, MORTALITY] },
   {
     topics: ["price", "prices", "pricing", "how much does", "how much is", "how much do", "doctors", "surgeons"],
     label: "prices or individual doctors",

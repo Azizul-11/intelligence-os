@@ -112,7 +112,9 @@ const KNOWN_UNSUPPORTED_TOPICS = [
   "emergency services", "birthing friendly", "birthing-friendly", "hospital type", "acute care", "critical access",
   "childrens", "children's", "psychiatric", "rural emergency", "physician owned", "tribal", "military",
   "department of defense", "church owned",
-  "address", "phone number", "patient records", "poem",
+  "address", "phone number", "phone numbers", "telephone", "patient records", "poem",
+  // Batch 5C: a region (the platform searches by state, county or city), medical knowledge, and peer similarity.
+  "bay area", "symptoms of", "symptom of", "similar to",
   "since", "over time", "years ago", "decile",
   "ed wait", "ed waits", "er wait", "er waits", "wait time", "wait times", "volumes", "price", "prices", "pricing",
   "how much does", "how much is", "how much do", "doctors", "surgeons", "time trend", "time trends",

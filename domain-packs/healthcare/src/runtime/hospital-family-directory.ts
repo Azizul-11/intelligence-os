@@ -36,4 +36,6 @@ export const HOSPITAL_FAMILIES: readonly string[] = [
   "novant",
   "sentara",
   "mount sinai",
+  // Batch 5C: "Sarasota Memorial" names the main hospital and its Venice campus ("SARASOTA MEMORIAL HOSPITAL - VENICE").
+  "sarasota memorial",
 ];

@@ -12,7 +12,7 @@ import { llmGateway } from "@intelligence/llm-model-gateway";
 import { DOMAIN_CAPABILITIES, expandUppercaseStateAbbreviations, describeOverallRatingTies, correctPlaceCollidingTypos } from "@intelligence/healthcare-domain";
 
 import { supabase } from "../../shared/supabase.ts";
-import { normalizeQuestion } from "./normalizer-hook.ts";
+import { normalizeQuestion, precheckUnsupported } from "./normalizer-hook.ts";
 
 import type { RuntimeEngine } from "@intelligence/runtime-engine";
 
@@ -86,6 +86,8 @@ export function getRuntimeEngine(): RuntimeEngine {
     // Batch 3: a raw question that names an unsupported topic is refused here before the model is called.
     llmFallback: async (question: string) =>
       normalizeQuestion(question, DOMAIN_CAPABILITIES, (text) => llmGateway.normalizeMessyLanguage(text, DOMAIN_CAPABILITIES)),
+    // Batch 5C: the same deterministic scope check, for the questions that skip the front door (a named hospital, a chip).
+    unsupportedPrecheck: (question: string) => precheckUnsupported(question, DOMAIN_CAPABILITIES),
   });
 
   return runtimeEngine;

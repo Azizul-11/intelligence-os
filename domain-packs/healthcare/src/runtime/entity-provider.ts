@@ -7,6 +7,7 @@ import type {
 import { hospitalIdentityDirectory } from "./hospital-identity-directory";
 import type { HospitalIdentityRecord } from "./hospital-identity-directory";
 import { HOSPITAL_FAMILIES } from "./hospital-family-directory";
+import { HOSPITAL_ALIASES } from "./hospital-alias-directory";
 import { COUNTIES, CITIES } from "./geographic-directory";
 import type { GeographicValue } from "./geographic-directory";
 import { OWNERSHIP } from "./ownership-directory";
@@ -150,6 +151,16 @@ export class HealthcareEntityProvider
 
       if (key && !this.hospitalsByName.has(key)) {
         this.hospitalsByName.set(key, [record]);
+      }
+    }
+
+    // Batch 5C: a short name for one facility ("Cedars Sinai") is also an exact name - unless it already is one.
+    // See hospital-alias-directory.ts.
+    for (const [alias, officialName] of Object.entries(HOSPITAL_ALIASES)) {
+      const records = this.hospitalsByName.get(officialName);
+
+      if (records && !this.hospitalsByName.has(alias)) {
+        this.hospitalsByName.set(alias, records);
       }
     }
   }

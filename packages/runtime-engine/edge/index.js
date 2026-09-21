@@ -141,6 +141,9 @@ function isLlmFirstFrontDoorEnabled() {
   const env = globalThis.process?.env;
   return env?.LLM_FIRST_FRONT_DOOR_ENABLED === "true";
 }
+function withoutEntityPhrases(normalizedQuery, matches) {
+  return matches.filter((match) => match.semanticType === "entity").reduce((text, match) => text.split(` ${match.phrase} `).join(" "), ` ${normalizedQuery} `).trim();
+}
 function createRuntimeEngine({
   runtime,
   semantic,
@@ -148,7 +151,8 @@ function createRuntimeEngine({
   executionPlanMapper,
   executor,
   llmFallback,
-  preprocessQuestion
+  preprocessQuestion,
+  unsupportedPrecheck
 }) {
   const engine = {
     async execute(incomingRequest) {
@@ -723,6 +727,16 @@ function createRuntimeEngine({
             );
             frontDoorUnaccounted = planner.findUnaccountedWords(resolved.normalizedQuery, resolved.matches, runtime.domain.entities).filter((word) => !rewriteWords.has(word));
           }
+        } else if (unsupportedPrecheck) {
+          const topics = unsupportedPrecheck(withoutEntityPhrases(resolved.normalizedQuery, resolved.matches));
+          if (topics.length > 0) {
+            declinedTerms = topics;
+            tracker.enter("llm-normalization");
+            tracker.exit("llm-normalization", "unsupported", 0, void 0, {
+              source: "pre-check",
+              unsupportedTerms: topics.join("; ").slice(0, 300)
+            });
+          }
         }
       }
       let result = declinedTerms ? {
@@ -753,11 +767,18 @@ function createRuntimeEngine({
             trace: [...tracker.gates, ...recursiveResult.trace ?? []]
           };
         }
+        const unknownNames = rewrite && "clarification" in rewrite && capturedExecutionPlan?.operation === "compare" ? (() => {
+          const resolvedAgain = semantic.resolve(request.question);
+          const capitalised = new Set(
+            request.question.split(/[^\p{L}\p{N}]+/u).filter(Boolean).slice(1).filter((token) => /^\p{Lu}/u.test(token)).map((token) => token.toLowerCase())
+          );
+          return planner.findUnaccountedWords(resolvedAgain.normalizedQuery, resolvedAgain.matches, runtime.domain.entities).filter((word) => capitalised.has(word));
+        })() : [];
         if (rewrite) {
           tracker.enter("llm-normalization");
           tracker.exit(
             "llm-normalization",
-            "clarification" in rewrite ? "clarification" : "unsupportedTerms" in rewrite ? "unsupported" : "unavailable",
+            "clarification" in rewrite && unknownNames.length === 0 ? "clarification" : "unsupportedTerms" in rewrite ? "unsupported" : "unavailable",
             0,
             void 0,
             {
@@ -766,7 +787,19 @@ function createRuntimeEngine({
             }
           );
         }
-        if (rewrite && "clarification" in rewrite) {
+        if (unknownNames.length > 0) {
+          tracker.enter("unaccounted-word-guard");
+          tracker.exit("unaccounted-word-guard", "refused", 0, "not_directly_answerable", {
+            unaccountedWords: unknownNames.join(" ")
+          });
+          result = {
+            success: false,
+            rows: [],
+            rowCount: 0,
+            error: "Unable to resolve question.",
+            answerability: { status: "not_directly_answerable", reason: "semantic-incomplete" }
+          };
+        } else if (rewrite && "clarification" in rewrite) {
           result = { ...result, error: rewrite.clarification };
         }
       }
