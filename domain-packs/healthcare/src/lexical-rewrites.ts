@@ -68,6 +68,19 @@ export const healthcareLexicalRewrites: readonly LexicalRewriteRule[] = [
   { pattern: "best experience", replacement: "patient experience" },
   { pattern: "for each state", replacement: "by state" },
   { pattern: "for each county", replacement: "by county" },
+  // Batch 5B-4: the emergency-services flag is written after "hospitals" ("hospitals with emergency services in Ohio",
+  // "hospitals in Texas that provide emergency services"); the ownership-word position ("emergency services hospitals
+  // in Ohio") is the shape the planner answers, exactly like "non-profit hospitals in Ohio".
+  { pattern: "hospitals with emergency services", replacement: "emergency services hospitals" },
+  { pattern: "hospitals that provide emergency services", replacement: "emergency services hospitals" },
+  { pattern: "hospitals that offer emergency services", replacement: "emergency services hospitals" },
+  { pattern: "hospitals providing emergency services", replacement: "emergency services hospitals" },
+  { pattern: "hospitals offering emergency services", replacement: "emergency services hospitals" },
+  { pattern: "hospitals provide emergency services", replacement: "emergency services hospitals" },
+  { pattern: "hospitals offer emergency services", replacement: "emergency services hospitals" },
+  { pattern: "that provide emergency services", replacement: "emergency services" },
+  { pattern: "that offer emergency services", replacement: "emergency services" },
+  { pattern: "with emergency services", replacement: "emergency services" },
 ];
 
 /**

@@ -10,6 +10,9 @@ import { chronicObstructivePulmonaryDisease } from "./chronic-obstructive-pulmon
 import { electivePrimaryThaTka } from "./elective-primary-tha-tka";
 import { heartFailure } from "./heart-failure";
 import { pneumonia } from "./pneumonia";
+import { hospitalWideMortality } from "./hospital-wide-mortality";
+import { psiConcepts } from "./psi";
+import { hcahpsDimensionConcepts } from "./hcahps-dimensions";
 
 export const concepts: readonly ConceptDefinition[] = [
   acuteMyocardialInfarction,
@@ -22,4 +25,7 @@ export const concepts: readonly ConceptDefinition[] = [
   electivePrimaryThaTka,
   heartFailure,
   pneumonia,
+  hospitalWideMortality,
+  ...psiConcepts,
+  ...hcahpsDimensionConcepts,
 ];

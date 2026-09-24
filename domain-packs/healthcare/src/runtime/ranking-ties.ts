@@ -1,6 +1,7 @@
 import type { SqlTemplateDefinition } from "@intelligence/domain-sdk";
 
 import { STATE_NAMES_BY_CODE } from "./execution-strategy";
+import { describeHospitalAttributeResult, HOSPITAL_ATTRIBUTE_PARAMETERS } from "./hospital-attribute-directory";
 
 /**
  * Batch 5A-1 (D5): the plain overall-rating ranking returns the first 10 hospitals of everything that ties for the
@@ -28,7 +29,10 @@ WHERE
     AND (:multiState = false OR UPPER(state) IN (:states))
     AND (:county IS NULL OR UPPER(county) = UPPER(:county))
     AND (:city IS NULL OR UPPER(city) = UPPER(:city))
-    AND (:ownership IS NULL OR UPPER(ownership) LIKE UPPER(:ownership));
+    AND (:ownership IS NULL OR UPPER(ownership) LIKE UPPER(:ownership))
+    AND (:hospitalType IS NULL OR UPPER(hospital_type) LIKE UPPER(:hospitalType))
+    AND (:emergencyServices IS NULL OR emergency_services = CAST(:emergencyServices AS BOOLEAN))
+    AND (:birthingFriendly IS NULL OR birthing_friendly = :birthingFriendly);
 `.trim(),
   type: "aggregation",
   parameters: [
@@ -38,6 +42,9 @@ WHERE
     { name: "county", type: "string", required: false, description: "Filter hospitals by county" },
     { name: "city", type: "string", required: false, description: "Filter hospitals by city" },
     { name: "ownership", type: "string", required: false, description: "Filter hospitals by ownership category, as a SQL LIKE pattern" },
+    { name: "hospitalType", type: "string", required: false, description: "Batch 5B-4: hospital_type LIKE pattern" },
+    { name: "emergencyServices", type: "string", required: false, description: "Batch 5B-4: 'true' for hospitals with emergency services" },
+    { name: "birthingFriendly", type: "string", required: false, description: "Batch 5B-4: 'Y' for birthing-friendly hospitals" },
     { name: "topRating", type: "string", required: false, description: "The overall rating whose holders are counted" },
   ],
   deterministic: true,
@@ -51,7 +58,7 @@ WHERE
  */
 const PLAIN_RANKING_COLUMNS = ["facility_id", "hospital_name", "state", "city", "county", "ownership", "overall_rating"];
 
-const SCOPE_PARAMETERS = ["states", "multiState", "state", "county", "city", "ownership"] as const;
+const SCOPE_PARAMETERS = ["states", "multiState", "state", "county", "city", "ownership", ...HOSPITAL_ATTRIBUTE_PARAMETERS] as const;
 
 export type TieSqlRunner = (
   template: SqlTemplateDefinition,
@@ -76,6 +83,15 @@ export async function describeOverallRatingTies(input: {
   const { rows, parameters, run } = input;
   const first = rows[0];
 
+  // Batch 5B-4: a hospital-type or flag filter has its own note first (D11 for an unrated type, or how many a nationwide
+  // list matched); otherwise the tie below is counted with those filters too (SCOPE_PARAMETERS).
+  const filtered = parameters !== undefined && HOSPITAL_ATTRIBUTE_PARAMETERS.some((name) => parameters[name] !== undefined);
+  const attributeNote = filtered ? await describeHospitalAttributeResult({ rows, parameters, run }) : undefined;
+
+  if (attributeNote) {
+    return attributeNote;
+  }
+
   if (!parameters || !first || parameters.multiState === true || rows.length < 2 || !PLAIN_RANKING_COLUMNS.every((column) => column in first)) {
     return undefined;
   }
@@ -95,8 +111,8 @@ export async function describeOverallRatingTies(input: {
     return undefined;
   }
 
-  const onlyState = typeof parameters.state === "string" && parameters.county === undefined && parameters.city === undefined && parameters.ownership === undefined;
-  const nationwide = scope.state === undefined && scope.county === undefined && scope.city === undefined && scope.ownership === undefined;
+  const onlyState = typeof parameters.state === "string" && parameters.county === undefined && parameters.city === undefined && parameters.ownership === undefined && !filtered;
+  const nationwide = scope.state === undefined && scope.county === undefined && scope.city === undefined && scope.ownership === undefined && !filtered;
 
   return formatTieNote(tied, rows.length, rating, {
     nationwide,

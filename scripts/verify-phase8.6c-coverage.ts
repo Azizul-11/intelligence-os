@@ -96,7 +96,10 @@ async function run() {
 
   // 3 - Puerto Rico overall-rating coverage (extreme real case).
   //
-  // "Puerto Rico" is not a resolvable state qualifier in the current
+  // Batch 5B-5: Puerto Rico is a registered jurisdiction now, so the same figure is also reached from natural
+  // language (3b below). The direct execution is kept as the template-level proof.
+  //
+  // Before 5B-5: "Puerto Rico" was not a resolvable state qualifier in the current
   // Healthcare STATES vocabulary (domain-packs/healthcare/src/runtime/
   // entity-provider.ts) - a pre-existing, out-of-scope semantic gap
   // confirmed by direct inspection, not something 8.6C may touch. The
@@ -123,6 +126,20 @@ async function run() {
         JSON.stringify({ success: coverageResult.success, row }),
       );
     }
+  }
+
+  // 3b - Batch 5B-5: the same Puerto Rico coverage from natural language.
+  {
+    const engine = makeRealEngine();
+    const result = await engine.execute({ question: "best hospitals in Puerto Rico", parameters: {} });
+    const fact = result.coverage?.find((f) => f.metric === "hospital-overall-rating");
+    const pass = result.success === true && fact?.eligibleCount === 60 && fact?.coveredCount === 7;
+    check(
+      "3B-PUERTO-RICO-NATURAL-LANGUAGE",
+      '"best hospitals in Puerto Rico" (Batch 5B-5): eligibleCount=60, coveredCount=7',
+      pass,
+      JSON.stringify({ success: result.success, coverage: result.coverage }),
+    );
   }
 
   // 4 - Mortality coverage must be independently computed, never reuse

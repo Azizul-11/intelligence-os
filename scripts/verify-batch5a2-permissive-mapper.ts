@@ -131,7 +131,10 @@ async function main() {
     check("a request that names no measure is answered, not refused or asked", /names no measure, condition or symptom/.test(prompt) && /Show me best hospitals/.test(prompt));
     check("a comparison with no hospital named is asked about, not refused", /A comparison with no hospital named/.test(prompt) && /need_clarification, reason/.test(prompt));
     check("for a condition, safest / best / strong / top all mean its lowest Mortality Rate (stated positively: naming the wrong metric primes a small model to write it)", prompt.includes('For a condition, "safest", "best", "strong" and "top" all mean its lowest Mortality Rate.'), "rule text missing");
-    check("the rewrite prompt stays within its size budget (10,200 chars)", prompt.length <= 10200, `chars=${prompt.length}`);
+    // Batch 5B-1: 10,200 -> 10,350; Batch 5B-2: 10,350 -> 11,300 (see the matching I1 guard in
+    // verify-llm-first-front-door.ts for the measurement and why the brief's own 10,500 estimate fell short).
+    // Batch 5B-3: 11,300 -> 11,800 (same measurement as I1). Batch 5B-4: 11,800 -> 12,200 (hospital types and flags).
+    check("the rewrite prompt stays within its size budget (12,200 chars)", prompt.length <= 12200, `chars=${prompt.length}`);
     console.log(`    [size] rewrite prompt = ${prompt.length} chars (5A-1: 8,795; before the 5A audit: 15,906)`);
 
     const summary = await systemPromptOf((g) => g.summarizeResult("q", [{ a: 1 }], undefined, wording), "ok");
@@ -164,8 +167,10 @@ async function main() {
     const meta = (unlisted as any)?.meta ?? {};
     check("the reading is recorded", meta.interpretation === "free parking" && meta.unsupported_terms === "free parking", JSON.stringify(meta));
     check("closest becomes at most 3 alternates, trimmed, one per line, empty and over-long entries dropped", meta.alternates === "Show me best hospitals\nShow me best hospitals in Texas\na fourth", JSON.stringify(meta.alternates));
-    const listed = mapNormalizerResult({ status: "unsupported", canonical_question: null, unsupported_terms: ["stroke care"] }, DOMAIN_CAPABILITIES) as any;
-    check("an unsupported ask that names a listed topic is still a binding refusal", Array.isArray(listed?.unsupportedTerms) && listed.unsupportedTerms[0] === "stroke care", JSON.stringify(listed));
+    // Batch 5B-1: "stroke" is a registered topic now (concepts/stroke.ts). Batch 5B-2: "sepsis" is too
+    // (concepts/sepsis.ts); "hospital acquired infections" still has no measure.
+    const listed = mapNormalizerResult({ status: "unsupported", canonical_question: null, unsupported_terms: ["hospital acquired infections"] }, DOMAIN_CAPABILITIES) as any;
+    check("an unsupported ask that names a listed topic is still a binding refusal", Array.isArray(listed?.unsupportedTerms) && listed.unsupportedTerms[0] === "hospital acquired infections", JSON.stringify(listed));
     check("markup in the model's reading is never passed on", ((mapNormalizerResult({ status: "unsupported", interpretation: "**free** parking" }, DOMAIN_CAPABILITIES) as any)?.meta ?? {}).interpretation === undefined);
     const ok = mapNormalizerResult({ status: "ok", canonical_question: "Show me hospitals in Florida", unsupported_terms: ["mental health"], closest: [] }, DOMAIN_CAPABILITIES) as any;
     check("an ok rewrite is unchanged by the new fields", ok?.canonicalQuestion === "Show me hospitals in Florida" && ok.meta?.unsupported_terms === "mental health" && ok.meta?.alternates === undefined, JSON.stringify(ok));
@@ -227,7 +232,9 @@ async function main() {
     const sqlExecutor = new SqlExecutor(new SupabaseDatabaseAdapter(createClient(env.supabaseUrl, env.supabaseServiceRoleKey)));
     const replies: Record<string, any> = {
       "hospitals with free parking": { status: "unsupported", canonical_question: null, unsupported_terms: ["free parking"], interpretation: "free parking", filler_dropped: [], closest: ["Show me best hospitals", "Show me best hospitals in Texas", "Show me hospitals with best Unicorn Score"] },
-      "hospitals that treat stroke": { status: "unsupported", canonical_question: null, unsupported_terms: ["stroke"], interpretation: "stroke care", closest: ["Show me best hospitals"] },
+      // Batch 5B-1: "stroke" is a registered topic now. Batch 5B-2: "sepsis" is too; "hospital acquired infections"
+      // still has no measure, so it still exercises this path.
+      "hospitals that treat hospital acquired infections": { status: "unsupported", canonical_question: null, unsupported_terms: ["hospital acquired infections"], interpretation: "hospital acquired infections", closest: ["Show me best hospitals"] },
       "mental health hospitals in Florida": { status: "ok", canonical_question: "Show me hospitals in Florida", unsupported_terms: ["mental health"], interpretation: null, filler_dropped: [] },
       "what is the weather in Dallas": { status: "unsupported", canonical_question: null, interpretation: null, closest: [], unsupported_terms: [] },
       "hospital that treats pneumonia well near Dallas Texas": { status: "ok", canonical_question: "Show me hospitals with best Safety Performance for Pneumonia in Dallas, Texas", interpretation: "Read 'treats pneumonia well' as best Safety Performance for Pneumonia" },
@@ -266,8 +273,8 @@ async function main() {
     check("the alternates are dry-run like every chip: the two answerable ones stay, the invented one goes", shown.join("|") === "Show me best hospitals|Show me best hospitals in Texas", shown.join("|"));
     check("the refusal is the generic dead end the intent-aware reply replaces", parking.error === "Unable to resolve question." || parking.error === "Unable to create query plan.", String(parking.error));
 
-    const stroke = await run("hospitals that treat stroke");
-    check("an unsupported ask that names a listed topic is refused with 0 SQL, whichever status word the model used", stroke.success === false && sqlCalls(stroke) === 0 && gateOf(stroke)?.status === "unsupported", JSON.stringify(gateOf(stroke)));
+    const haiRun = await run("hospitals that treat hospital acquired infections");
+    check("an unsupported ask that names a listed topic is refused with 0 SQL, whichever status word the model used", haiRun.success === false && sqlCalls(haiRun) === 0 && gateOf(haiRun)?.status === "unsupported", JSON.stringify(gateOf(haiRun)));
 
     const mental = await run("mental health hospitals in Florida");
     const mg = gateOf(mental);

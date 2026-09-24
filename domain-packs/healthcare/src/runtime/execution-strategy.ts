@@ -11,13 +11,27 @@ import { COUNTIES, CITIES } from "./geographic-directory";
 import { normalizeText, STATES } from "./entity-provider";
 import { hospitalIdentityDirectory } from "./hospital-identity-directory";
 import { generateHealthcareSuggestionsWithLLMRephrasing } from "./suggestion-generator";
+import { HOSPITAL_ATTRIBUTE_PARAMETERS, UNRATED_HOSPITAL_TYPES } from "./hospital-attribute-directory";
+import { healthcareSqlTemplates } from "../sql";
 
 export const STATE_NAMES_BY_CODE = new Map<string, string>(
   Array.from(STATES.entries()).map(([name, code]) => [
     code,
-    name.replace(/\b\w/g, (letter) => letter.toUpperCase()),
+    // Batch 5B-5: "District of Columbia", not "District Of Columbia".
+    name.replace(/\b\w/g, (letter) => letter.toUpperCase()).replace(/ Of /g, " of "),
   ]),
 );
+
+/** The metrics a concept's measureCodesByMetric can name, i.e. the ones that route by a measureCode filter. */
+const MEASURE_CODE_METRICS = new Set(["mortality-rate", "readmission-rate", "patient-safety-indicator", "patient-experience"]);
+
+/** Batch 5B-4: the declared parameters of every registered template, for the attribute-filter guard below. */
+const TEMPLATE_PARAMETERS = new Map<string, Set<string>>(
+  healthcareSqlTemplates.map((template) => [template.id, new Set((template.parameters ?? []).map((parameter) => parameter.name))]),
+);
+
+/** A single hospital's own dossier answers "is it birthing-friendly / does it have an ER?" from its columns. */
+const DOSSIER_TEMPLATES = new Set(["hospital-detail", "hospital-detail-by-facility-ids"]);
 
 export class HealthcareExecutionStrategy
   implements DomainExecutionStrategy
@@ -199,8 +213,51 @@ export class HealthcareExecutionStrategy
 
   /**
    * Phase 5.3: Select template using ExecutionPlan.
+   *
+   * Batch 5B-4: a hospital-type or attribute-flag filter (hospitalType, emergencyServices, birthingFriendly) decides
+   * three things on top of the ordinary selection:
+   * - D11: a type CMS never rates (psychiatric, children's, rural emergency) has no ranking to return, so it is listed
+   *   instead, and the answer's note says why (hospital-attribute-directory.ts);
+   * - a list with no place named uses the nationwide list (hospital-list-by-state requires a state);
+   * - a template that does not declare the filter's parameter would silently drop it (runtime-engine leaves an
+   *   undeclared scalar filter alone), so the request goes to an unregistered id instead: an honest refusal with 0 SQL,
+   *   and alternative discovery then only offers metrics whose template honours the filter. A single named hospital's
+   *   dossier is the exception: there the attribute is a question about that hospital, answered from its columns.
    */
   selectTemplateFromPlan(executionPlan: ExecutionPlan): string {
+    const attributeFields = executionPlan.filters
+      .map((filter) => filter.field)
+      .filter((field) => (HOSPITAL_ATTRIBUTE_PARAMETERS as readonly string[]).includes(field));
+
+    if (attributeFields.length === 0) {
+      return this.selectTemplateForPlan(executionPlan);
+    }
+
+    const hasHospitalFilter = executionPlan.filters.some((filter) => filter.field === "hospital");
+    const hasPlace = executionPlan.filters.some((filter) => filter.field === "state" || filter.field === "county" || filter.field === "city");
+    const hospitalType = executionPlan.filters.find((filter) => filter.field === "hospitalType")?.value;
+    const listTemplate = hasPlace ? "hospital-list-by-state" : "hospital-list-nationwide";
+
+    if (!hasHospitalFilter && typeof hospitalType === "string" && UNRATED_HOSPITAL_TYPES.has(hospitalType)) {
+      return listTemplate;
+    }
+
+    let templateId = this.selectTemplateForPlan(executionPlan);
+
+    if (templateId === "hospital-list-by-state" && !hasPlace) {
+      templateId = "hospital-list-nationwide";
+    }
+
+    const declared = TEMPLATE_PARAMETERS.get(templateId);
+
+    if (!declared || attributeFields.every((field) => declared.has(field)) || (hasHospitalFilter && DOSSIER_TEMPLATES.has(templateId))) {
+      return templateId;
+    }
+
+    return `${templateId}-without-hospital-attribute-filters`;
+  }
+
+  private selectTemplateForPlan(executionPlan: ExecutionPlan): string {
     // Tier1 Task 3: "hospital-detail" (the "tell me about"/"what can you
     // tell me about"/etc. metric - see aliases/hospital-detail.ts) is a
     // single-record-only profile lookup with no analytical capability at
@@ -299,11 +356,11 @@ export class HealthcareExecutionStrategy
     // (already resolved into `measureCode`) was silently dropped: a plain 97-row Florida listing answered a pneumonia
     // mortality question. When the plan carries a condition measure and a mortality / readmission metric alongside the
     // listing metric, that metric decides the template; the ownership / state filters still ride along.
+    // Batch 5B-2/5B-3: the same holds for the patient-safety-indicator and patient-experience measures (a survey
+    // dimension or a PSI named after "hospitals in <place>" would otherwise be dropped for a plain listing).
     const routedMetric =
       executionPlan.metric === "hospital-list" && measureCodeFilter
-        ? (executionPlan.metrics?.find(
-            (candidate) => candidate.metric === "mortality-rate" || candidate.metric === "readmission-rate",
-          )?.metric ?? executionPlan.metric)
+        ? (executionPlan.metrics?.find((candidate) => MEASURE_CODE_METRICS.has(candidate.metric))?.metric ?? executionPlan.metric)
         : executionPlan.metric;
 
     if (
@@ -317,6 +374,20 @@ export class HealthcareExecutionStrategy
 
       if (routedMetric === "readmission-rate") {
         return "hospital-condition-readmission-ranking";
+      }
+
+      // Batch 5B-2: a patient-safety-indicator measureCode (PSI_03..PSI_15, PSI_90) routes to its own ranking
+      // template - never to the mortality one above (a complication/death-after-complication rate is not a
+      // mortality rate; see concepts/psi.ts's own comment on the pre-existing COMP_HIP_KNEE mislabeling this
+      // deliberately avoids repeating).
+      if (routedMetric === "patient-safety-indicator") {
+        return "hospital-condition-safety-indicator-ranking";
+      }
+
+      // Batch 5B-3: a patient-survey dimension (concepts/hcahps-dimensions.ts) routes to its own ranking; the
+      // composite patient-experience-ranking (no measureCode) is unchanged.
+      if (routedMetric === "patient-experience") {
+        return "hospital-hcahps-dimension-ranking";
       }
     }
 
@@ -399,6 +470,12 @@ export class HealthcareExecutionStrategy
 
         if (executionPlan.metric === "readmission-rate") {
           return "hospital-condition-readmission-ranking";
+        }
+
+        // Batch 5B-3: without this, a survey dimension compared across states fell through to the composite
+        // patient-experience-ranking below, which ignores measureCode - a silently different answer.
+        if (executionPlan.metric === "patient-experience") {
+          return "hospital-hcahps-dimension-ranking";
         }
       }
 

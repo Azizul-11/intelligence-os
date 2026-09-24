@@ -76,7 +76,9 @@ async function main() {
   console.log(`"heart attack death rate" -> success=${result.success} suggestions=${JSON.stringify(suggestions)}`);
   check("D1-CONCEPT-SUGGESTIONS-PRESENT", "concept query returns 3 suggestions", result.success === true && suggestions.length === 3, JSON.stringify(suggestions));
   const mentionsOtherConcept = suggestions.some((s) =>
-    /copd|bypass|cabg|heart failure|pneumonia|hip|knee|sepsis/i.test(s) && !/heart attack|ami/i.test(s),
+    // Batch 5B-1..5B-3: stroke, hospital-wide mortality, the PSIs and the survey dimensions are concepts in the pivot pool too.
+    /copd|bypass|cabg|heart failure|pneumonia|hip|knee|sepsis|stroke|hospital-wide|pressure ulcer|postoperative|perioperative|fracture|puncture|pneumothorax|patient safety composite|cleanliness|quietness|communication|discharge|recommend|survey/i.test(s) &&
+      !/heart attack|ami/i.test(s),
   );
   check("D2-CONCEPT-PIVOT-PRESENT", "at least one suggestion pivots to a DIFFERENT clinical concept", mentionsOtherConcept, JSON.stringify(suggestions));
   for (const suggestion of suggestions) {

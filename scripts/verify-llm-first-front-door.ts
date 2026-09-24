@@ -378,7 +378,22 @@ async function main() {
     console.log(`    [I1] normalizer system prompt = ${prompt.length} chars (was 15,906)`);
     // Batch 5A-2: 9,000 -> 10,200. The `unsupported` / `closest` contract, the vague-request rule and three format examples
     // add about 1,250 chars (8,795 -> 10,059); still a third under the 15,906 this guard was written against.
-    check("I1", "normalizer prompt <= 10,200 chars (was 15,906 = 3,730 tokens)", prompt.length > 0 && prompt.length <= 10200, `chars=${prompt.length}`);
+    // Batch 5B-1: 10,200 -> 10,350. Registering Stroke and Hospital-Wide Mortality as CONDITIONS and four ownership
+    // sub-labels (church-owned, physician-owned, tribal, military) in the compact layout measures 10,337 chars - the
+    // 5B audit's own D8 proposal (10,300) was a pre-implementation estimate, 37 chars short of the measured size.
+    // Batch 5B-2: 10,350 -> 11,300. 12 new PSI-family CONDITIONS (11 PSIs + Postoperative Sepsis), each shown with
+    // only its display name repeated as its one bracketed alias (capability-catalog.ts's COMPACT_PROMPT_CONCEPT_IDS
+    // - the full synonym lists live only in aliases/psi.ts and aliases/sepsis.ts, costing no prompt tokens), still
+    // measures 11,248 chars: the brief's proposed 10,500 (a +150 estimate) did not anticipate that the universal
+    // CONDITIONS renderer (packages/llm-model-gateway, not editable here) always shows the display name a second
+    // time in brackets, or that a 12-concept batch is far larger than any prior single batch's CONDITIONS growth.
+    // Batch 5B-3: 11,300 -> 11,800. The 9 patient-survey dimensions are named once in RULE 3(e) (not as bracketed
+    // CONDITIONS), plus the D4 "communication" clarification with its reason and a "survey star rating" cue: measured
+    // 11,747. Without the two cues (11,673) the model mapped "patient survey star ratings" to the wrong dimension (1 in 2
+    // live) and skipped the clarification; with them 0/5 wrong dimension and 4/5 clarifications.
+    // Batch 5B-4: 11,800 -> 12,200 (the brief cleared up to 13,000-15,000). RULE 3(f) names the 5 hospital types and
+    // the 2 flags once, RULE 1 keeps them as slots and RULE 6 no longer reports them: measured 12,077.
+    check("I1", "normalizer prompt <= 12,200 chars (was 15,906 = 3,730 tokens)", prompt.length > 0 && prompt.length <= 12200, `chars=${prompt.length}`);
     check("I2", 'normalizer prompt keeps the city slot and the missing-"in" rule (the frontend-failure fix)', prompt.includes("in <City>, <State>") && prompt.includes('the "in" may be missing'), "city-slot / no-in rule text missing from prompt");
   }
 

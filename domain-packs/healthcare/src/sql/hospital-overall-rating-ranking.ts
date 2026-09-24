@@ -32,7 +32,10 @@ WITH ranked_facilities AS (
         AND (:county IS NULL OR UPPER(county) = UPPER(:county))
         AND (:city IS NULL OR UPPER(city) = UPPER(:city))
         AND (:ownership IS NULL OR UPPER(ownership) LIKE UPPER(:ownership))
-        AND (:overallRating IS NULL OR overall_rating = :overallRating)
+        AND (:overallRating IS NULL OR overall_rating = :overallRating)
+        AND (:hospitalType IS NULL OR UPPER(hospital_type) LIKE UPPER(:hospitalType))
+        AND (:emergencyServices IS NULL OR emergency_services = CAST(:emergencyServices AS BOOLEAN))
+        AND (:birthingFriendly IS NULL OR birthing_friendly = :birthingFriendly)
 )
 SELECT
     facility_id,
@@ -93,6 +96,24 @@ ORDER BY overall_rating :direction NULLS LAST, state ASC, hospital_name ASC
       type: "string",
       required: false,
       description: "Filter hospitals by exact overall_rating value 1-5 (Pre-Phase 9 Tier1 Task 2)",
+    },
+    {
+      name: "hospitalType",
+      type: "string",
+      required: false,
+      description: "Batch 5B-4: filter by hospital_type, as a SQL LIKE pattern (runtime/hospital-attribute-directory.ts)",
+    },
+    {
+      name: "emergencyServices",
+      type: "string",
+      required: false,
+      description: "Batch 5B-4: 'true' keeps only hospitals that provide emergency services",
+    },
+    {
+      name: "birthingFriendly",
+      type: "string",
+      required: false,
+      description: "Batch 5B-4: 'Y' keeps only CMS Birthing-Friendly hospitals",
     },
     {
       name: "direction",

@@ -31,6 +31,12 @@ export * from "./copd";
 export * from "./hip-knee";
 export * from "./heart-failure";
 export * from "./pneumonia";
+export * from "./stroke";
+export * from "./hospital-wide-mortality";
+export * from "./psi";
+export * from "./sepsis";
+export * from "./patient-safety-indicator";
+export * from "./hcahps-dimensions";
 
 import { acuteMyocardialInfarctionAlias } from "./acute-myocardial-infarction";
 import { cmsAlias } from "./cms";
@@ -65,6 +71,35 @@ import { copdAlias } from "./copd";
 import { hipKneeAlias } from "./hip-knee";
 import { heartFailureAlias } from "./heart-failure";
 import { pneumoniaAlias } from "./pneumonia";
+import { strokeAlias } from "./stroke";
+import { hospitalWideMortalityAlias } from "./hospital-wide-mortality";
+import {
+  pressureUlcerAlias,
+  deathAfterSeriousSurgicalComplicationAlias,
+  iatrogenicPneumothoraxAlias,
+  inHospitalFallWithFractureAlias,
+  postoperativeHemorrhageOrHematomaAlias,
+  postoperativeAcuteKidneyInjuryAlias,
+  postoperativeRespiratoryFailureAlias,
+  perioperativeBloodClotAlias,
+  postoperativeWoundDehiscenceAlias,
+  accidentalPunctureOrLacerationAlias,
+  patientSafetyCompositeAlias,
+} from "./psi";
+import { sepsisAlias } from "./sepsis";
+import { patientSafetyIndicatorAlias } from "./patient-safety-indicator";
+import {
+  hcahpsCleanlinessAlias,
+  hcahpsNurseCommunicationAlias,
+  hcahpsDoctorCommunicationAlias,
+  hcahpsMedicineCommunicationAlias,
+  hcahpsDischargeInformationAlias,
+  hcahpsQuietnessAlias,
+  hcahpsRecommendAlias,
+  hcahpsOverallSurveyRatingAlias,
+  hcahpsSummaryStarAlias,
+  hcahpsDimensionMetricAlias,
+} from "./hcahps-dimensions";
 
 export const healthcareAliases = [
   acuteMyocardialInfarctionAlias,
@@ -100,4 +135,29 @@ export const healthcareAliases = [
   hipKneeAlias,
   heartFailureAlias,
   pneumoniaAlias,
+  strokeAlias,
+  hospitalWideMortalityAlias,
+  pressureUlcerAlias,
+  deathAfterSeriousSurgicalComplicationAlias,
+  iatrogenicPneumothoraxAlias,
+  inHospitalFallWithFractureAlias,
+  postoperativeHemorrhageOrHematomaAlias,
+  postoperativeAcuteKidneyInjuryAlias,
+  postoperativeRespiratoryFailureAlias,
+  perioperativeBloodClotAlias,
+  postoperativeWoundDehiscenceAlias,
+  accidentalPunctureOrLacerationAlias,
+  patientSafetyCompositeAlias,
+  sepsisAlias,
+  patientSafetyIndicatorAlias,
+  hcahpsCleanlinessAlias,
+  hcahpsNurseCommunicationAlias,
+  hcahpsDoctorCommunicationAlias,
+  hcahpsMedicineCommunicationAlias,
+  hcahpsDischargeInformationAlias,
+  hcahpsQuietnessAlias,
+  hcahpsRecommendAlias,
+  hcahpsOverallSurveyRatingAlias,
+  hcahpsSummaryStarAlias,
+  hcahpsDimensionMetricAlias,
 ] as const;

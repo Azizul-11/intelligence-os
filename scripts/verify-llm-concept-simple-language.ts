@@ -9,12 +9,10 @@
  * capability catalog had zero awareness of clinical concepts at all
  * (only top-level metrics/states/ownerships).
  *
- * `sepsis rate` is deliberately included as a NEGATIVE control: sepsis
- * is a registered `ConceptDefinition` with no `measureCodesByMetric` (no
- * real warehouse measure code backs it) - it must keep failing honestly
- * (`success:false`), never be forced into a fabricated answer. Confirmed
- * live before writing this script that `CONCEPTS_WITH_REAL_MEASURES` in
- * `capability-catalog.ts` correctly excludes it.
+ * `hospital acquired infections` is deliberately included as a NEGATIVE control: the warehouse has no HAI measure
+ * code at all - it must keep failing honestly (`success:false`), never be forced into a fabricated answer.
+ * (Batch 5B-2: "sepsis rate" no longer serves as this control - PSI_13 gave it a real measureCodesByMetric mapping,
+ * see concepts/sepsis.ts.)
  *
  * Run: npx tsx scripts/verify-llm-concept-simple-language.ts
  */
@@ -92,11 +90,11 @@ async function main() {
   await run("B8-HIP-KNEE", "hip and knee complication");
   await run("B9-COPD", "COPD readmission");
 
-  console.log("\n--- negative control: sepsis has no real measure code, must keep failing honestly ---");
+  console.log("\n--- negative control: hospital acquired infections has no real measure code, must keep failing honestly ---");
   {
-    const result = await engine.execute({ question: "sepsis rate" });
-    console.log(`    [B10-SEPSIS-CONTROL] "sepsis rate" -> success=${result.success} error=${JSON.stringify(result.error)}`);
-    check("B10-SEPSIS-CONTROL", "sepsis (no real measure code) correctly fails, never fabricates an answer", result.success === false, JSON.stringify(result));
+    const result = await engine.execute({ question: "hospital acquired infections" });
+    console.log(`    [B10-HAI-CONTROL] "hospital acquired infections" -> success=${result.success} error=${JSON.stringify(result.error)}`);
+    check("B10-HAI-CONTROL", "hospital acquired infections (no real measure code) correctly fails, never fabricates an answer", result.success === false, JSON.stringify(result));
   }
 
   console.log("\n" + "=".repeat(100));

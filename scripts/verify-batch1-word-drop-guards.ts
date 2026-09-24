@@ -116,8 +116,18 @@ check("gateway failure with no provenance maps to null", mapNormalizerResult({ s
 
 console.log("\nStep 1.3b - the domain catalog lists unsupported topics, derived");
 const topics = DOMAIN_CAPABILITIES.unsupportedTopics;
-check("derived from concepts with no measure: stroke, sepsis", topics.includes("stroke") && topics.includes("sepsis"), topics.slice(0, 6).join(","));
-check("known gaps are listed (nurse communication, emergency services, psi)", ["nurse communication", "emergency services", "psi"].every((t) => topics.includes(t)));
+// Batch 5B-1: stroke and hospital-wide mortality now have a measureCodesByMetric mapping (concepts/stroke.ts,
+// concepts/hospital-wide-mortality.ts), so they drop out of this derived list.
+// Batch 5B-2: sepsis (concepts/sepsis.ts) also has one now; emergency-department still has none.
+check(
+  "derived from concepts with no measure: emergency department (stroke and sepsis are registered now)",
+  topics.includes("emergency department") && !topics.includes("stroke") && !topics.includes("sepsis"),
+  topics.slice(0, 6).join(","),
+);
+// Batch 5B-2: "psi" is registered now (concepts/psi.ts); "hospital acquired infections" still has no measure.
+// Batch 5B-3: "nurse communication" is a registered survey dimension now; staff responsiveness has no data.
+// Batch 5B-4: "emergency services" is a registered hospital flag now; emergency-room wait times have no data.
+check("known gaps are listed (staff responsiveness, wait times, hospital acquired infections)", ["staff responsiveness", "wait times", "hospital acquired infections"].every((t) => topics.includes(t)));
 check("supported vocabulary is never listed (patient satisfaction, mortality, readmission, safety, overall rating)", !["patient satisfaction", "mortality", "readmission", "safety", "overall rating"].some((t) => topics.includes(t)));
 
 // ------------------------------------------------------------------------------------------ engine (Steps 1.2 and 1.3)
@@ -149,10 +159,12 @@ const ranSql = (r: any) => (r.trace ?? []).some((t: any) => t.phase === "determi
 
 async function engineChecks() {
 // 1.3: a binding decline is refused with 0 SQL and shows what the LLM could not map
-let r = await run("stroke mortality", async () => ({ unsupportedTerms: ["stroke"], meta: prov }));
+// Batch 5B-1: "stroke" is a registered topic now (concepts/stroke.ts), so this mechanism test uses a topic that
+// stays unsupported - the engine's binding-decline contract itself does not depend on which word it is.
+let r = await run("hospital acquired infections", async () => ({ unsupportedTerms: ["hospital acquired infections"], meta: prov }));
 check("binding decline: refused, semantic-incomplete, no rows", !r.success && r.answerability?.reason === "semantic-incomplete" && r.rowCount === 0);
 check("binding decline: 0 SQL (the warehouse gate is never entered)", !ranSql(r));
-check("binding decline: trace `llm-normalization` = unsupported with the terms and the tier", gate(r, "llm-normalization")?.status === "unsupported" && gate(r, "llm-normalization")?.detail?.unsupportedTerms === "stroke" && gate(r, "llm-normalization")?.detail?.provider === "test");
+check("binding decline: trace `llm-normalization` = unsupported with the terms and the tier", gate(r, "llm-normalization")?.status === "unsupported" && gate(r, "llm-normalization")?.detail?.unsupportedTerms === "hospital acquired infections" && gate(r, "llm-normalization")?.detail?.provider === "test");
 
 // 1.3: a decline that names nothing keeps today's behaviour (C071 / D058 depend on it). Batch 3: "rated" is understood on
 // the first pass now, so C071 no longer reaches the LLM front door at all; D058 still does and still needs this.
@@ -166,9 +178,10 @@ check("rewrite: answered", r.success && r.rowCount > 0, `success=${r.success} ro
 check("rewrite: trace `llm-normalization` = rewritten with canonicalQuestion and the tier", gate(r, "llm-normalization")?.status === "rewritten" && gate(r, "llm-normalization")?.detail?.canonicalQuestion === "Show me hospitals in Ohio" && gate(r, "llm-normalization")?.detail?.provider === "test");
 
 // 1.2: a word the user typed that survives the rewrite unresolved is refused
-r = await run("hospitals in Washington DC", async () => ({ canonicalQuestion: "Show me hospitals in Washington, DC", meta: prov }));
-check("guard: `DC` kept by the rewrite and resolved by nothing is refused, 0 SQL", !r.success && r.answerability?.reason === "semantic-incomplete" && !ranSql(r));
-check("guard: trace names the word", gate(r, "unaccounted-word-guard")?.detail?.unaccountedWords === "dc", JSON.stringify(gate(r, "unaccounted-word-guard")?.detail));
+// Batch 5B-5: DC is a registered jurisdiction now (entity-provider.ts STATES); a fictional place is the unresolved word.
+r = await run("hospitals in Wakanda", async () => ({ canonicalQuestion: "Show me hospitals in Wakanda", meta: prov }));
+check("guard: `Wakanda` kept by the rewrite and resolved by nothing is refused, 0 SQL", !r.success && r.answerability?.reason === "semantic-incomplete" && !ranSql(r));
+check("guard: trace names the word", gate(r, "unaccounted-word-guard")?.detail?.unaccountedWords === "wakanda", JSON.stringify(gate(r, "unaccounted-word-guard")?.detail));
 
 // 1.2: a word the rewrite itself introduced is ignored
 r = await run("hospitals with good hip and knee readmission performance", async () => ({ canonicalQuestion: "Show me hospitals with lowest Readmission Rate for Elective Primary Hip/Knee Arthroplasty", meta: prov }));

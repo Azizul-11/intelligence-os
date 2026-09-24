@@ -10,6 +10,7 @@ export * from "./hospital-count";
 export * from "./hospital-list";
 export * from "./safety-performance";
 export * from "./hospital-detail";
+export * from "./patient-safety-indicator";
 
 import { hospitalOverallRatingMetric } from "./hospital-overall-rating";
 import { mortalityRateMetric } from "./mortality-rate";
@@ -21,6 +22,7 @@ import { hospitalCountMetric } from "./hospital-count";
 import { hospitalListMetric } from "./hospital-list";
 import { safetyPerformanceMetric } from "./safety-performance";
 import { hospitalDetailMetric } from "./hospital-detail";
+import { patientSafetyIndicatorMetric } from "./patient-safety-indicator";
 
 export const healthcareMetrics = [
   hospitalOverallRatingMetric,
@@ -33,4 +35,5 @@ export const healthcareMetrics = [
   hospitalListMetric,
   safetyPerformanceMetric,
   hospitalDetailMetric,
+  patientSafetyIndicatorMetric,
 ] as const;

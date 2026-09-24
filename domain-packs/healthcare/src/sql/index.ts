@@ -12,6 +12,7 @@ export * from "./hospital-overall-rating-ranking-coverage";
 export * from "./mortality-rate-ranking-coverage";
 export * from "./hospital-count-by-state";
 export * from "./hospital-list-by-state";
+export * from "./hospital-list-nationwide";
 export * from "./safety-performance-ranking";
 export * from "./hospital-overall-rating-by-facility-ids";
 export * from "./mortality-rate-by-facility-ids";
@@ -28,6 +29,8 @@ export * from "./hospital-detail";
 export * from "./hospital-detail-by-facility-ids";
 export * from "./hospital-condition-mortality-ranking";
 export * from "./hospital-condition-readmission-ranking";
+export * from "./hospital-condition-safety-indicator-ranking";
+export * from "./hospital-hcahps-dimension-ranking";
 
 import { hospitalOverallRatingSqlTemplate } from "./hospital-overall-rating";
 import { mortalityRateSqlTemplate } from "./mortality-rate";
@@ -46,6 +49,7 @@ import { mortalityRateRankingCoverageSqlTemplate }
 from "./mortality-rate-ranking-coverage";
 import { hospitalCountByStateSqlTemplate } from "./hospital-count-by-state";
 import { hospitalListByStateSqlTemplate } from "./hospital-list-by-state";
+import { hospitalListNationwideSqlTemplate } from "./hospital-list-nationwide";
 import { safetyPerformanceRankingSqlTemplate } from "./safety-performance-ranking";
 import { hospitalOverallRatingByFacilityIdsSqlTemplate } from "./hospital-overall-rating-by-facility-ids";
 import { mortalityRateByFacilityIdsSqlTemplate } from "./mortality-rate-by-facility-ids";
@@ -62,6 +66,8 @@ import { hospitalDetailSqlTemplate } from "./hospital-detail";
 import { hospitalDetailByFacilityIdsSqlTemplate } from "./hospital-detail-by-facility-ids";
 import { hospitalConditionMortalityRankingSqlTemplate } from "./hospital-condition-mortality-ranking";
 import { hospitalConditionReadmissionRankingSqlTemplate } from "./hospital-condition-readmission-ranking";
+import { hospitalConditionSafetyIndicatorRankingSqlTemplate } from "./hospital-condition-safety-indicator-ranking";
+import { hospitalHcahpsDimensionRankingSqlTemplate } from "./hospital-hcahps-dimension-ranking";
 
 export const healthcareSqlTemplates = [
     hospitalOverallRatingSqlTemplate,
@@ -78,6 +84,7 @@ export const healthcareSqlTemplates = [
     lengthOfStaySqlTemplate,
     hospitalCountByStateSqlTemplate,
     hospitalListByStateSqlTemplate,
+    hospitalListNationwideSqlTemplate,
     safetyPerformanceRankingSqlTemplate,
     hospitalOverallRatingByFacilityIdsSqlTemplate,
     mortalityRateByFacilityIdsSqlTemplate,
@@ -94,4 +101,6 @@ export const healthcareSqlTemplates = [
     hospitalDetailByFacilityIdsSqlTemplate,
     hospitalConditionMortalityRankingSqlTemplate,
     hospitalConditionReadmissionRankingSqlTemplate,
+    hospitalConditionSafetyIndicatorRankingSqlTemplate,
+    hospitalHcahpsDimensionRankingSqlTemplate,
 ] as const;

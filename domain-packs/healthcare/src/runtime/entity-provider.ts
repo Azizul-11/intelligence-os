@@ -12,6 +12,7 @@ import { COUNTIES, CITIES } from "./geographic-directory";
 import type { GeographicValue } from "./geographic-directory";
 import { OWNERSHIP } from "./ownership-directory";
 import { STAR_RATINGS } from "./star-rating-directory";
+import { BIRTHING_FRIENDLY, EMERGENCY_SERVICES, HOSPITAL_TYPES } from "./hospital-attribute-directory";
 
 /**
  * Phase 8.3 / Phase 9 Tier0 Task 1: presents a candidate facility as
@@ -108,6 +109,24 @@ export const STATES = new Map<string, string>([
   ["west virginia", "WV"],
   ["wisconsin", "WI"],
   ["wyoming", "WY"],
+  // Batch 5B-5: DC and the five territories (the warehouse holds 76 hospitals across them). Full names only for
+  // AS, MP and VI (D7: "as", "mp" and "vi" are ordinary words or numerals); "DC", "PR" and "GU" are also expanded
+  // from their uppercase code by state-abbreviation-preprocessor.ts. "washington dc" is longer than "washington", so
+  // the semantic pipeline's longer-span rule picks DC for it while "hospitals in Washington" stays WA. The last key
+  // written for a code is its display name (STATE_NAMES_BY_CODE).
+  ["dc", "DC"],
+  ["d c", "DC"],
+  ["washington dc", "DC"],
+  ["washington d c", "DC"],
+  ["washington district of columbia", "DC"],
+  ["district of columbia", "DC"],
+  ["puerto rico", "PR"],
+  ["guam", "GU"],
+  ["u s virgin islands", "VI"],
+  ["us virgin islands", "VI"],
+  ["virgin islands", "VI"],
+  ["american samoa", "AS"],
+  ["northern mariana islands", "MP"],
 ]);
 
 // Batch 2 (2.5): informal names for a city the directory holds under its formal name. Exact literals only (matched on
@@ -216,6 +235,32 @@ export class HealthcareEntityProvider
         value: starRating,
         phrase,
       };
+    }
+
+    // Batch 5B-4: hospital type and the two attribute flags, the same bare-phrase resolution as ownership and star
+    // rating. A phrase that is itself a full hospital name stays that hospital (precedence rule); a longer name that
+    // merely contains a type word ("Children's Hospital of Philadelphia") is a different phrase, and the semantic
+    // pipeline drops a type span contained in a resolved hospital span.
+    const attributeKey = normalizeText(phrase);
+
+    if (!this.hospitalsByName.has(attributeKey)) {
+      const hospitalType = HOSPITAL_TYPES.get(attributeKey);
+
+      if (hospitalType) {
+        return { found: true, entityId: "hospital-type", value: hospitalType.likePattern, phrase };
+      }
+
+      const emergencyServices = EMERGENCY_SERVICES.get(attributeKey);
+
+      if (emergencyServices) {
+        return { found: true, entityId: "emergency-services", value: emergencyServices, phrase };
+      }
+
+      const birthingFriendly = BIRTHING_FRIENDLY.get(attributeKey);
+
+      if (birthingFriendly) {
+        return { found: true, entityId: "birthing-friendly", value: birthingFriendly, phrase };
+      }
     }
 
     // Pre-Phase 9 Tier0 Task 1: Bare county/city resolution for queries

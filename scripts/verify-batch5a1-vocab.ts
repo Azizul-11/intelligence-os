@@ -58,6 +58,7 @@ const COPD = "Show me hospitals with lowest Mortality Rate for COPD";
 const PN = "Show me hospitals with lowest Mortality Rate for Pneumonia";
 const HIP_KNEE = "Show me hospitals with lowest hip and knee replacement complication rate";
 const BEST = "Show me best hospitals";
+const STROKE = "Show me hospitals with lowest Mortality Rate for Stroke"; // Batch 5B-1
 
 const placeWords = new Set(DOMAIN_CAPABILITIES.states.flatMap((s) => s.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)));
 const map = (q: string) => mapLayLanguage(q, DOMAIN_CAPABILITIES.layVocabulary!, { placeWords });
@@ -87,15 +88,33 @@ async function main() {
     check(`"${phrase}" is no longer an unsupported topic`, !DOMAIN_CAPABILITIES.unsupportedTopics.includes(phrase));
   }
   const STILL_REFUSED: [string, string][] = [
-    ["stroke hospitals", "stroke"], ["sepsis hospitals", "sepsis"], ["birthing friendly", "birthing friendly"], ["military hospitals", "military"],
-    ["church owned", "church owned"], ["department of defense", "department of defense"], ["decile", "decile"], ["hospitals in DC", "dc"],
-    ["hospitals in D.C.", "d.c."], ["district of columbia hospitals", "district of columbia"], ["write me a poem about hospitals", "poem"],
-    ["which hospitals are best since 2020", "since"], ["emergency department", "emergency department"], ["hospital wide mortality", "hospital wide"],
-    ["all cause mortality", "all cause"], ["sanitary hospitals", "sanitary"], ["cleanest hospitals", "cleanest"], ["emergency services", "emergency services"],
-    ["hospital type", "hospital type"], ["ED waits in Texas", "ed waits"], ["hospital volumes", "volumes"], ["hospital prices in Texas", "prices"],
-    ["best doctors in Ohio", "doctors"], ["time trends of ratings", "time trends"], ["nurse communication scores", "nurse communication"],
+    // Batch 5B-1: stroke, hospital-wide mortality and the ownership sub-labels (military, church-owned, department
+    // of defense, physician-owned, tribal) are registered now - their own readmission/complication wording, which
+    // the warehouse has no measure for, replaces them here.
+    ["stroke readmission", "stroke readmission"], ["ER wait times", "wait times"],
+    ["hospital wide readmission", "hospital wide readmission"], ["decile", "decile"],
+    // Batch 5B-5: DC is a registered jurisdiction now; a region takes its place.
+    ["hospitals in the bay area", "bay area"], ["write me a poem about hospitals", "poem"],
+    ["which hospitals are best since 2020", "since"], ["emergency department", "emergency department"],
+    // Batch 5B-3: "sanitary"/"cleanest" are survey wording now; the survey details with no data replace them.
+    ["staff responsiveness scores", "staff responsiveness"], ["care transition", "care transition"],
+    // Batch 5B-4: "emergency services", "birthing friendly" and "hospital type" are registered hospital types / flags now.
+    ["ER waits", "er waits"], ["ED waits in Texas", "ed waits"], ["hospital volumes", "volumes"], ["hospital prices in Texas", "prices"],
+    ["best doctors in Ohio", "doctors"], ["time trends of ratings", "time trends"], ["nurses listen carefully", "listen carefully"],
     ["how much does an MRI cost", "how much does"],
+    // Batch 5B-2: bare "sepsis hospitals" is registered now (the new sepsis-rate lay group); its mortality/survival/
+    // recovery wording, which the warehouse has no measure for, replaces it here.
+    ["sepsis mortality hospitals", "sepsis mortality"], ["hospital acquired infections", "hospital acquired infections"],
   ];
+  const NOW_SUPPORTED = [
+    "stroke hospitals", "military hospitals", "church owned hospitals", "department of defense hospitals", "hospital wide mortality",
+    // Batch 5B-2
+    "sepsis hospitals", "postoperative sepsis rate", "pressure ulcer rate", "in-hospital falls with fracture",
+    "postoperative kidney injury requiring dialysis", "blood clots after surgery", "patient safety indicators", "PSI 90 composite",
+  ];
+  for (const question of NOW_SUPPORTED) {
+    check(`Batch 5B-1: "${question}" is no longer refused`, precheckUnsupported(question, DOMAIN_CAPABILITIES).length === 0, JSON.stringify(precheckUnsupported(question, DOMAIN_CAPABILITIES)));
+  }
   for (const [question, topic] of STILL_REFUSED) {
     check(`still refused: "${question}" (${topic})`, precheckUnsupported(question, DOMAIN_CAPABILITIES).includes(topic), JSON.stringify(precheckUnsupported(question, DOMAIN_CAPABILITIES)));
   }
@@ -164,7 +183,9 @@ async function main() {
   const UNMAPPED = [
     "worst hospital for heart problem", "top 5 hospitals for heart problem", "heart problem and breathing problem", "pneumonia readmissions in Texas",
     "pneumonia complicatons", "hospitals in Hart County", "which hospital is safest for my dad knee replacement in Georgia", "heart problem houston",
-    "Show me hospitals with lowest Mortality Rate for Pneumonia", "hospitals in Texas", "best hospital", "stroke hospitals", "heart failure vs heart attack in Texas",
+    // Batch 5B-1: "stroke hospitals" is mapped now (the new stroke group below); "stroke readmissions" (a blocker
+    // word) takes its place as a phrase this mapper must still leave to the pipeline / model.
+    "Show me hospitals with lowest Mortality Rate for Pneumonia", "hospitals in Texas", "best hospital", "stroke readmissions in Texas", "heart failure vs heart attack in Texas",
   ];
   for (const q of UNMAPPED) {
     check(`not rewritten: "${q}"`, map(q).mapped === undefined, JSON.stringify(map(q).mapped));
@@ -187,10 +208,14 @@ async function main() {
   const mapped = await hook("penumonia checkup");
   check("mapped phrase -> canonicalQuestion with lay-vocabulary meta, model NOT called", mapped?.canonicalQuestion === PN && mapped?.meta?.source === "lay-vocabulary" && modelCalls === 0, JSON.stringify(mapped));
   check("meta carries interpretation, filler_dropped, corrected, alternates", typeof mapped?.meta?.interpretation === "string" && mapped.meta.filler_dropped === "checkup" && mapped.meta.corrected === "penumonia > pneumonia" && String(mapped.meta.alternates).split("\n").length === 1, JSON.stringify(mapped?.meta));
-  const refusedTypo = await hook("chruch owned");
-  check(`"chruch owned" is refused as "church owned" by the pre-check, model NOT called`, JSON.stringify(refusedTypo?.unsupportedTerms) === JSON.stringify(["church owned"]) && refusedTypo?.meta?.source === "pre-check" && modelCalls === 0, JSON.stringify(refusedTypo));
-  const refusedRaw = await hook("stroke hospitals");
-  check("a raw pre-check hit is unchanged (source pre-check, model NOT called)", refusedRaw?.unsupportedTerms?.[0] === "stroke" && modelCalls === 0);
+  // Batch 5B-1: "chruch owned" and "stroke hospitals" are registered now (a typo-corrected, deterministic rewrite
+  // through the new lay groups, not a refusal) - see runtime/lay-vocabulary.ts LAY_GROUPS "church-owned" and "stroke".
+  const mappedChurch = await hook("chruch owned");
+  check(`"chruch owned" -> church-owned hospitals, model NOT called (Batch 5B-1)`, mappedChurch?.canonicalQuestion === "Show me church-owned hospitals" && mappedChurch?.meta?.source === "lay-vocabulary" && modelCalls === 0, JSON.stringify(mappedChurch));
+  const mappedStroke = await hook("stroke hospitals");
+  check(`"stroke hospitals" -> stroke mortality, model NOT called (Batch 5B-1)`, mappedStroke?.canonicalQuestion === STROKE && mappedStroke?.meta?.source === "lay-vocabulary" && modelCalls === 0, JSON.stringify(mappedStroke));
+  const refusedRaw = await hook("hospital acquired infections");
+  check("a raw pre-check hit is unchanged (source pre-check, model NOT called)", refusedRaw?.unsupportedTerms?.[0] === "hospital acquired infections" && modelCalls === 0);
   const passthrough = await hook("hospitls in Texas");
   check("no phrase mapped: the model is asked, on the corrected text", modelCalls === 1 && (passthrough === null || passthrough?.meta?.corrected === "hospitls > hospitals"), JSON.stringify(passthrough));
   modelCalls = 0;
@@ -295,14 +320,19 @@ async function main() {
   }
 
   // Phase 8: a refusal never reaches SQL
-  for (const question of ["stroke hospitals", "sepsis hospitals", "chruch owned", "church owned", "military hospitals", "emergency department", "hospitals in DC", "decile"]) {
+  // Batch 5B-1: "stroke hospitals", "chruch owned"/"church owned" and "military hospitals" are registered now
+  // (mapped or resolved, not refused) - their still-unsupported readmission wording and an unaffected topic take their place.
+  // Batch 5B-2: "sepsis hospitals" is registered now.
+  for (const question of ["stroke readmission", "sepsis mortality", "hospital acquired infections", "hospital wide readmission", "emergency department", "hospitals in the bay area", "decile"]) {
     const r = await run(question);
     const gate = llmGate(r);
     check(`refused with 0 SQL: "${question}"`, r.success === false && sqlCalls(r) === 0 && gate?.status === "unsupported", `success=${r.success} sql=${sqlCalls(r)} gate=${gate?.status}`);
   }
   {
-    const r = await run("chruch owned");
-    check(`the misspelt refusal names the real topic ("church owned") in the trace`, String(llmGate(r)?.detail?.unsupportedTerms) === "church owned" && llmGate(r)?.detail?.source === "pre-check", JSON.stringify(llmGate(r)?.detail));
+    // Batch 5B-1: "chruch owned" (the earlier misspelling example) is registered now, so this checks the plain
+    // pre-check refusal names the exact topic in the trace instead.
+    const r = await run("hospital acquired infections");
+    check(`the refusal names the exact topic ("hospital acquired infections") in the trace`, String(llmGate(r)?.detail?.unsupportedTerms) === "hospital acquired infections" && llmGate(r)?.detail?.source === "pre-check", JSON.stringify(llmGate(r)?.detail));
   }
 
   // -------------------------------------------------------------------------------------------- 5. planner filler
@@ -381,9 +411,11 @@ async function main() {
   {
     const coverage = DOMAIN_CAPABILITIES.coverageSummary!;
     const guidance = DOMAIN_CAPABILITIES.scopeGuidance!;
-    const stroke = buildScopeMessage(["stroke"], guidance, coverage);
-    check("scope message: echoes the intent, states coverage, points to the questions", /^I understand you're looking for stroke hospitals, but I don't have that\. I currently track heart attack, heart failure, pneumonia/.test(stroke) && stroke.endsWith("Try one of the questions below."), stroke);
-    check(`scope message uses the typed topic ("church owned hospitals")`, buildScopeMessage(["church owned"], guidance, coverage).startsWith("I understand you're looking for church owned hospitals,"));
+    // Batch 5B-1: "stroke" and "church owned" are registered now (no longer scope-guidance topics); the readmission
+    // wording that stays unsupported for each takes their place.
+    const stroke = buildScopeMessage(["stroke readmission"], guidance, coverage);
+    check("scope message: echoes the intent, states coverage, points to the questions", /^I understand you're looking for stroke readmission or complications - only stroke mortality is tracked, but I don't have that\. I currently track heart attack, heart failure, pneumonia/.test(stroke) && stroke.endsWith("Try one of the questions below."), stroke);
+    check(`scope message uses the topic's guidance label ("hospital-wide readmission ...")`, buildScopeMessage(["hospital wide readmission"], guidance, coverage).startsWith("I understand you're looking for hospital-wide readmission - only hospital-wide mortality is tracked,"));
     check("scope message for a topic with no guidance quotes what was asked", buildScopeMessage(["zebra crossing"], guidance, coverage).startsWith(`I understand you're looking for "zebra crossing",`));
     check("unaccounted message names the words", buildUnaccountedMessage(["quiet", "environment"], coverage).startsWith(`I couldn't match "quiet environment" to something I track.`));
     // the summary name guard: "CO." (Colorado) ends a sentence, "Co." (company) is an abbreviation
@@ -396,12 +428,15 @@ async function main() {
     check("composeSummary ends a note that has no full stop (a model's interpretation) before the next sentence", composeSummary("Read 'x' as y", "The table lists ten.") === "Read 'x' as y. The table lists ten." && composeSummary("Read 'x' as y") === "Read 'x' as y");
     check("no markdown reaches the plain-text UI (apps/web renders summary and error in a bare <p>)", ![stroke, buildUnaccountedMessage(["x"], coverage), map("chest pain").mapped?.interpretation ?? ""].some((text) => /[*_`#]/.test(text)));
 
-    const strokeChips = scopeGuidanceChips("stroke hospitals");
-    check("stroke -> heart attack, heart failure, lowest mortality (cardiovascular intent)", JSON.stringify(strokeChips) === JSON.stringify([AMI, HF, "Show me hospitals with lowest Mortality Rate"]), JSON.stringify(strokeChips));
-    check(`a misspelt topic finds its guidance ("chruch owned")`, scopeGuidanceChips("chruch owned")?.[0] === "Show me government hospitals");
+    // Batch 5B-1: "stroke hospitals" and "chruch owned" are registered now, so their guidance moves to the
+    // readmission/complication wording that still has no measure.
+    const strokeChips = scopeGuidanceChips("stroke readmission");
+    check("stroke readmission -> stroke mortality, heart attack, heart failure (cardiovascular intent)", JSON.stringify(strokeChips) === JSON.stringify([STROKE, AMI, HF]), JSON.stringify(strokeChips));
+    check(`a topic finds its guidance ("hospital wide readmission")`, scopeGuidanceChips("hospital wide readmission")?.[0] === "Show me hospitals with lowest Mortality Rate for Hospital-Wide Mortality");
     check("a question naming no unsupported topic has no guidance chips", scopeGuidanceChips("best hospital") === undefined && scopeGuidanceChips("penumonia checkup") === undefined);
 
-    for (const question of ["stroke hospitals", "sepsis hospitals", "emergency department", "military hospitals", "chruch owned", "birthing friendly", "hospitals in DC", "decile"]) {
+    // Batch 5B-2: "sepsis hospitals" is registered now.
+    for (const question of ["stroke readmission", "sepsis mortality", "emergency department", "hospital wide readmission", "hospital acquired infections", "wait times", "hospitals in the bay area", "decile"]) {
       const r = await run(question, { includeSuggestions: true });
       const guided = scopeGuidanceChips(question) ?? [];
       const generic = new Set(["Show me 5-star hospitals in Texas", "Best hospitals in Texas and California", "Tell me about Mayo Clinic"]);

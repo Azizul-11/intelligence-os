@@ -80,6 +80,13 @@ const COLLIDING_UPPERCASE_ONLY = new Map<string, string>([
   ["ID", "Idaho"], // "id"/"I'd"
   ["MS", "Mississippi"], // "Ms." (title)
   ["MT", "Montana"], // "Mt." (Mount) - e.g. "Mt Sinai" hospital brand
+  // Batch 5B-5 (D7): DC and two territories, uppercase only ("pr" is public relations, "gu" and "dc" are rare but
+  // not worth the risk). "Washington DC" becomes "Washington District of Columbia", which entity-provider.ts resolves
+  // as one span (DC), never Washington state plus DC. AS, MP and VI are not here: "as", "mp" and the numeral "VI"
+  // are ordinary text, so those territories are recognised by their full names only.
+  ["DC", "District of Columbia"],
+  ["PR", "Puerto Rico"],
+  ["GU", "Guam"],
 ]);
 
 // No meaningful English-word/abbreviation collision - matched

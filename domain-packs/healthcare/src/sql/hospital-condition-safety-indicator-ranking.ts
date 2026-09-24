@@ -1,16 +1,20 @@
 import type { SqlTemplateDefinition } from "@intelligence/domain-sdk";
 
-export const hospitalConditionMortalityRankingSqlTemplate: SqlTemplateDefinition = {
-  id: "hospital-condition-mortality-ranking",
+// Batch 5B-2: a clone of hospital-condition-mortality-ranking.ts (same parameters, same WHERE/ORDER BY/limit shape,
+// same `:direction` convention) rather than a reuse of that template's id - the PSIs are complication and death
+// rates, not the six mortality/CABG measures the mortality template's own description and decorators describe, and
+// the units differ per code (the mortality template has none). A shared `score_unit` column keeps the summary
+// grounded (Batch 5A-2's numeric cross-check: a unit string containing "1,000" satisfies it as a substring of a row
+// value). Units are CMS/AHRQ definitions, not stored in the warehouse - verified against the CMS data dictionary.
+export const hospitalConditionSafetyIndicatorRankingSqlTemplate: SqlTemplateDefinition = {
+  id: "hospital-condition-safety-indicator-ranking",
 
-  name: "hospital-condition-mortality-ranking",
+  name: "hospital-condition-safety-indicator-ranking",
 
-  displayName: "Condition-Specific Mortality Ranking",
+  displayName: "Patient Safety Indicator Ranking",
 
   description:
-    "Returns hospitals ranked by a specific CMS condition/procedure outcome measure (e.g. AMI, CABG, COPD, Heart Failure, Pneumonia mortality; Hip/Knee complications), scoped by :measureCode. Tier1 Task 5 balanced-limits fix: top 10 overall for a single-state/nationwide request; top 5 PER named state for a multi-state request (ROW_NUMBER() OVER PARTITION BY state), so no single state's tied hospitals crowd out another's. " +
-    "PrePhase 9.5 Round 3: `co.score` is a raw badness value (a death rate) - lower is always better. The ORDER BY is unconditionally ascending (lowest/best first) regardless of `:direction`, which used to flip it via a CASE expression - that CASE was wrong: Universal Core's direction lexicon buckets \"lowest\"/\"worst\" into the SAME generic \"asc\" signal (see packages/semantic/src/direction/modifier-direction-lexicon.ts), so \"lowest death rate\" (meaning: show me the best) and a genuine \"worst death rate\" request were indistinguishable by the time they reached this template, and the old CASE resolved that ambiguity the wrong way for the far more common \"lowest/best\" case (confirmed live: 17.1% - the worst score in the result set - was appearing first). ponytail: known ceiling - a genuine \"show me the worst-performing hospitals\" request for this measure is not supported (always returns best-first); upgrade path is a metric-aware direction resolver upstream (already tracked as a separate, larger pre-existing gap, not part of this fix) that can tell \"worst\" apart from \"lowest\" before it reaches here. " +
-    "Batch 3 (D1) delivered that resolver: the planner now normalizes `:direction` to one convention (\"DESC\" = best first, \"ASC\" = worst first) from the kind of ranking word (performance vs magnitude) and `MetricDefinition.lowerIsBetter`, so this template honours it again: DESC (the default) orders by score ascending (lowest death rate first), ASC by score descending (highest first). \"worst\" and \"highest death rate\" now return the worst hospitals first.",
+    "Returns hospitals ranked by a specific AHRQ/CMS Patient Safety Indicator (PSI) - a complication or death rate, never a mortality or readmission measure - scoped by :measureCode. Same balanced-limits and :direction convention as hospital-condition-mortality-ranking.ts: top 10 for a single-state/nationwide request, top 5 per named state for a multi-state request; co.score is a raw badness value (a rate or an index) - DESC (the default) orders ascending (lowest/best first), ASC descending (highest/worst first).",
 
   template: `
 WITH ranked_facilities AS (
@@ -25,6 +29,11 @@ WITH ranked_facilities AS (
         co.measure_name,
         co.score,
         co.compared_to_national,
+        CASE co.measure_code
+            WHEN 'PSI_04' THEN 'deaths per 1,000 surgical inpatients'
+            WHEN 'PSI_90' THEN 'index (1.0 is national benchmark)'
+            ELSE 'rate per 1,000 discharges'
+        END AS score_unit,
         ROW_NUMBER() OVER (
             PARTITION BY (CASE WHEN :multiState = true THEN h.state ELSE 'ALL' END)
             ORDER BY (CASE WHEN :direction = 'ASC' THEN -co.score ELSE co.score END) ASC NULLS LAST, h.hospital_name ASC
@@ -54,6 +63,7 @@ SELECT
     measure_code,
     measure_name,
     score,
+    score_unit,
     compared_to_national
 FROM ranked_facilities
 WHERE
@@ -71,19 +81,19 @@ ORDER BY
       name: "measureCode",
       type: "string",
       required: true,
-      description: "CMS condition-specific measure code (e.g. MORT_30_AMI, COMP_HIP_KNEE) - see domain-packs/healthcare/src/concepts/*.ts's own measureCodesByMetric map.",
+      description: "AHRQ/CMS Patient Safety Indicator measure code (e.g. PSI_03, PSI_90) - see domain-packs/healthcare/src/concepts/psi.ts's own measureCodesByMetric map.",
     },
     {
       name: "states",
       type: "array",
       required: false,
-      description: "Tier1 Task 5: must be declared before `state` below - SqlExecutor's parameter substitution is a plain text replaceAll per declared parameter, in array order, and \":state\" is a literal substring of \":states\"; substituting \":state\" first would corrupt every \":states\" occurrence still present in the SQL text.",
+      description: "Must be declared before `state` below - SqlExecutor's parameter substitution is a plain text replaceAll per declared parameter, in array order, and \":state\" is a literal substring of \":states\".",
     },
     {
       name: "multiState",
       type: "boolean",
       required: false,
-      description: "Tier1 Task 5: true when 2+ states were resolved (a \"states\" array is populated) - gates the `states IN (...)` clause below without needing an `IS NULL` check directly on the array parameter itself, which breaks once it holds 2+ comma-separated values.",
+      description: "True when 2+ states were resolved - gates the per-state ceiling.",
     },
     {
       name: "state",
@@ -113,7 +123,7 @@ ORDER BY
       name: "overallRating",
       type: "string",
       required: false,
-      description: "Filter hospitals by exact overall_rating value 1-5 (Pre-Phase 9 Tier1 Task 2)",
+      description: "Filter hospitals by exact overall_rating value 1-5",
     },
     {
       name: "hospitalType",
@@ -138,7 +148,7 @@ ORDER BY
       type: "string",
       required: false,
       description:
-        "Batch 3 (D1): DESC (default) = best first, lowest death rate first; ASC = worst first, highest death rate first. Normalized upstream from the ranking word and MetricDefinition.lowerIsBetter - see the template description.",
+        "DESC (default) = best first, lowest/safest rate first; ASC = worst first, highest rate first. Normalized upstream from the ranking word and MetricDefinition.lowerIsBetter.",
     },
   ],
 

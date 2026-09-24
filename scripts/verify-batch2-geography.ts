@@ -170,9 +170,17 @@ async function engineChecks() {
     check("Cook County hospitals -> offers Georgia, Illinois, Minnesota", labels.join(",") === "Georgia,Illinois,Minnesota", `labels=${labels.join(",")}`);
   }
 
-  console.log("\n2.3 - a territory is never derived into an answerable state (stays refused)");
+  // Batch 5B-5: DC and the territories are registered jurisdictions (entity-provider.ts STATES), so a territory, or a
+  // city that exists only in one ("San Juan" is a city only in Puerto Rico), is answered with that territory's rows.
+  // The negative control is a place that is not in the warehouse at all ("Atlantis" is a real Florida city, so it is
+  // not used as one).
+  console.log("\n2.3 - a territory is answered with its own rows; a place that is not a US jurisdiction stays refused");
 
-  for (const question of ["hospitals in Guam", "hospitals in San Juan", "hospitals in Puerto Rico", "hospitals in the Virgin Islands"]) {
+  for (const [question, code] of [["hospitals in Guam", "GU"], ["hospitals in San Juan", "PR"], ["hospitals in Puerto Rico", "PR"], ["hospitals in the Virgin Islands", "VI"]] as const) {
+    const { r, rows } = await ask(question);
+    check(`${question} -> answered, every row in ${code}`, r.success === true && rows.length > 0 && rows.every((row) => row.state === code), `success=${r.success} rows=${rows.length}`);
+  }
+  for (const question of ["hospitals in Wakanda", "hospitals in Canada"]) {
     const { r, rows } = await ask(question);
     const noSql = (r.trace ?? []).every((gate) => gate.phase !== "deterministic-warehouse-execution");
     check(`${question} -> refused, no execution`, r.success === false && rows.length === 0 && noSql, `success=${r.success} rows=${rows.length}`);

@@ -60,4 +60,32 @@ export const OWNERSHIP = new Map<string, OwnershipValue>([
 
   ["veterans", { label: "veterans", likePattern: "Veterans Health Administration%" }],
   ["va", { label: "veterans", likePattern: "Veterans Health Administration%" }],
+
+  // Batch 5B-1: ownership sub-labels (Batch 4 deferred these to "post-baseline capability expansion"; that hold is
+  // lifted here). Multi-word keys only, except "tribal" and "military" bare (0 and 1 hospital-name collisions,
+  // section 2.9 of the 5B audit; the one collision, Walter Reed National Military Med Cen, is a full official name
+  // resolved by the hospital-identity matcher first, ahead of this generic ownership lookup).
+  ["church owned", { label: "church-owned", likePattern: "Voluntary non-profit - Church%" }],
+  ["church affiliated", { label: "church-owned", likePattern: "Voluntary non-profit - Church%" }],
+
+  ["physician owned", { label: "physician-owned", likePattern: "Physician%" }],
+
+  ["tribal", { label: "tribal", likePattern: "Tribal%" }],
+  ["tribal owned", { label: "tribal", likePattern: "Tribal%" }],
+
+  // D5: "military" means Department of Defense (32 facilities); VA hospitals are the separate "veterans" ownership
+  // above and are never folded in here (a ranking already exists for VA under "veterans").
+  ["department of defense", { label: "military", likePattern: "Department of Defense%" }],
+  ["dod", { label: "military", likePattern: "Department of Defense%" }],
+  ["military", { label: "military", likePattern: "Department of Defense%" }],
+  ["military owned", { label: "military", likePattern: "Department of Defense%" }],
+
+  // Government sub-labels: same broad "government" label as "state owned" above (a precise likePattern, a shared
+  // user-facing category name) - not part of Batch 5B-1's own catalog rows, added for completeness of the directory.
+  ["federal owned", { label: "government", likePattern: "Government - Federal%" }],
+  ["federal government", { label: "government", likePattern: "Government - Federal%" }],
+  ["local government", { label: "government", likePattern: "Government - Local%" }],
+  ["locally owned", { label: "government", likePattern: "Government - Local%" }],
+  ["hospital district", { label: "government", likePattern: "Government - Hospital District or Authority%" }],
+  ["district owned", { label: "government", likePattern: "Government - Hospital District or Authority%" }],
 ]);

@@ -77,6 +77,11 @@ async function main() {
   await run("C2-PRIVATE-BYPASS", "private hospitals with bypass surgery readmission");
   await run("C3-NONPROFIT-HEART-STATE", "Best non-profit hospitals for heart attack in Texas");
   await run("C4-GOVERNMENT-PNEUMONIA", "government hospitals with pneumonia death rate");
+  // Batch 5B-1: an ownership sub-label composed with a newly registered concept. Department of Defense (the
+  // "military" mapping) has 0 scored rows on nearly every outcome measure in this warehouse (5B audit section 2.5),
+  // so it is deliberately not used here - physician-owned and church-owned both have real scored data.
+  await run("C5-CHURCH-STROKE", "church-owned hospitals with lowest stroke mortality");
+  await run("C6-PHYSICIAN-HOSPITAL-WIDE", "physician owned hospitals with hospital wide mortality");
 
   console.log("\n" + "=".repeat(100));
   console.log(`RESULT: ${pass} passed, ${fail} failed (${pass + fail} total)`);

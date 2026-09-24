@@ -11,6 +11,8 @@
 import { healthcareMetrics } from "../metrics";
 import { healthcareAliases } from "../aliases";
 import { concepts } from "../concepts";
+import { psiConcepts } from "../concepts/psi";
+import { hcahpsDimensionConcepts } from "../concepts/hcahps-dimensions";
 import { STATE_NAMES_BY_CODE } from "./execution-strategy";
 import { OWNERSHIP } from "./ownership-directory";
 import type { PromptWording } from "@intelligence/llm-model-gateway";
@@ -103,24 +105,33 @@ const CONCEPTS_WITHOUT_MEASURES = concepts.filter((c) => !c.measureCodesByMetric
  * Added: prices, wait times, volumes, doctors and time trends, which no table holds.
  */
 const KNOWN_UNSUPPORTED_TOPICS = [
-  "pressure ulcer", "pressure ulcers", "patient safety indicator", "patient safety indicators", "psi", "in-hospital falls",
-  "falls with fracture", "blood clot", "blood clots", "hospital acquired infection", "hospital acquired infections",
-  "kidney injury", "hospital wide", "all cause",
-  "nurse communication", "doctor communication", "cleanliness", "cleanest", "sanitary", "quietest",
-  "responsiveness", "communication about medicines", "discharge information",
-  "instructions for going home", "listen carefully",
-  "emergency services", "birthing friendly", "birthing-friendly", "hospital type", "acute care", "critical access",
-  "childrens", "children's", "psychiatric", "rural emergency", "physician owned", "tribal", "military",
-  "department of defense", "church owned",
+  "hospital acquired infection", "hospital acquired infections",
+  // Batch 5B-2: the 11 individual PSIs, the PSI 90 composite and postoperative sepsis are registered
+  // (concepts/psi.ts, concepts/sepsis.ts); PSI_05 and PSI_07 do not exist in the warehouse and stay refused, as
+  // does any measure the sepsis word implies but the data does not have (a mortality or a survival rate).
+  "psi 5", "psi 05", "psi 7", "psi 07",
+  "sepsis mortality", "sepsis survival", "sepsis recovery",
+  // Batch 5B-1: stroke and hospital-wide mortality are registered (concepts/stroke.ts, concepts/hospital-wide-mortality.ts);
+  // only the measure the warehouse does not have stays refused, as its own longer literal (the pre-check reports only
+  // the longest matching topic, so "stroke mortality" no longer matches these but "stroke readmission" still does).
+  "stroke readmission", "stroke complications", "hospital wide readmission",
+  // Batch 5B-3: the 8 patient-survey dimensions and the summary star are registered (concepts/hcahps-dimensions.ts);
+  // only what the survey data does not hold stays refused: staff responsiveness (H_COMP_3) and care transition
+  // (H_COMP_7) have 0 rows, and single survey items ("nurses listen carefully") are deferred (D3).
+  "staff responsiveness", "responsiveness", "care transition", "care transitions", "listen carefully",
+  // Batch 5B-4: hospital types, emergency services and birthing-friendly are registered
+  // (runtime/hospital-attribute-directory.ts); the emergency-department topics below (waits, volumes) stay refused.
+  // Batch 5B-1: physician, tribal, military and church-owned ownership sub-labels are registered
+  // (runtime/ownership-directory.ts) - the Batch 4 hold on this and on DC ("deferred to post-baseline capability
+  // expansion") is lifted for this batch.
   "address", "phone number", "phone numbers", "telephone", "patient records", "poem",
   // Batch 5C: a region (the platform searches by state, county or city), medical knowledge, and peer similarity.
   "bay area", "symptoms of", "symptom of", "similar to",
   "since", "over time", "years ago", "decile",
   "ed wait", "ed waits", "er wait", "er waits", "wait time", "wait times", "volumes", "price", "prices", "pricing",
   "how much does", "how much is", "how much do", "doctors", "surgeons", "time trend", "time trends",
-  // Batch 3: DC is a jurisdiction the platform does not register (10 hospitals in the warehouse, no state filter for it),
-  // written three ways; the deterministic pre-check matches each literally, whatever punctuation the LLM would add.
-  "dc", "d.c.", "district of columbia",
+  // Batch 5B-5: DC ("dc", "d.c.", "district of columbia", refused since Batch 3) and the territories are registered
+  // jurisdictions now (runtime/entity-provider.ts STATES).
 ];
 
 const REGISTERED_ALIAS_PHRASES = new Set(
@@ -133,6 +144,25 @@ const METRIC_ALIAS_PHRASES = new Set(
   healthcareAliases.filter((alias) => alias.type === "metric").flatMap((alias) => alias.aliases).map((phrase) => phrase.toLowerCase()),
 );
 
+/**
+ * Batch 5B-2: the 12 PSI-family concepts (11 individual PSIs + sepsis, now Postoperative Sepsis) show only their
+ * first, most formal alias in the CONDITIONS line (which happens to equal the display name for every one of them,
+ * so the bracket reads "Name (Name)") - the full synonym list stays in aliases/psi.ts and aliases/sepsis.ts for
+ * deterministic resolution, which costs no prompt tokens. Registering all 12 with their full 2-alias lists measured
+ * 11,510 characters; this alone brings it down to the measured 11,248 (see the I1 guard in
+ * verify-llm-first-front-door.ts for the final number and the size-guard move). No pre-existing concept's prompt
+ * view changes (several live-model suites depend on seeing all of theirs).
+ */
+const COMPACT_PROMPT_CONCEPT_IDS = new Set<string>([...psiConcepts.map((concept) => concept.id), "sepsis"]);
+
+/**
+ * Batch 5B-3: the patient-survey dimensions are not clinical conditions, so they are not listed under CONDITIONS
+ * (which also prints each name twice, "Name (Name)"). The normalizer prompt names them once, in its own SURVEY TOPICS
+ * rule (prompt-wording.ts), and RULE 6 counts that list as supported. They stay fully registered for deterministic
+ * resolution; this set only keeps them out of the CONDITIONS line.
+ */
+const SURVEY_CONCEPT_IDS = new Set<string>(hcahpsDimensionConcepts.map((concept) => concept.id));
+
 export const DOMAIN_CAPABILITIES: CapabilityCatalog = {
   metrics: healthcareMetrics.map((metric) => ({
     displayName: metric.displayName,
@@ -140,9 +170,12 @@ export const DOMAIN_CAPABILITIES: CapabilityCatalog = {
   })),
   states: Array.from(new Set(STATE_NAMES_BY_CODE.values())).sort(),
   ownerships: Array.from(new Set(Array.from(OWNERSHIP.values()).map((value) => value.label))),
-  concepts: CONCEPTS_WITH_REAL_MEASURES.map((concept) => ({
+  concepts: CONCEPTS_WITH_REAL_MEASURES.filter((concept) => !SURVEY_CONCEPT_IDS.has(concept.id)).map((concept) => ({
     displayName: concept.displayName,
-    aliases: healthcareAliases.find((alias) => alias.canonical === concept.id)?.aliases ?? [],
+    aliases: (() => {
+      const all = healthcareAliases.find((alias) => alias.canonical === concept.id)?.aliases ?? [];
+      return COMPACT_PROMPT_CONCEPT_IDS.has(concept.id) ? all.slice(0, 1) : all;
+    })(),
     metrics: Object.keys(concept.measureCodesByMetric ?? {}).map(
       (metricId) => METRIC_DISPLAY_NAME_BY_ID.get(metricId) ?? metricId,
     ),

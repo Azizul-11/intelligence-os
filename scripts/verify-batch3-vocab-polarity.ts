@@ -46,11 +46,28 @@ console.log("\n3.0 - unsupported-topic data");
 const topics = DOMAIN_CAPABILITIES.unsupportedTopics;
 
 for (const topic of [
-  "dc", "d.c.", "district of columbia", "stroke", "sepsis", "emergency department", "birthing friendly", "hospital wide",
-  "all cause", "military", "church owned", "department of defense", "decile", "ed waits", "sanitary", "cleanest",
-  "emergency services", "hospital type",
+  // Batch 5B-1: "stroke", "hospital wide", "all cause", "military", "church owned" and "department of defense" are
+  // registered now (concepts/stroke.ts, concepts/hospital-wide-mortality.ts, runtime/ownership-directory.ts) and
+  // dropped from this list; the narrower literals that still have no measure or map replace them below.
+  // Batch 5B-4: "birthing friendly", "emergency services" and "hospital type" are registered now
+  // (runtime/hospital-attribute-directory.ts); emergency-room waits and volumes, which no table holds, replace them.
+  // Batch 5B-5: "dc", "d.c." and "district of columbia" are a registered jurisdiction now.
+  "emergency department", "er wait",
+  "stroke readmission", "stroke complications", "hospital wide readmission",
+  // Batch 5B-2: "sepsis"/"psi" are registered now (concepts/psi.ts, concepts/sepsis.ts); the sepsis wording that
+  // implies a measure the warehouse does not have replaces the bare word.
+  "sepsis mortality", "sepsis survival", "sepsis recovery", "psi 5", "psi 05",
+  // Batch 5B-3: "sanitary" and "cleanest" are registered survey wording now; the survey topics with no data replace them.
+  "decile", "ed waits", "staff responsiveness", "care transition",
+  "wait times", "volumes",
 ]) {
   check(`topic list names "${topic}"`, topics.includes(topic), `list has ${topics.length} entries`);
+}
+for (const topic of ["stroke", "hospital wide", "all cause", "military", "church owned", "department of defense"]) {
+  check(`topic list no longer names "${topic}" (Batch 5B-1)`, !topics.includes(topic), `list has ${topics.length} entries`);
+}
+for (const topic of ["sepsis", "psi", "pressure ulcer", "pressure ulcers", "blood clot", "blood clots", "kidney injury", "in-hospital falls", "falls with fracture", "patient safety indicator", "patient safety indicators"]) {
+  check(`topic list no longer names "${topic}" (Batch 5B-2)`, !topics.includes(topic), `list has ${topics.length} entries`);
 }
 check(`"last year" is not a topic (narrative use trips it)`, !topics.includes("last year"));
 
@@ -60,22 +77,19 @@ console.log("\n3.0 - pre-check on the raw question");
 const REFUSED: [string, string][] = [
   // Batch 5A-1: "heart surgery" is a layperson phrase now (it maps to bypass surgery), no longer refused; ED waits took its place.
   ["show me hospital ED waits in Texas", "ed waits"],
-  ["stroke mortality", "stroke"],
-  ["best hospitals for stroke", "stroke"],
-  ["sepsis mortality", "sepsis"],
-  ["hospital wide mortality", "hospital wide"],
-  ["overall all-cause mortality by hospital", "all cause"],
-  ["most sanitary hospitals in Texas", "sanitary"],
-  ["military hospitals", "military"],
-  ["church owned hospitals", "church owned"],
-  ["Department of Defense hospitals", "department of defense"],
+  ["sepsis mortality", "sepsis mortality"],
+  // Batch 5B-1: stroke and hospital-wide mortality are registered; only their readmission/complication wording,
+  // which the warehouse has no measure for, stays refused (their own bare/mortality forms moved to NOT_REFUSED below).
+  ["stroke readmission rates", "stroke readmission"],
+  ["hospitals with the fewest stroke complications", "stroke complications"],
+  ["hospital wide readmission rates", "hospital wide readmission"],
+  // Batch 5B-3: "most sanitary" is answered now (D9, Cleanliness); staff responsiveness (no data) replaces it.
+  ["Which hospitals have the highest scores for staff responsiveness?", "staff responsiveness"],
   ["top decile hospitals by rating", "decile"],
-  ["hospitals in Washington DC", "dc"],
-  ["HOSPITALS IN WASHINGTON DC", "dc"],
-  ["hospitals in Washington, D.C.", "d.c."],
-  ["hospitals in D.C.", "d.c."],
-  ["hospitals in the District of Columbia", "district of columbia"],
-  ["hospitals with birthing-friendly designation in Ohio", "birthing-friendly"],
+  // Batch 5B-5: the five DC spellings are answered now (moved to NOT_REFUSED below); a region takes their place.
+  ["hospitals in the bay area", "bay area"],
+  // Batch 5B-4: birthing-friendly is a registered flag now (moved to NOT_REFUSED below); ER waits replace it.
+  ["hospitals with the shortest ER wait times in Ohio", "wait times"],
 ];
 
 for (const [question, topic] of REFUSED) {
@@ -89,12 +103,48 @@ const NOT_REFUSED = [
   "hospitals in Washington",
   "hospitals in Washington State",
   "DCH Regional Medical Center",
+  // Batch 5B-5: DC is a registered jurisdiction now.
+  "hospitals in Washington DC",
+  "HOSPITALS IN WASHINGTON DC",
+  "hospitals in Washington, D.C.",
+  "hospitals in D.C.",
+  "hospitals in the District of Columbia",
   "hospitals in Dallas",
   "mortality rate for pneumonia in Ohio",
   "hospitals with the lowest heart attack death rate in Ohio",
   "I want a state-by-state view of the top hospitals",
   "which state has better-rated hospitals, Texas or California?",
   "government hospitals in Ohio",
+  // Batch 5B-4: hospital types and the emergency-services / birthing-friendly flags are registered now.
+  "hospitals with birthing-friendly designation in Ohio",
+  "birthing friendly hospitals in Texas",
+  "hospitals with emergency services in Ohio",
+  "childrens hospitals in California",
+  "psychiatric hospitals in Florida",
+  "Show me acute care hospitals in Ohio.",
+  // Batch 5B-1: stroke, hospital-wide mortality and the ownership sub-labels are registered now.
+  "stroke mortality",
+  "best hospitals for stroke",
+  "hospital wide mortality",
+  "overall all-cause mortality by hospital",
+  "physician owned hospitals",
+  "tribal hospitals",
+  "church owned hospitals",
+  "Department of Defense hospitals",
+  "military hospitals",
+  // Batch 5B-2: the patient safety indicators and postoperative sepsis are registered now.
+  "postoperative sepsis rate",
+  "pressure ulcer rate",
+  "in-hospital falls with fracture",
+  "postoperative kidney injury requiring dialysis",
+  "blood clots after surgery",
+  "patient safety indicators",
+  "PSI 90 composite",
+  // Batch 5B-3: the patient-survey dimensions are registered now.
+  "cleanest hospitals",
+  "most sanitary hospitals in Texas",
+  "best nurse communication",
+  "quietest hospitals at night",
 ];
 
 for (const question of NOT_REFUSED) {
@@ -103,9 +153,10 @@ for (const question of NOT_REFUSED) {
 }
 
 check(
-  "a topic inside a longer matched topic is reported once (nurse communication, not also communication)",
-  JSON.stringify(precheckUnsupported("best nurse communication", DOMAIN_CAPABILITIES)) === JSON.stringify(["nurse communication"]),
-  JSON.stringify(precheckUnsupported("best nurse communication", DOMAIN_CAPABILITIES)),
+  // Batch 5B-3: "nurse communication" is registered now; "staff responsiveness" contains the shorter topic "responsiveness".
+  "a topic inside a longer matched topic is reported once (staff responsiveness, not also responsiveness)",
+  JSON.stringify(precheckUnsupported("best staff responsiveness", DOMAIN_CAPABILITIES)) === JSON.stringify(["staff responsiveness"]),
+  JSON.stringify(precheckUnsupported("best staff responsiveness", DOMAIN_CAPABILITIES)),
 );
 
 // Catalog-wide: the pre-check never refuses a question the catalog expects to be answered or clarified.
@@ -118,9 +169,29 @@ check(
   check(`catalog (${catalog.length} rows): 0 answer/clarify-expected rows refused by the pre-check`, wrong.length === 0, wrong.map((row) => row.id).join(","));
   // Batch 5A-1 (D3): 79 -> 73. Rows A073, A095-A099 (heart checkup / heart problem / heart surgery / trouble breathing /
   // breathing problems / lung infection) are layperson asks now expected to be answered (catalog revision), no longer REFUSE.
-  check(`catalog: the pre-check catches at least 73 REFUSE-expected rows`, refused.length - wrong.length >= 73, `caught ${refused.length - wrong.length}`);
-  for (const id of ["A100", "A104", "A105", "B022", "D010", "D011", "D074", "D090", "D091", "C023", "C076"]) {
+  // Batch 5B-1: A100, A104, A105, D010, D011, D074 (stroke, hospital-wide mortality, ownership sub-labels) are
+  // registered now and no longer caught by the pre-check: measured 73 -> 63 (the catalog's own expectedBehavior for
+  // these rows is unchanged by this suite - see the 5B audit's 7.5 / this batch's own report for the flip; the drop
+  // is larger than 6 because some of the same rows matched two topics, e.g. "military" and "department of defense"
+  // wording in the same query, each counted once by the earlier, higher baseline).
+  // Batch 5B-2: A109-A117, A119 (9 PSI rows) are registered now and no longer caught: measured 63 -> 53. A103, A108,
+  // A118 keep their own literal (sepsis mortality/recovery, hospital acquired infections) and stay caught.
+  // Batch 5B-3: the 14 survey-dimension rows (B019-B027, B030, B031, B034, B036, B037, B044) are registered now and no
+  // longer caught: measured 53 -> 39. B028/B033 (item level, "listen carefully"), B032 ("doctors") and B042 (staff
+  // responsiveness, no data) keep their literal and stay caught.
+  // Batch 5B-4: the 11 hospital-type / flag rows (D001-D006, D015, D075-D077, E069) are registered now and no longer
+  // caught: measured 39 -> 28.
+  // Batch 5B-5: C023 and C076 (DC) are a registered jurisdiction now and no longer caught: measured 28 -> 26.
+  check(`catalog: the pre-check catches at least 26 REFUSE-expected rows`, refused.length - wrong.length >= 26, `caught ${refused.length - wrong.length}`);
+  for (const id of ["D090", "D091", "A103", "A108", "A118", "B028", "B032", "B033", "B042"]) {
     check(`catalog row ${id} is caught by the pre-check`, refused.some((row) => row.id === id));
+  }
+  for (const id of [
+    "A100", "A104", "A105", "D010", "D011", "D074", "A109", "A110", "A111", "A112", "A113", "A114", "A115", "A116", "A117", "A119",
+    "B019", "B020", "B021", "B022", "B023", "B024", "B026", "B027", "B030", "B031", "B034", "B036", "B037", "B044",
+    "D001", "D002", "D003", "D004", "D005", "D006", "D015", "D075", "D076", "D077", "E069", "C023", "C076",
+  ]) {
+    check(`catalog row ${id} is no longer caught by the pre-check (Batch 5B-1 to 5B-5)`, !refused.some((row) => row.id === id));
   }
   check("F055 (my dad had a heart attack last year) is not caught", !refused.some((row) => row.id === "F055"));
 }
@@ -135,11 +206,12 @@ async function engineChecks() {
     return { status: "ok" as const, canonical_question: `Show me hospitals in Ohio (${text})` };
   };
 
-  const refusal = await normalizeQuestion("stroke mortality", DOMAIN_CAPABILITIES, normalize);
+  // Batch 5B-1: "stroke mortality" is registered now; "hospital acquired infections" still has no measure.
+  const refusal = await normalizeQuestion("hospital acquired infections", DOMAIN_CAPABILITIES, normalize);
   check("pre-check refusal calls the normalizer 0 times", calls === 0, `calls=${calls}`);
   check(
     "pre-check refusal is { unsupportedTerms, meta.source = pre-check }",
-    !!refusal && "unsupportedTerms" in refusal && refusal.unsupportedTerms[0] === "stroke" && refusal.meta?.source === "pre-check",
+    !!refusal && "unsupportedTerms" in refusal && refusal.unsupportedTerms[0] === "hospital acquired infections" && refusal.meta?.source === "pre-check",
     JSON.stringify(refusal),
   );
   const passthrough = await normalizeQuestion("hospitals in ohio", DOMAIN_CAPABILITIES, normalize);
@@ -165,7 +237,10 @@ async function engineChecks() {
       }),
   });
 
-  for (const question of ["hospitals in Washington DC", "hospitals in D.C.", "stroke mortality", "military hospitals"]) {
+  // Batch 5B-1: "stroke mortality" and "military hospitals" are registered now; their own still-unsupported
+  // readmission/complication literals take their place.
+  // Batch 5B-5: DC is registered; a region and another still-unsupported literal take its two places.
+  for (const question of ["hospitals in the bay area", "ED waits in Texas", "stroke readmission rates", "hospital wide readmission"]) {
     const r = await engine.execute({ question });
     const gate = (r.trace ?? []).find((g) => g.phase === "llm-normalization" && g.status === "unsupported");
     const executed = (r.trace ?? []).some((g) => g.phase === "deterministic-warehouse-execution");

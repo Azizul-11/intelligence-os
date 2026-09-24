@@ -6,7 +6,7 @@ import { concepts } from "../concepts";
 import { healthcareAliases } from "../aliases";
 import { healthcareSqlTemplates } from "../sql";
 import { STATE_NAMES_BY_CODE } from "./execution-strategy";
-import { scopeGuidanceChips } from "./lay-vocabulary";
+import { clarificationChips, scopeGuidanceChips } from "./lay-vocabulary";
 import { HEALTHCARE_PROMPT_WORDING } from "./prompt-wording";
 import { HealthcareTemplateSelector } from "./template-selector";
 
@@ -27,7 +27,16 @@ function conceptAliases(conceptId: string): string[] {
 const METRIC_WORDS_BY_ID: Record<string, string> = {
   "mortality-rate": "mortality rate",
   "readmission-rate": "readmission",
+  // Batch 5B-2: matches the generic "rate" fallback below already used for an unlisted metric - stated explicitly
+  // so a chip reads "Pressure Ulcer rate" rather than relying on the fallback by coincidence.
+  "patient-safety-indicator": "rate",
+  // Batch 5B-3: a patient-survey dimension chip reads "best Cleanliness score" (a composite alias the pipeline answers).
+  "patient-experience": "score",
 };
+
+/** Batch 5B-3: "lowest" is the best end only for a lower-is-better metric; a survey dimension's best end is "best". */
+const bestEndWord = (metricId: string): string =>
+  healthcareMetrics.find((metric) => metric.id === metricId)?.lowerIsBetter ? "lowest" : "best";
 
 /**
  * Tier1 Task 6: three real, already-verified-working queries (confirmed
@@ -351,7 +360,7 @@ function buildSuccessSuggestionPool(context: SuggestionContext): string[] {
         if (!otherMetricId) continue;
         const otherWord = METRIC_WORDS_BY_ID[otherMetricId] ?? "rate";
         const shortName = conceptAliases(other.id)[0] ?? other.displayName;
-        conceptItems.push(`Show me hospitals with lowest ${shortName} ${otherWord}${scopeSuffix}`);
+        conceptItems.push(`Show me hospitals with ${bestEndWord(otherMetricId)} ${shortName} ${otherWord}${scopeSuffix}`);
       }
     }
 
@@ -479,6 +488,14 @@ function failurePathSuggestions(context: SuggestionContext): string[] {
     return tokens;
   }
 
+  // Batch 5B-4 (D4): "best communication" is answered with a question (nurse, doctor or medicines?); its chips are the
+  // three answers, never the generic pool.
+  const choices = clarificationChips(context.question);
+
+  if (choices) {
+    return [...choices];
+  }
+
   const candidates: string[] = [];
 
   if (answerability?.reason === "capability-unavailable" && answerability.alternatives) {
@@ -588,7 +605,7 @@ export async function generateHealthcareSuggestionsWithLLMRephrasing(
   }
 
   // Batch 5A-1: the guidance chips for an unsupported topic are exact, pre-validated questions: no model rewords them.
-  if (!context.success && scopeGuidanceChips(context.question) !== undefined) {
+  if (!context.success && (scopeGuidanceChips(context.question) !== undefined || clarificationChips(context.question) !== undefined)) {
     return deterministic;
   }
 

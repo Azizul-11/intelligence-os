@@ -94,12 +94,60 @@ const CABG_NAMES = "(?:CABG|Coronary Artery Bypass(?: Graft(?:s|ing)?)?|Bypass(?
 const CABG_NOTE = "Showing Bypass Surgery (CABG) Mortality, the bypass-surgery measure I track.";
 const VAGUE_NOTE = "You didn't name a measure, so I'm showing the highest overall-rated hospitals.";
 
+// Batch 5B-2: a Patient Safety Indicator is a complication or death rate, never a mortality rate and never a
+// whole-hospital metric - these repairs must run BEFORE the WHOLE_HOSPITAL_METRICS ones below (repairCanonical
+// stops at the first match), or "best Safety Performance for Postoperative Sepsis" would be repaired to the wrong
+// measure (Mortality Rate) instead of this one.
+// Kept in step with the trimmed alias set actually registered (aliases/psi.ts, aliases/sepsis.ts) - a repaired
+// phrase this regex does not resolve afterward would be a dead end.
+const PSI_NAMES =
+  "(?:PSI[ -]?90|PSI[ -]?13|Pressure Ulcers?|Death After Serious Surgical Complication|" +
+  "Failure to Rescue|Iatrogenic Pneumothorax|Collapsed Lung|In-Hospital Falls? With Fracture|" +
+  "Postoperative Hemorrhage(?: or Hematoma)?|Postoperative Acute Kidney Injury|" +
+  "Kidney Injury Requiring Dialysis|Postoperative Respiratory Failure|Respiratory Failure After Surgery|Perioperative Blood Clot|" +
+  "Blood Clots After Surgery|Postoperative Sepsis|" +
+  "Postoperative Wound Dehiscence|Wound Dehiscence|Accidental Puncture(?: or Laceration)?|" +
+  "Patient Safety Composite)";
+const PSI_NOTE = "Showing the Patient Safety Indicator rate: it is a complication or death rate, not a whole-hospital metric or a mortality rate.";
+// D2: the model can name the metric but drop which indicator ("highest PSI 90 patient safety scores" was rewritten
+// live to "Show me hospitals with highest Patient Safety Indicator"); with no indicator named, the composite is meant.
+const PSI_COMPOSITE_NOTE = "No specific safety indicator was named, so this shows the PSI 90 Patient Safety Composite.";
+// Batch 5B-3: a patient-survey dimension IS a Patient Experience topic, so "best Patient Experience for Cleanliness" is
+// the correct canonical question and must never be "repaired" to a condition's mortality below; and a model that writes
+// the dimension as if it were a metric ("best Cleanliness") gets the Patient Experience question back.
+const SURVEY_NAMES =
+  "(?:Cleanliness|Quietness|Nurse Communication|Doctor Communication|Communication About Medicines|Discharge Information|" +
+  "Recommend Hospital|Overall Survey Rating|Survey Summary Star)";
+const SURVEY_NOTE = "Showing that patient-survey score (higher is better).";
+// Batch 5B-4: the hospital types and flags as a model writes them (runtime/hospital-attribute-directory.ts).
+const TYPE_FLAG_WORDS = "(?:acute care|critical access|children'?s|pediatric|psychiatric|rural emergency|emergency services|birthing[- ]friendly)";
+
 export const CANONICAL_REPAIRS: readonly CanonicalRepair[] = [
-  { pattern: `^(Show me .*?hospitals with) (?:best|top) ${WHOLE_HOSPITAL_METRICS} for (.+)$`, flags: "i", replacement: "$1 lowest Mortality Rate for $2", note: REPAIR_NOTE },
-  { pattern: `^(Show me .*?hospitals with) (?:worst|bottom) ${WHOLE_HOSPITAL_METRICS} for (.+)$`, flags: "i", replacement: "$1 highest Mortality Rate for $2", note: REPAIR_NOTE },
+  {
+    pattern: "^(Show me .*?hospitals with (?:best|top|highest|lowest|worst|bottom|most|fewest)) Patient Safety Indicators?( in .+)?[.?!]*$",
+    flags: "i",
+    replacement: "$1 Patient Safety Indicator for Patient Safety Composite$2",
+    note: PSI_COMPOSITE_NOTE,
+  },
+  { pattern: `^(Show me .*?hospitals with) (?:best|top) ${WHOLE_HOSPITAL_METRICS} for (${PSI_NAMES})$`, flags: "i", replacement: "$1 lowest Patient Safety Indicator for $2", note: PSI_NOTE },
+  { pattern: `^(Show me .*?hospitals with) (?:worst|bottom) ${WHOLE_HOSPITAL_METRICS} for (${PSI_NAMES})$`, flags: "i", replacement: "$1 highest Patient Safety Indicator for $2", note: PSI_NOTE },
+  { pattern: `^(Show me .*?hospitals with) (?:best|top) (${PSI_NAMES})( in .+)?$`, flags: "i", replacement: "$1 lowest Patient Safety Indicator for $2$3", note: PSI_NOTE },
+  { pattern: `^(Show me .*?hospitals with) (?:worst|bottom) (${PSI_NAMES})( in .+)?$`, flags: "i", replacement: "$1 highest Patient Safety Indicator for $2$3", note: PSI_NOTE },
+  {
+    pattern: `^(Show me .*?hospitals with) (best|top|highest|lowest|worst|bottom) (${SURVEY_NAMES})( in .+)?[.?!]*$`,
+    flags: "i",
+    replacement: "$1 $2 Patient Experience for $3$4",
+    note: SURVEY_NOTE,
+  },
+  { pattern: `^(Show me .*?hospitals with) (?:best|top) ${WHOLE_HOSPITAL_METRICS} for (?!${SURVEY_NAMES}\\b)(.+)$`, flags: "i", replacement: "$1 lowest Mortality Rate for $2", note: REPAIR_NOTE },
+  { pattern: `^(Show me .*?hospitals with) (?:worst|bottom) ${WHOLE_HOSPITAL_METRICS} for (?!${SURVEY_NAMES}\\b)(.+)$`, flags: "i", replacement: "$1 highest Mortality Rate for $2", note: REPAIR_NOTE },
   { pattern: `^(Show me .*?hospitals with) (?:best|top) ${CABG_NAMES}( in .+)?$`, flags: "i", replacement: "$1 lowest Mortality Rate for CABG$2", note: CABG_NOTE },
   { pattern: `^(Show me .*?hospitals with) (?:worst|bottom) ${CABG_NAMES}( in .+)?$`, flags: "i", replacement: "$1 highest Mortality Rate for CABG$2", note: CABG_NOTE },
   { pattern: "^Show me (?:all |some |the )?hospitals[.?!]*$", flags: "i", replacement: "Show me best hospitals", note: VAGUE_NOTE },
+  // Batch 5B-4: the model keeps a hospital type or flag in the vague-ask shape ("best children's hospitals" -> "Show me
+  // best children's hospitals"), which names no metric the planner can see; the overall rating is what "best" means
+  // (RULE 5), written in the ranking shape the planner answers. A type CMS never rates is then listed (D11).
+  { pattern: `^(Show me) (best|top) (${TYPE_FLAG_WORDS}) hospitals( in .+)?[.?!]*$`, flags: "i", replacement: "$1 $3 hospitals with $2 Hospital Overall Rating$4", note: VAGUE_NOTE },
 ];
 
 // ------------------------------------------------------------------------------------------------ spellings
@@ -152,6 +200,30 @@ const COPD_READMIT = "Show me hospitals with lowest Readmission Rate for COPD";
 const HIP_KNEE = "Show me hospitals with lowest hip and knee replacement complication rate";
 const HIP_KNEE_READMIT = "Show me hospitals with lowest Hip Knee Readmission";
 const BEST = "Show me best hospitals";
+// Batch 5B-1
+const STROKE = "Show me hospitals with lowest Mortality Rate for Stroke";
+const HOSPITAL_WIDE_MORTALITY = "Show me hospitals with lowest Mortality Rate for Hospital-Wide Mortality";
+// Batch 5B-2
+const PSI_SEPSIS = "Show me hospitals with lowest Patient Safety Indicator for Postoperative Sepsis";
+const PSI_COMPOSITE = "Show me hospitals with lowest Patient Safety Indicator for Patient Safety Composite";
+const PSI_PRESSURE_ULCER = "Show me hospitals with lowest Patient Safety Indicator for Pressure Ulcer";
+const PSI_FALL_FRACTURE = "Show me hospitals with lowest Patient Safety Indicator for In-Hospital Fall With Fracture";
+const PSI_KIDNEY_INJURY = "Show me hospitals with lowest Patient Safety Indicator for Postoperative Acute Kidney Injury";
+const PSI_BLOOD_CLOT = "Show me hospitals with lowest Patient Safety Indicator for Perioperative Blood Clot";
+// Batch 5B-3: a patient-survey dimension is higher-is-better, so its canonical question says "best".
+const SURVEY = (dimension: string): string => `Show me hospitals with best Patient Experience for ${dimension}`;
+const SURVEY_CLEAN = SURVEY("Cleanliness");
+const SURVEY_QUIET = SURVEY("Quietness");
+const SURVEY_NURSE = SURVEY("Nurse Communication");
+const SURVEY_DOCTOR = SURVEY("Doctor Communication");
+const SURVEY_MEDICINES = SURVEY("Communication About Medicines");
+const SURVEY_DISCHARGE = SURVEY("Discharge Information");
+const SURVEY_RECOMMEND = SURVEY("Recommend Hospital");
+const SURVEY_OVERALL = SURVEY("Overall Survey Rating");
+const SURVEY_STAR = SURVEY("Survey Summary Star");
+/** "<dimension> score(s)" and "<dimension> ranking(s)": the metric word is part of the phrase, so it is not a blocker here. */
+const withScoreWords = (terms: readonly string[]): string[] =>
+  terms.flatMap((term) => [term, `${term} score`, `${term} scores`, `${term} ranking`, `${term} rankings`]);
 
 // ------------------------------------------------------------------------------------------------ groups
 
@@ -281,8 +353,134 @@ export const LAY_GROUPS: readonly LayGroup[] = [
     base: "Show me hospitals with best Patient Experience",
     reading: "Patient Experience",
   },
+  // --- a bare formal condition, Batch 5B-1: the pipeline needs a measure, the default is the condition's mortality ---
+  {
+    id: "stroke",
+    phrases: ["stroke", "strokes"],
+    base: STROKE,
+    reading: "Stroke Mortality",
+    alternates: [
+      { label: "Heart Attack", base: AMI },
+      { label: "Heart Failure", base: HF },
+    ],
+  },
   // --- ownership as a plain synonym ---
   { id: "government-owned", phrases: ["government owned", "government run", "state run", "publicly owned"], base: "Show me government hospitals", reading: "Government hospitals", silent: true },
+  // Batch 5B-1: a bare or typed ownership sub-label with nothing else in the question ("chruch owned", corrected to
+  // "church owned" by SPELLINGS above) is rewritten deterministically, the same shape as government-owned - the
+  // engine's own first pass already resolves these phrases with no rewrite when they are typed correctly (the
+  // ownership-directory map, not this file, is what answers "physician owned hospitals in Texas"); this is the
+  // fallback for a typo or for the phrase alone with no other words.
+  { id: "church-owned", phrases: ["church owned", "church affiliated"], base: "Show me church-owned hospitals", reading: "Church-owned hospitals", silent: true },
+  { id: "physician-owned", phrases: ["physician owned"], base: "Show me physician-owned hospitals", reading: "Physician-owned hospitals", silent: true },
+  { id: "tribal-owned", phrases: ["tribal owned", "tribal"], base: "Show me tribal hospitals", reading: "Tribal hospitals", silent: true },
+  { id: "department-of-defense", phrases: ["department of defense", "dod"], base: "Show me military hospitals", reading: "Department of Defense hospitals", silent: true },
+  // D5: "military" needs its own note (not silent) - it maps to Department of Defense only, and VA hospitals are a
+  // separate ownership category, so a user who meant VA should be told the mapping rather than get a silent one.
+  {
+    id: "military-owned",
+    phrases: ["military owned", "military"],
+    base: "Show me military hospitals",
+    reading: "Department of Defense hospitals",
+    note: "\"Military\" hospitals for '{heard}' means Department of Defense ownership (32 facilities). VA hospitals are tracked separately - ask for \"veterans hospitals\" for those.",
+  },
+  // --- Batch 5B-2: patient safety indicators ---
+  // D1: casual "sepsis"/"sepsis rate" is read as the postoperative sepsis rate (PSI_13), the only sepsis measure
+  // the warehouse has. "sepsis mortality"/"sepsis survival"/"sepsis recovery" are NOT registered here (or anywhere):
+  // BLOCKERS already ("mortality") or a higher-is-better word never aliased ("survival", "recovery" - see
+  // mortality-rate.ts) keep them off this deterministic path, and they stay refused (capability-catalog.ts).
+  { id: "sepsis-rate", phrases: ["sepsis", "sepsis rate", "sepsis rates"], base: PSI_SEPSIS, reading: "Postoperative Sepsis Rate" },
+  // D2: a bare mention of the metric itself, with nothing to rank, defaults to the PSI 90 composite.
+  {
+    id: "psi-bare",
+    phrases: ["patient safety indicator", "patient safety indicators", "psi", "safety indicator", "safety indicators"],
+    base: PSI_COMPOSITE,
+    reading: "the PSI 90 Patient Safety Composite",
+  },
+  { id: "psi-90", phrases: ["psi 90", "psi 90 composite", "patient safety composite"], base: PSI_COMPOSITE, reading: "the PSI 90 Patient Safety Composite" },
+  { id: "pressure-ulcer", phrases: ["pressure ulcer", "pressure ulcers", "bedsore", "bedsores"], base: PSI_PRESSURE_ULCER, reading: "Pressure Ulcer Rate" },
+  {
+    id: "fall-with-fracture",
+    phrases: ["in-hospital fall with fracture", "in-hospital falls with fracture", "fall with fracture", "falls with fracture"],
+    base: PSI_FALL_FRACTURE,
+    reading: "In-Hospital Fall With Fracture Rate",
+  },
+  {
+    id: "kidney-injury",
+    phrases: ["postoperative acute kidney injury", "postoperative kidney injury", "kidney injury requiring dialysis", "postoperative kidney injury requiring dialysis"],
+    base: PSI_KIDNEY_INJURY,
+    reading: "Postoperative Acute Kidney Injury Rate",
+  },
+  {
+    id: "blood-clot",
+    phrases: ["perioperative blood clot", "blood clot after surgery", "blood clots after surgery"],
+    base: PSI_BLOOD_CLOT,
+    reading: "Perioperative Blood Clot Rate",
+  },
+  // --- Batch 5B-3: patient-survey (HCAHPS) dimensions ---
+  {
+    id: "survey-cleanliness",
+    phrases: withScoreWords(["cleanliness", "room and bathroom cleanliness", "hospital room and bathroom cleanliness"]).concat([
+      "cleanest", "clean rooms", "cleanest rooms", "cleanest room",
+    ]),
+    base: SURVEY_CLEAN,
+    reading: "the Cleanliness patient-survey score",
+  },
+  // D9: "sanitary" is not the survey's own word, so the reading is said out loud.
+  {
+    id: "survey-sanitary",
+    phrases: ["sanitary", "most sanitary"],
+    base: SURVEY_CLEAN,
+    reading: "the Cleanliness patient-survey score",
+    note: "Read '{heard}' as the Cleanliness patient-survey score (how often patients said their room and bathroom were kept clean).",
+  },
+  {
+    id: "survey-quietness",
+    phrases: withScoreWords(["quietness"]).concat([
+      "quietest", "quiet at night", "quietest at night", "quietest hospitals at night", "can actually sleep", "actually sleep", "sleep quality",
+    ]),
+    base: SURVEY_QUIET,
+    reading: "the Quietness patient-survey score",
+  },
+  // Batch 5B-4: the bare words are the short answers to the D4 clarification ("Nurse, doctor or medicine communication?"):
+  // a reply of "nurse" arrives as a question of its own, with no pending interaction to carry the word "communication".
+  // The note says how it was read. "doctors" (plural) stays a pre-check topic (prices or individual doctors).
+  {
+    id: "survey-nurse",
+    phrases: withScoreWords(["nurse communication", "nurses communication", "communication with nurses"]).concat(["nurse", "nurses"]),
+    base: SURVEY_NURSE,
+    reading: "the Nurse Communication patient-survey score",
+  },
+  { id: "survey-doctor", phrases: withScoreWords(["doctor communication"]).concat(["doctor"]), base: SURVEY_DOCTOR, reading: "the Doctor Communication patient-survey score" },
+  {
+    id: "survey-medicines",
+    phrases: withScoreWords(["communication about medicines", "communication about medicine", "medicine communication"]).concat(["medicine", "medicines"]),
+    base: SURVEY_MEDICINES,
+    reading: "the Communication About Medicines patient-survey score",
+  },
+  {
+    id: "survey-discharge",
+    phrases: withScoreWords(["discharge information", "discharge instructions", "instructions for going home"]),
+    base: SURVEY_DISCHARGE,
+    reading: "the Discharge Information patient-survey score",
+  },
+  // "would recommend" alone is not a phrase: "I would recommend a hospital near Dallas" is a request, not this dimension.
+  {
+    id: "survey-recommend",
+    phrases: ["patients would recommend", "patient would recommend", "would definitely recommend", "recommend the hospital", "most recommended"],
+    base: SURVEY_RECOMMEND,
+    reading: "the share of patients who would recommend the hospital (patient survey)",
+  },
+  { id: "survey-overall", phrases: withScoreWords(["overall survey rating", "patient rating of the hospital"]), base: SURVEY_OVERALL, reading: "the Overall Survey Rating patients gave the hospital" },
+  {
+    id: "survey-star",
+    phrases: [
+      "patient survey star rating", "patient survey star ratings", "patient experience star rating", "patient experience star ratings",
+      "survey star rating", "survey star ratings", "hcahps star rating", "hcahps star ratings", "summary star rating", "survey summary star",
+    ],
+    base: SURVEY_STAR,
+    reading: "the patient-survey summary star rating",
+  },
 ];
 
 // ------------------------------------------------------------------------------------------------ filler
@@ -294,6 +492,8 @@ export const SCAFFOLD: readonly string[] = [
   "our", "us", "show", "tell", "give", "find", "get", "list", "need", "want", "wanna", "looking", "look", "help", "for", "the", "a", "an",
   "is", "are", "am", "was", "be", "to", "go", "do", "does", "what", "whats", "which", "where", "who", "how", "there", "that", "this",
   "with", "of", "about", "any", "some", "best", "good", "great", "top", "better", "hospital", "hospitals", "place", "places", "should",
+  // Batch 5B-4: "facility" is how the data names a hospital ("non-profit facilities"), never a topic of its own.
+  "facility", "facilities",
 ];
 
 /** Health words that ask for nothing the platform measures on its own ("pneumonia screening"). */
@@ -338,7 +538,9 @@ export const BLOCKERS: readonly string[] = [
  * unaccounted, such a phrase reaches the vocabulary, which drops the word itself when it sits next to a mapped phrase.
  */
 const SYMPTOM_WORDS = new Set(["problem", "problems", "issue", "issues", "trouble", "symptom", "symptoms", "concern", "concerns"]);
-export const HEALTHCARE_FILLER_WORDS: readonly string[] = TOPICAL_FILLER.filter((word) => !SYMPTOM_WORDS.has(word));
+// Batch 5B-4: "facility"/"facilities" are structural ("highest Cleanliness scores among non-profit facilities" was refused on that
+// word alone); they name the hospitals being asked about, never a topic.
+export const HEALTHCARE_FILLER_WORDS: readonly string[] = [...TOPICAL_FILLER.filter((word) => !SYMPTOM_WORDS.has(word)), "facility", "facilities"];
 
 export const LAY_VOCABULARY: LayVocabulary = {
   spellings: SPELLINGS,
@@ -366,6 +568,7 @@ const OVERALL = "Show me hospitals with best Hospital Overall Rating";
 const SAFETY = "Show me hospitals with best Safety Performance";
 const EXPERIENCE = "Show me hospitals with best Patient Experience";
 const READMIT = "Show me hospitals with lowest Readmission Rate";
+const EMERGENCY_LIST = "Show me hospitals with emergency services";
 
 /**
  * What to offer when the question names something the platform does not answer (the unsupported topics in
@@ -373,32 +576,34 @@ const READMIT = "Show me hospitals with lowest Readmission Rate";
  * scripts/verify-batch5a1-vocab.ts, so none can lead to a dead end.
  */
 export const SCOPE_GUIDANCE: readonly ScopeGuidance[] = [
-  { topics: ["stroke"], label: "stroke hospitals", chips: [AMI, HF, MORTALITY] },
-  { topics: ["sepsis"], label: "sepsis care", chips: [PN, SAFETY, MORTALITY] },
+  // Batch 5B-1: stroke mortality and hospital-wide mortality are registered now; only their READMISSION and
+  // COMPLICATION wording stays unsupported (the warehouse has no such measure for either), with the mortality
+  // question offered as the closest match.
+  { topics: ["stroke readmission", "stroke complications"], label: "stroke readmission or complications - only stroke mortality is tracked", chips: [STROKE, AMI, HF] },
+  // Batch 5B-2: postoperative sepsis (PSI_13) and the 11 other PSIs are registered now; only sepsis wording that
+  // implies a measure the warehouse does not have (a mortality or survival rate) stays unsupported.
+  { topics: ["sepsis mortality", "sepsis survival", "sepsis recovery"], label: "a sepsis mortality or survival rate - only the postoperative sepsis rate is tracked", chips: [PSI_SEPSIS, SAFETY, MORTALITY] },
   {
-    topics: ["psi", "patient safety indicator", "patient safety indicators", "pressure ulcer", "pressure ulcers", "in-hospital falls", "falls with fracture", "blood clot", "blood clots", "hospital acquired infection", "hospital acquired infections", "kidney injury"],
+    topics: ["hospital acquired infection", "hospital acquired infections", "psi 5", "psi 05", "psi 7", "psi 07"],
     label: "that specific safety measure",
-    chips: [SAFETY, OVERALL, MORTALITY],
+    chips: [SAFETY, OVERALL, PSI_COMPOSITE],
   },
-  { topics: ["hospital wide", "all cause"], label: "hospital-wide results", chips: [MORTALITY, OVERALL, READMIT] },
+  { topics: ["hospital wide readmission"], label: "hospital-wide readmission - only hospital-wide mortality is tracked", chips: [HOSPITAL_WIDE_MORTALITY, MORTALITY, OVERALL] },
+  // Batch 5B-3: the 8 survey dimensions and the summary star are registered now. What stays here has no data
+  // (staff responsiveness H_COMP_3 and care transition H_COMP_7 have 0 rows) or is a single survey item rather than a
+  // dimension (D3, deferred: "nurses listen carefully").
   {
-    topics: ["nurse communication", "doctor communication", "communication about medicines", "discharge information", "instructions for going home", "listen carefully", "responsiveness", "cleanliness", "cleanest", "sanitary", "quietest"],
+    topics: ["staff responsiveness", "responsiveness", "care transition", "care transitions", "listen carefully"],
     label: "that patient-survey detail",
-    chips: [EXPERIENCE, OVERALL, SAFETY],
+    chips: [SURVEY_NURSE, EXPERIENCE, SURVEY_CLEAN],
   },
+  // Batch 5B-4: "emergency services" (the flag), birthing-friendly and the hospital types are registered now; only the
+  // emergency-department measures no table holds (waits, volumes) stay here.
   {
-    topics: ["emergency services", "emergency department", "ed wait", "ed waits", "er wait", "er waits", "wait time", "wait times", "volumes"],
+    topics: ["emergency department", "ed wait", "ed waits", "er wait", "er waits", "wait time", "wait times", "volumes"],
     label: "emergency-room information",
-    chips: [OVERALL, SAFETY, EXPERIENCE],
+    chips: [EMERGENCY_LIST, OVERALL, SAFETY],
   },
-  { topics: ["birthing friendly", "birthing-friendly"], label: "birthing-friendly hospitals", chips: [EXPERIENCE, OVERALL, SAFETY] },
-  { topics: ["hospital type", "acute care", "critical access", "childrens", "children's", "psychiatric", "rural emergency"], label: "that hospital type", chips: [OVERALL, SAFETY, EXPERIENCE] },
-  {
-    topics: ["physician owned", "tribal", "military", "department of defense", "church owned"],
-    label: "{term} hospitals",
-    chips: ["Show me government hospitals", "Show me non-profit hospitals with lowest Mortality Rate", "Show me proprietary hospitals with best Hospital Overall Rating"],
-  },
-  { topics: ["dc", "d.c.", "district of columbia"], label: "hospitals in Washington DC", chips: ["Show me best hospitals in Maryland", "Show me best hospitals in Virginia", "Show me hospitals with best Patient Experience in Maryland"] },
   { topics: ["since", "over time", "years ago", "time trend", "time trends"], label: "results over time (I only have the latest data)", chips: [OVERALL, MORTALITY, READMIT] },
   { topics: ["address", "phone number", "phone numbers", "telephone", "patient records"], label: "contact details or patient records", chips: [OVERALL, SAFETY, EXPERIENCE] },
   // Batch 5C: a region the platform has no concept of (it searches by state, county or city), a request for medical knowledge, and a
@@ -491,6 +696,23 @@ export function scopeGuidanceChips(question: string): readonly string[] | undefi
   return entry?.chips;
 }
 
+/**
+ * Batch 5B-4 (D4): the chips for the "which communication?" clarification. "communication" naming no nurses, doctors or
+ * medicines gets exactly its three answers, not the generic pool (a random other state). Each is a formal question the
+ * deterministic path answers ("<dimension> scores", like B030), so the runtime's dry run keeps it.
+ */
+const COMMUNICATION_CHOICES = ["Nurse communication scores", "Doctor communication scores", "Communication about medicines scores"];
+
+export function clarificationChips(question: string): readonly string[] | undefined {
+  const padded = correctedWords(question);
+  const namesOne = ["nurse", "nurses", "doctor", "doctors", "medicine", "medicines", "medication", "medications"].some((word) => padded.includes(` ${word} `));
+
+  return padded.includes(" communication ") && !namesOne ? COMMUNICATION_CHOICES : undefined;
+}
+
 /** One sentence naming everything the platform answers today; used by the graceful "I currently track ..." reply. */
 export const COVERAGE_SUMMARY =
-  "heart attack, heart failure, pneumonia, COPD and bypass surgery mortality and readmission, hip and knee replacement complications, plus hospital ratings, safety, patient experience and ownership";
+  // Batch 5B-1: stroke and hospital-wide mortality are registered, mortality only (no readmission measure exists for either).
+  // Batch 5B-2: the patient safety indicators (pressure ulcers, falls, blood clots, postoperative sepsis and more).
+  // Batch 5B-3: the patient-survey dimensions. Batch 5B-4: hospital types and the emergency-services / birthing-friendly flags.
+  "heart attack, heart failure, pneumonia, COPD and bypass surgery mortality and readmission, stroke and hospital-wide mortality, patient safety indicators, hip and knee replacement complications, plus hospital ratings, safety, patient experience (including cleanliness, quietness and nurse and doctor communication), ownership, hospital type (children's, psychiatric, critical access and more) and emergency-services or birthing-friendly hospitals";
