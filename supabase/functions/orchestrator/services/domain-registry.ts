@@ -9,7 +9,16 @@ import {
 } from "@intelligence/sql-executor";
 import { createRuntimeEngine } from "@intelligence/runtime-engine";
 import { llmGateway } from "@intelligence/llm-model-gateway";
-import { DOMAIN_CAPABILITIES, expandUppercaseStateAbbreviations, describeOverallRatingTies, correctPlaceCollidingTypos } from "@intelligence/healthcare-domain";
+import {
+  DOMAIN_CAPABILITIES,
+  expandUppercaseStateAbbreviations,
+  describeOverallRatingTies,
+  correctPlaceCollidingTypos,
+  buildSummaryContext,
+  summaryFactNumbers,
+  summaryVocabulary,
+  type SummaryContext,
+} from "@intelligence/healthcare-domain";
 
 import { supabase } from "../../shared/supabase.ts";
 import { normalizeQuestion, precheckUnsupported } from "./normalizer-hook.ts";
@@ -136,6 +145,20 @@ export async function describeResultNote(
     console.error("[Result note failed]", error);
     return undefined;
   }
+}
+
+/**
+ * Phase 3.5: the domain's prepared summary context for an answer (what the rows measure, the applied filters,
+ * precomputed facts, plain-labelled rows), plus the numbers and names the grounding check must accept because the
+ * context states them. Built by the domain pack; this only forwards the answer's rows and parameters.
+ */
+export function prepareSummaryContext(
+  rows: readonly Record<string, unknown>[],
+  parameters: Record<string, unknown> | undefined,
+  alreadyShown: readonly string[],
+): { context: SummaryContext; factNumbers: string[]; vocabulary: string[] } {
+  const context = buildSummaryContext({ rows, parameters, alreadyShown });
+  return { context, factNumbers: summaryFactNumbers(context), vocabulary: summaryVocabulary(context) };
 }
 
 /**

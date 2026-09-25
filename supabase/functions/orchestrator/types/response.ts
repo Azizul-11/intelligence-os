@@ -6,6 +6,8 @@ export interface ChatResponse {
   metadata?: {
     executionTimeMs?: number;
     rowCount?: number;
+    /** Phase 3.5: a summary the grounding check rejected - why, and the text that was not shown. */
+    summaryRejected?: { reason: string; text: string };
   };
 
   error?: string;

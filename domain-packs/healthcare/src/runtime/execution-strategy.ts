@@ -11,7 +11,7 @@ import { COUNTIES, CITIES } from "./geographic-directory";
 import { normalizeText, STATES } from "./entity-provider";
 import { hospitalIdentityDirectory } from "./hospital-identity-directory";
 import { generateHealthcareSuggestionsWithLLMRephrasing } from "./suggestion-generator";
-import { HOSPITAL_ATTRIBUTE_PARAMETERS, UNRATED_HOSPITAL_TYPES } from "./hospital-attribute-directory";
+import { HOSPITAL_ATTRIBUTE_PARAMETERS, UNRATED_HOSPITAL_TYPES, UNRATED_OWNERSHIPS } from "./hospital-attribute-directory";
 import { healthcareSqlTemplates } from "../sql";
 
 export const STATE_NAMES_BY_CODE = new Map<string, string>(
@@ -229,12 +229,20 @@ export class HealthcareExecutionStrategy
       .map((filter) => filter.field)
       .filter((field) => (HOSPITAL_ATTRIBUTE_PARAMETERS as readonly string[]).includes(field));
 
+    const hasHospitalFilter = executionPlan.filters.some((filter) => filter.field === "hospital");
+    const hasPlace = executionPlan.filters.some((filter) => filter.field === "state" || filter.field === "county" || filter.field === "city");
+    const ownership = executionPlan.filters.find((filter) => filter.field === "ownership")?.value;
+
+    // Phase 3.5 (D11 for ownership): an ownership CMS never rates (Department of Defense) is listed, not ranked - the
+    // ranking was empty by nature ("Zero rows returned" for "military hospitals"); the note says why.
+    if (!hasHospitalFilter && typeof ownership === "string" && UNRATED_OWNERSHIPS.has(ownership)) {
+      return hasPlace ? "hospital-list-by-state" : "hospital-list-nationwide";
+    }
+
     if (attributeFields.length === 0) {
       return this.selectTemplateForPlan(executionPlan);
     }
 
-    const hasHospitalFilter = executionPlan.filters.some((filter) => filter.field === "hospital");
-    const hasPlace = executionPlan.filters.some((filter) => filter.field === "state" || filter.field === "county" || filter.field === "city");
     const hospitalType = executionPlan.filters.find((filter) => filter.field === "hospitalType")?.value;
     const listTemplate = hasPlace ? "hospital-list-by-state" : "hospital-list-nationwide";
 

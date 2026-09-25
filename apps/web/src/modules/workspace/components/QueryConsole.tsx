@@ -353,7 +353,7 @@ function ResultCard({
           the backend's own numeric cross-check already accepted it; the
           raw rows table below is completely unaffected either way. */}
       {success && "summary" in result && result.summary && (
-        <p className="mb-2 text-sm text-foreground">{result.summary}</p>
+        <p className="mb-2 whitespace-pre-line text-sm text-foreground">{result.summary}</p>
       )}
 
       {success && parseError && (
@@ -475,7 +475,7 @@ function fmtMs(ms: number): string {
   return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
 }
 
-function describeCall(call: LlmCall, summaryShown: boolean): string {
+function describeCall(call: LlmCall, summaryShown: boolean, rejectedReason?: string): string {
   const tiers = call.tiers.replaceAll(">", " → ");
   if (call.provider === "none") {
     return `failed or timed out after ${fmtMs(call.latencyMs)}${tiers ? ` (tried ${tiers})` : ""}`;
@@ -483,7 +483,8 @@ function describeCall(call: LlmCall, summaryShown: boolean): string {
   return [
     `${call.model} · ${call.provider} · ${fmtMs(call.latencyMs)}`,
     call.fallbackUsed ? `fallback, tried ${tiers}` : "",
-    call.role === "summary" && !summaryShown ? "answered but not shown (a number or name in it is not in the rows)" : "",
+    call.role === "summary" && rejectedReason ? `answered but not shown (${rejectedReason})` : "",
+    call.role === "summary" && !rejectedReason && !summaryShown ? "answered but not shown (a number or name in it is not in the rows)" : "",
   ]
     .filter(Boolean)
     .join(" · ");
@@ -520,7 +521,7 @@ function CallTrace({ result, clientMs }: { result: ChatResponse; clientMs?: numb
               <span className="font-medium text-foreground">{role}</span>:{" "}
               {roleCalls.length === 0
                 ? "not called"
-                : roleCalls.map((call) => describeCall(call, !!result.summary)).join("; ")}
+                : roleCalls.map((call) => describeCall(call, !!result.summary, result.metadata?.summaryRejected?.reason)).join("; ")}
             </li>
           );
         })}

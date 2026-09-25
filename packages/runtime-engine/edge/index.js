@@ -677,6 +677,21 @@ function createRuntimeEngine({
           executedParameters: parameters
         };
       };
+      if (request.dryRun && llmFallback && !request.identityAlreadyResolved && !request.forcedIdentityCandidate && !request.forcedIntent && !request.companionEntities && isLlmFirstFrontDoorEnabled()) {
+        const resolved = semantic.resolve(request.question);
+        const hasUniqueRecordMatch = resolved.matches.some(
+          (candidate) => candidate.semanticType === "entity" && candidate.definition.identifiesUniqueRecord === true
+        );
+        if (!hasUniqueRecordMatch && !planner.isFullyUnderstood(resolved.normalizedQuery, resolved.matches, runtime.domain.entities)) {
+          return {
+            success: false,
+            rows: [],
+            rowCount: 0,
+            error: "A suggestion must be answerable exactly as written.",
+            answerability: { status: "not_directly_answerable" }
+          };
+        }
+      }
       let preNormalizeAttempted = false;
       let pendingClarification;
       let declinedTerms;
@@ -827,7 +842,7 @@ function createRuntimeEngine({
       );
       const isIdentityAmbiguous = finalResult.answerability?.status === "ambiguous" && finalResult.answerability?.reason === "identity-ambiguous";
       if (isIdentityAmbiguous) {
-        return { ...finalResult, suggestions: candidateQuestions.slice(0, 3) };
+        return { ...finalResult, suggestions: candidateQuestions };
       }
       const suggestions = [];
       for (const candidate of candidateQuestions) {

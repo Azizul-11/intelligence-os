@@ -40,6 +40,9 @@ const SENTENCE_OPENERS = new Set([
   "the", "a", "an", "among", "both", "all", "overall", "top", "best", "in", "at", "for", "with", "however", "also",
   "additionally", "notably", "each", "some", "most", "several", "here", "these", "those", "this", "that", "other",
   "another", "according", "based", "while", "although", "whereas", "together", "finally", "first", "second", "third",
+  // Phase 3.5: openers of the executive summary's takeaway lines ("Across Ohio, ...", "Only 3 ...", "Every hospital ...").
+  "across", "only", "every", "no", "none", "of", "on", "within", "compared", "nationally", "scores", "ratings", "results",
+  "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "twenty",
 ]);
 
 /** CMS stores a county as "COLQUITT", not "Colquitt County" (a Louisiana parish likewise): the suffix in a summary is not a word to find in the rows. */
@@ -90,6 +93,12 @@ export function findUngroundedNames(
   };
 
   for (const token of summary.split(/\s+/).filter(Boolean)) {
+    // Phase 3.5: a bullet marker ("• ", "- ") starts a sentence, like a full stop does.
+    if (/^[•\-*]$/.test(token)) {
+      flush();
+      sentenceStart = true;
+      continue;
+    }
     if (/^[("“‘[]/.test(token)) {
       flush();
     }

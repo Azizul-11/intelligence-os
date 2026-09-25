@@ -1168,14 +1168,22 @@ export class LLMModelGateway implements LLMProvider {
    * Returns an empty string on any failure - the caller must treat an
    * empty string identically to "no summary available".
    */
-  async summarizeResult(question: string, rows: Record<string, unknown>[], deadlineMs?: number, wording?: PromptWording): Promise<string> {
+  async summarizeResult(
+    question: string,
+    rows: Record<string, unknown>[],
+    deadlineMs?: number,
+    wording?: PromptWording,
+    context?: Record<string, unknown>,
+  ): Promise<string> {
     if (rows.length === 0) {
       return "";
     }
 
     const systemPrompt = (wording?.summary ?? NEUTRAL_WORDING.summary).join(" ");
 
-    const userMessage = JSON.stringify({ question, rows: rows.slice(0, 20) });
+    // Phase 3.5: an optional, caller-prepared context (what the rows measure, the filters applied, precomputed facts)
+    // travels with the rows; the gateway only forwards it and names nothing inside it.
+    const userMessage = JSON.stringify(context ? { question, context, rows: rows.slice(0, 20) } : { question, rows: rows.slice(0, 20) });
 
     const startedAt = Date.now();
     const trace: ChainTrace = { attempts: 0, tiers: [] };

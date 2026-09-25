@@ -133,7 +133,9 @@ async function main() {
   console.log("\n--- Group D: identity-ambiguous - suggestions derived from real candidates[], resolve the clarification turn ---");
   {
     const result = await run("Tell me everything about Memorial Hospital");
-    check("D1", "identity-ambiguous: suggestions present, 2-3 items", result.success === false && Array.isArray(result.suggestions) && result.suggestions.length >= 2 && result.suggestions.length <= 3, JSON.stringify(result.suggestions));
+    // Phase 3.5: every clarification option is offered (was capped at 3); each chip still matches exactly one option (D1-MATCH below).
+    const candidateCount = (result.answerability as { candidates?: unknown[] } | undefined)?.candidates?.length ?? 0;
+    check("D1", "identity-ambiguous: one suggestion per clarification option", result.success === false && Array.isArray(result.suggestions) && result.suggestions.length >= 2 && result.suggestions.length === candidateCount, JSON.stringify(result.suggestions));
     // Tier1 T6 regression fix (bug 1, found by live frontend dogfooding
     // after this script was first written): an identity-ambiguous
     // suggestion is a CONTINUATION TOKEN (e.g. a bare city name), not a

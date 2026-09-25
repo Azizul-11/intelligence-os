@@ -61,6 +61,14 @@ export const UNRATED_HOSPITAL_TYPES = new Map<string, string>([
   [RURAL_EMERGENCY.likePattern, "rural emergency"],
 ]);
 
+/**
+ * Phase 3.5 (D11 for ownership): an ownership CMS never rates. Department of Defense hospitals: 32, 0 overall ratings,
+ * 0 scored outcomes (the 5B audit, confirmed 2026-09-25), so "military hospitals" returned an empty ranking ("Zero rows
+ * returned"). They are listed instead, with the reason. Tribal (2 of 16 rated) and physician-owned (19 of 81) are
+ * partly rated and stay ranked.
+ */
+export const UNRATED_OWNERSHIPS = new Map<string, string>([["Department of Defense%", "military (Department of Defense)"]]);
+
 /** How many hospitals the nationwide attribute list matched, for the "first 100 alphabetically" note. */
 export const HOSPITAL_ATTRIBUTE_COUNT_TEMPLATE: SqlTemplateDefinition = {
   id: "hospital-attribute-count",
@@ -110,7 +118,9 @@ export async function describeHospitalAttributeResult(input: {
     return undefined;
   }
 
-  const unrated = typeof parameters.hospitalType === "string" ? UNRATED_HOSPITAL_TYPES.get(parameters.hospitalType) : undefined;
+  const unrated =
+    (typeof parameters.hospitalType === "string" ? UNRATED_HOSPITAL_TYPES.get(parameters.hospitalType) : undefined) ??
+    (typeof parameters.ownership === "string" ? UNRATED_OWNERSHIPS.get(parameters.ownership) : undefined);
   const unratedNote = unrated
     ? `CMS does not calculate clinical mortality, safety or overall star ratings for ${unrated} hospitals, so they are listed alphabetically, not ranked.`
     : undefined;

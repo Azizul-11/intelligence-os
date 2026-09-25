@@ -77,13 +77,27 @@ export const HEALTHCARE_PROMPT_WORDING: PromptWording = {
     "select or invent anything outside the given pool.",
     "Return a JSON array of exactly {count} rephrased strings, each corresponding to one selected pool item.",
   ],
+  // Phase 3.5: an executive summary written from a prepared context (runtime/summary-context.ts) - the measure, its
+  // direction and unit, the applied filters, precomputed facts and plain-labelled rows - instead of 1-2 sentences
+  // restating raw rows. The grounding check accepts numbers from `rows` and `context.facts` only.
   summary: [
-    "Summarize this table of real healthcare data in 1-2 sentences.",
-    "You may ONLY state numbers, names, and values that literally appear in the JSON rows below.",
-    "Never compute an average, a total, or any derived number yourself - only restate what a row",
-    "already shows. Never state a fact about a hospital not present in the rows.",
-    "Never write a column name or a code (words joined by underscores, ids); say it in plain words.",
-    "Return plain text, not JSON.",
+    "You write the answer summary for a US hospital-quality analytics product; the reader is a busy executive.",
+    "The input is JSON: question, context {kind, measure, filters, scope, facts, alreadyShown} and rows.",
+    "Write 2 or 3 bullet lines. Each line starts with \"• \" and is ONE plain sentence of at most 30 words.",
+    "Line 1 - for kind \"ranking\": name the leader (facts.leader) and its value with the unit, and say what it means",
+    "(measure.better \"lower\" means a lower value is better). For \"list\": say what the list holds (how many hospitals,",
+    "which filters). For \"profile\" or \"comparison\": the most important difference or standout value.",
+    "Line 2 - the pattern, from facts: the range from best to last shown, how many hospitals share the top value,",
+    "how many are better than the national rate, which states recur. Name at most 3 hospitals in the whole summary.",
+    "If facts.everyHospitalShownHasValue is set, name no leader: say every hospital shown holds that value, and use",
+    "line 2 for something new (the states, the national comparison) or leave it out.",
+    "Line 3 - only when context.filters is not empty or there is a caveat, and only if lines 1-2 did not already say it.",
+    "Never write that no filters were applied. Mention a tie only when facts.hospitalsSharingTheTopValue is set.",
+    "Skip anything alreadyShown says.",
+    "Use ONLY numbers that appear in facts, scope or rows, written exactly as given; never compute a new number.",
+    "Never repeat the same value hospital by hospital - group them (\"4 hospitals share a score of 98\").",
+    "Never write a column name or a code (an id, words joined by underscores). No headings, no bold, no labels such as",
+    "\"Leader:\", no JSON - only the bullet lines.",
   ],
   conversational: {
     intro: [

@@ -1,7 +1,7 @@
 import type { SqlTemplateDefinition } from "@intelligence/domain-sdk";
 
 import { STATE_NAMES_BY_CODE } from "./execution-strategy";
-import { describeHospitalAttributeResult, HOSPITAL_ATTRIBUTE_PARAMETERS } from "./hospital-attribute-directory";
+import { describeHospitalAttributeResult, HOSPITAL_ATTRIBUTE_PARAMETERS, UNRATED_OWNERSHIPS } from "./hospital-attribute-directory";
 
 /**
  * Batch 5A-1 (D5): the plain overall-rating ranking returns the first 10 hospitals of everything that ties for the
@@ -85,7 +85,10 @@ export async function describeOverallRatingTies(input: {
 
   // Batch 5B-4: a hospital-type or flag filter has its own note first (D11 for an unrated type, or how many a nationwide
   // list matched); otherwise the tie below is counted with those filters too (SCOPE_PARAMETERS).
-  const filtered = parameters !== undefined && HOSPITAL_ATTRIBUTE_PARAMETERS.some((name) => parameters[name] !== undefined);
+  const filtered =
+    parameters !== undefined &&
+    (HOSPITAL_ATTRIBUTE_PARAMETERS.some((name) => parameters[name] !== undefined) ||
+      (typeof parameters.ownership === "string" && UNRATED_OWNERSHIPS.has(parameters.ownership)));
   const attributeNote = filtered ? await describeHospitalAttributeResult({ rows, parameters, run }) : undefined;
 
   if (attributeNote) {

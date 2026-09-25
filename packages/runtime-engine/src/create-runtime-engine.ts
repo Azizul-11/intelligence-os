@@ -1340,6 +1340,40 @@ return {
       // execution - from the top, exactly as if the user had typed the
       // canonical phrasing themselves. This function's own outer scope
       // never inspects or shortcuts what that recursive call decides.
+      //
+      // Phase 3.5 (chip validation parity): a dry run validates a suggestion chip, and a click on that chip is a
+      // fresh question that meets the front door below. A chip the front door would send to the model (not every
+      // word understood, no unique record) was validated on the deterministic path only, yet answered through the
+      // model when clicked - a chip could pass here and fail on click ("... among non-profit facilities"). So a dry
+      // run is refused, 0 SQL, whenever the same question would reach the model; the exact condition the front door
+      // uses below.
+      if (
+        request.dryRun &&
+        llmFallback &&
+        !request.identityAlreadyResolved &&
+        !request.forcedIdentityCandidate &&
+        !request.forcedIntent &&
+        !request.companionEntities &&
+        isLlmFirstFrontDoorEnabled()
+      ) {
+        const resolved = semantic.resolve(request.question);
+        const hasUniqueRecordMatch = resolved.matches.some(
+          (candidate) =>
+            candidate.semanticType === "entity" &&
+            (candidate.definition as EntityDefinition).identifiesUniqueRecord === true,
+        );
+
+        if (!hasUniqueRecordMatch && !planner.isFullyUnderstood(resolved.normalizedQuery, resolved.matches, runtime.domain.entities)) {
+          return {
+            success: false,
+            rows: [],
+            rowCount: 0,
+            error: "A suggestion must be answerable exactly as written.",
+            answerability: { status: "not_directly_answerable" },
+          };
+        }
+      }
+
       let preNormalizeAttempted = false;
       let pendingClarification: string | undefined;
       let declinedTerms: readonly string[] | undefined;
@@ -1662,7 +1696,9 @@ return {
         finalResult.answerability?.reason === "identity-ambiguous";
 
       if (isIdentityAmbiguous) {
-        return { ...finalResult, suggestions: candidateQuestions.slice(0, 3) };
+        // Phase 3.5: every option of a clarification is offered - a county in 4 states showed 3 ("Washington" was
+        // missing); the options are the domain's continuation tokens, one per candidate the clarification names.
+        return { ...finalResult, suggestions: candidateQuestions };
       }
 
       const suggestions: string[] = [];

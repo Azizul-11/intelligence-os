@@ -617,12 +617,12 @@ var LLMModelGateway = class {
    * Returns an empty string on any failure - the caller must treat an
    * empty string identically to "no summary available".
    */
-  async summarizeResult(question, rows, deadlineMs, wording) {
+  async summarizeResult(question, rows, deadlineMs, wording, context) {
     if (rows.length === 0) {
       return "";
     }
     const systemPrompt = (wording?.summary ?? NEUTRAL_WORDING.summary).join(" ");
-    const userMessage = JSON.stringify({ question, rows: rows.slice(0, 20) });
+    const userMessage = JSON.stringify(context ? { question, context, rows: rows.slice(0, 20) } : { question, rows: rows.slice(0, 20) });
     const startedAt = Date.now();
     const trace = { attempts: 0, tiers: [] };
     try {

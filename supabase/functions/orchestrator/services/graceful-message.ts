@@ -129,8 +129,16 @@ function groundedAsk(detail: Record<string, unknown> | undefined, question: stri
 /** The summary field: what the phrase was read as, what was left out, the tie disclosure, then the model's sentence(s). */
 export function composeSummary(...parts: readonly (string | undefined)[]): string | undefined {
   const present = parts.filter((part): part is string => typeof part === "string" && part.trim().length > 0).map((part) => part.trim());
+  // Phase 3.5: the model's summary is bullet lines ("• ..."); each goes on its own line under the notes (the web keeps
+  // line breaks). A summary without bullets is joined as before.
+  const bullets = present.length > 0 && /^[•\-*]\s/.test(present[present.length - 1]!) ? present.pop()! : undefined;
   // every part but the last is a note that ends a sentence (a model's note may not: "Read 'x' as y")
-  const text = present.map((part, index) => (index < present.length - 1 && !/[.!?]$/.test(part) ? `${part}.` : part)).join(" ");
+  const notes = present.map((part, index) => (index < present.length - 1 && !/[.!?]$/.test(part) ? `${part}.` : part)).join(" ");
+  const lines = bullets
+    ?.split(/\n+|(?=•)/)
+    .map((line) => line.trim().replace(/^[\-*]\s+/, "• "))
+    .filter((line) => line.length > 1);
+  const text = [notes && lines ? (/[.!?]$/.test(notes) ? notes : `${notes}.`) : notes, ...(lines ?? [])].filter(Boolean).join("\n");
 
   return text.length > 0 ? text : undefined;
 }

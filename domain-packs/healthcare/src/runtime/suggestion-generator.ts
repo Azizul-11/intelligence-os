@@ -39,6 +39,31 @@ const bestEndWord = (metricId: string): string =>
   healthcareMetrics.find((metric) => metric.id === metricId)?.lowerIsBetter ? "lowest" : "best";
 
 /**
+ * Phase 3.5: a listing, count or profile is not a measure, so a chip never ranks by it ("best Hospital List" was
+ * offered after every plain location list); the overall rating is the measure those answers pivot to.
+ */
+const NON_MEASURE_METRICS = new Set(["hospital-list", "hospital-count", "hospital-detail"]);
+const measureMetricId = (metricId: string): string => (NON_MEASURE_METRICS.has(metricId) ? "hospital-overall-rating" : metricId);
+
+/** Phase 3.5: a chip names its measure's good end - "lowest Mortality Rate", "best Patient Experience" - never "best Mortality Rate". */
+const rankedPhrase = (metricId: string, name?: string): string =>
+  `${bestEndWord(metricId)} ${name ?? metricDisplayName(metricId) ?? "Hospital Overall Rating"}`;
+
+/**
+ * Phase 3.5: a model may reword a pool chip into its opposite ("best Mortality Rate" came back as "highest Mortality
+ * Rate", a valid question about the worst hospitals). The pool only ever asks for the good end of a measure, so a
+ * reworded chip that pairs a lower-is-better measure with a "high" word, or a higher-is-better one with a "low" word,
+ * has changed meaning and is dropped. Exact words only.
+ */
+const LOWER_IS_BETTER_WORDS = /\b(mortality|death|deaths|die|readmission|readmissions|readmitted|complications?|sepsis|ulcers?|sores?|falls?|fractures?|clots?|puncture|hemorrhage|hematoma|injury|pneumothorax|dehiscence|psi|safety indicators?)\b/i;
+const HIGH_WORDS = /\b(highest|most|worst|bottom|greatest|largest|poorest)\b/i;
+const LOW_WORDS = /\b(lowest|fewest|least|worst|bottom|poorest)\b/i;
+
+export function chipKeepsDirection(text: string): boolean {
+  return LOWER_IS_BETTER_WORDS.test(text) ? !HIGH_WORDS.test(text) : !LOW_WORDS.test(text);
+}
+
+/**
  * Tier1 Task 6: three real, already-verified-working queries (confirmed
  * throughout Tier0/Tier1 dogfooding and this task's own audit) used as
  * the fully-generic last resort when nothing else in this file applies
@@ -75,23 +100,23 @@ const TOPIC_FALLBACKS: readonly { keywords: readonly string[]; suggestions: read
     suggestions: [
       "Show me hospitals with best Hospital Overall Rating",
       "Show me 5-star hospitals in Texas",
-      "Show me hospitals with best Mortality Rate",
+      "Show me hospitals with lowest Mortality Rate",
     ],
   },
   {
     keywords: ["mortality", "death", "deaths"],
     suggestions: [
-      "Show me hospitals with best Mortality Rate",
+      "Show me hospitals with lowest Mortality Rate",
       "Show me hospitals with best Hospital Overall Rating",
-      "Show me non-profit hospitals with best AMI mortality",
+      "Show me non-profit hospitals with lowest AMI mortality rate",
     ],
   },
   {
     keywords: ["readmission", "readmissions"],
     suggestions: [
-      "Show me hospitals with best Readmission Rate",
+      "Show me hospitals with lowest Readmission Rate",
       "Show me hospitals with best Hospital Overall Rating",
-      "Show me hospitals with best Mortality Rate",
+      "Show me hospitals with lowest Mortality Rate",
     ],
   },
   {
@@ -117,7 +142,93 @@ const TOPIC_FALLBACKS: readonly { keywords: readonly string[]; suggestions: read
  */
 const PEER_STATE_CODES = ["TX", "CA", "FL", "NY"] as const;
 
-const OWNERSHIP_ROTATION = ["non-profit", "proprietary"] as const;
+/**
+ * Phase 3.5: the ownership pivots cover the 5B-1 sub-labels too (church-owned, physician-owned), not only non-profit
+ * and proprietary. Military is left out of ranking chips: it has no rating (D11), so a ranking chip for it is a list.
+ */
+const OWNERSHIP_ROTATION = ["non-profit", "proprietary", "church-owned", "physician-owned", "government"] as const;
+
+/**
+ * Phase 3.5: neighbours for the jurisdictions the fixed peer rotation above never offers (5B-5), and the reverse, so
+ * a Maryland or Virginia answer can pivot to DC and a Florida or New York answer to Puerto Rico.
+ */
+const PEER_JURISDICTIONS: Readonly<Record<string, readonly string[]>> = {
+  DC: ["MD", "VA"],
+  MD: ["DC", "VA"],
+  VA: ["DC", "MD"],
+  PR: ["FL", "NY"],
+  FL: ["PR", "GA"],
+  NY: ["NJ", "PR"],
+  GU: ["CA", "HI"],
+  VI: ["PR", "FL"],
+  AS: ["HI", "CA"],
+  MP: ["GU", "HI"],
+};
+
+/**
+ * Phase 3.5: the 5B measures a question with no condition of its own is offered (an overall-rating answer, a list,
+ * an ownership or type filter), rotated so successive answers show different ones. Ordered by family for the
+ * metric the answer was about: survey dimensions after a patient-experience answer, safety indicators after a
+ * safety answer, outcomes otherwise.
+ */
+const SHOWCASE_BY_FAMILY: Readonly<Record<string, readonly string[]>> = {
+  outcomes: ["stroke", "hospital-wide-mortality", "acute-myocardial-infarction", "heart-failure", "pneumonia"],
+  safety: ["sepsis", "in-hospital-fall-with-fracture", "perioperative-blood-clot", "pressure-ulcer", "patient-safety-composite"],
+  survey: ["hcahps-cleanliness", "hcahps-quietness", "hcahps-nurse-communication", "hcahps-doctor-communication", "hcahps-recommend"],
+};
+const FAMILY_OF_METRIC: Readonly<Record<string, string>> = {
+  "mortality-rate": "outcomes",
+  "readmission-rate": "outcomes",
+  "patient-safety-indicator": "safety",
+  "safety-performance": "safety",
+  "patient-experience": "survey",
+};
+
+/** Phase 3.5: type and flag chips (5B-4), phrased the way the deterministic pipeline answers them. */
+const ATTRIBUTE_CHIPS: readonly ((scope: string) => string)[] = [
+  (scope) => `Show me hospitals with emergency services${scope}`,
+  (scope) => `Show me birthing-friendly hospitals${scope}`,
+  (scope) => `Show me critical access hospitals${scope}`,
+];
+
+/** Phase 3.5: nationwide answers can offer a jurisdiction the platform answers since 5B-5. */
+const JURISDICTION_CHIPS = ["Show me best hospitals in District of Columbia", "Show me best hospitals in Puerto Rico"] as const;
+
+/** A small stable number from the question, so rotations differ between questions but not between runs. */
+function rotationSeed(text: string): number {
+  let seed = 0;
+  for (const character of text.toLowerCase()) {
+    seed = (seed * 31 + character.charCodeAt(0)) % 9973;
+  }
+  return seed;
+}
+
+function rotate<T>(items: readonly T[], seed: number): T[] {
+  if (items.length === 0) return [];
+  const start = seed % items.length;
+  return [...items.slice(start), ...items.slice(0, start)];
+}
+
+/** "Show me hospitals with lowest Stroke mortality rate<scope>" - the pivot chip for one concept, or undefined. */
+function conceptChip(conceptId: string, preferredMetricId: string, scopeSuffix: string): string | undefined {
+  const concept = CONCEPTS_WITH_REAL_MEASURES.find((candidate) => candidate.id === conceptId);
+  if (!concept) return undefined;
+  const metricId = concept.measureCodesByMetric?.[preferredMetricId] ? preferredMetricId : Object.keys(concept.measureCodesByMetric ?? {})[0];
+  if (!metricId) return undefined;
+  // A safety indicator or a survey dimension is written in its canonical form ("... lowest Patient Safety Indicator
+  // for Pressure Ulcer"): the short "<alias> rate/score" form is not answerable for every one of them (measured:
+  // "best Recommend Hospital score", "lowest Patient Safety Composite rate" were not).
+  if (metricId === "patient-safety-indicator" || metricId === "patient-experience") {
+    return `Show me hospitals with ${rankedPhrase(metricId)} for ${concept.displayName}${scopeSuffix}`;
+  }
+  // Hip/knee's measure under "mortality-rate" is its complication rate (COMP_HIP_KNEE), so a chip never calls it a
+  // mortality rate; the complication wording is an alias the pipeline answers.
+  if (concept.id === "elective-primary-tha-tka" && metricId === "mortality-rate") {
+    return `Show me hospitals with lowest hip and knee replacement complication rate${scopeSuffix}`;
+  }
+  const shortName = conceptAliases(concept.id)[0] ?? concept.displayName;
+  return `Show me hospitals with ${bestEndWord(metricId)} ${shortName} ${METRIC_WORDS_BY_ID[metricId] ?? "rate"}${scopeSuffix}`;
+}
 
 function stateName(code: string): string {
   return STATE_NAMES_BY_CODE.get(code) ?? code;
@@ -247,21 +358,21 @@ function successPathSuggestions(context: SuggestionContext): string[] {
   } else {
     // Depth probe: a different comparable/rankable metric, same scope -
     // rotates with the current metric (see nextComparableMetric).
-    const alternateMetric = nextComparableMetric(plan.metric, true);
+    const alternateMetric = nextComparableMetric(measureMetricId(plan.metric), true);
     if (alternateMetric) {
       const scope = stateNames.length > 0 ? ` in ${stateNames.join(" and ")}` : "";
-      candidates.push(`Show me hospitals with best ${alternateMetric.displayName}${scope}`);
+      candidates.push(`Show me hospitals with ${rankedPhrase(alternateMetric.id)}${scope}`);
     }
 
     // Breadth/pivot: mechanical ownership filter add/drop, same metric -
     // rotates between ownership categories instead of always "non-profit".
-    const primaryDisplayName = metricDisplayName(plan.metric) ?? "overall rating";
+    const primaryMetricId = measureMetricId(plan.metric);
     if (ownershipFilter) {
       const scope = stateNames.length > 0 ? ` in ${stateNames.join(" and ")}` : "";
-      candidates.push(`Show me hospitals with best ${primaryDisplayName}${scope}`);
+      candidates.push(`Show me hospitals with ${rankedPhrase(primaryMetricId)}${scope}`);
     } else {
       const ownershipPivot = OWNERSHIP_ROTATION[plan.metric.length % OWNERSHIP_ROTATION.length];
-      candidates.push(`Show me ${ownershipPivot} hospitals with best ${primaryDisplayName}`);
+      candidates.push(`Show me ${ownershipPivot} hospitals with ${rankedPhrase(primaryMetricId)}`);
     }
 
     // Breadth/pivot: add or extend a state scope - the peer state
@@ -296,7 +407,7 @@ function successPathSuggestions(context: SuggestionContext): string[] {
  * `generateHealthcareSuggestionsWithLLMRephrasing()` is what actually
  * narrows this down to 3, via `llmGateway.selectAndRephraseSuggestions`.
  */
-function buildSuccessSuggestionPool(context: SuggestionContext): string[] {
+export function buildSuccessSuggestionPool(context: SuggestionContext): string[] {
   const plan = context.executionPlan;
   if (!plan) {
     return SAFE_FALLBACK_SUGGESTIONS.slice();
@@ -342,48 +453,74 @@ function buildSuccessSuggestionPool(context: SuggestionContext): string[] {
     }
     pool.push(`Tell me about ${hospitalName}`);
   } else {
+    // Phase 3.5: a listing, count or profile answer pivots on the overall rating (never "best Hospital List"), and
+    // every measure chip names its good end ("lowest Mortality Rate").
+    const primaryMetricId = measureMetricId(plan.metric);
+    const seed = rotationSeed(context.question);
+    const attributeItems: string[] = [];
+
     // Depth probe: every OTHER comparable metric, not just the next one -
     // only those with a registered ranking template (see hasRankingTemplate).
-    for (const metric of allComparableMetricsExcept(plan.metric)) {
+    for (const metric of allComparableMetricsExcept(primaryMetricId)) {
       if (!hasRankingTemplate(metric.id)) continue;
-      pool.push(`Show me hospitals with best ${metric.displayName}${scopeSuffix}`);
+      pool.push(`Show me hospitals with ${rankedPhrase(metric.id)}${scopeSuffix}`);
     }
 
-    // Depth probe (concept-scoped only): every OTHER clinical concept
-    // with a real measure code - "heart attack" pivots to "bypass
-    // surgery"/"heart failure"/"pneumonia"/etc, not only to unrelated
-    // top-level metrics.
+    // Depth probe, concept-scoped: the siblings in the answered measure's own family first ("stroke" -> heart attack,
+    // hospital-wide mortality), then two from the other families (a safety indicator, a survey dimension).
+    // Phase 3.5: an answer with no condition of its own gets the 5B showcase for its metric's family instead, rotated.
+    const conceptIds: string[] = [];
     if (currentConcept) {
-      for (const other of CONCEPTS_WITH_REAL_MEASURES) {
-        if (other.id === currentConcept.id) continue;
-        const otherMetricId = other.measureCodesByMetric?.[plan.metric] ? plan.metric : Object.keys(other.measureCodesByMetric ?? {})[0];
-        if (!otherMetricId) continue;
-        const otherWord = METRIC_WORDS_BY_ID[otherMetricId] ?? "rate";
-        const shortName = conceptAliases(other.id)[0] ?? other.displayName;
-        conceptItems.push(`Show me hospitals with ${bestEndWord(otherMetricId)} ${shortName} ${otherWord}${scopeSuffix}`);
-      }
-    }
-
-    // Breadth/pivot: both ownership directions, not just one rotation
-    // step - uses the current CONCEPT's own short name + metric word
-    // when concept-scoped (e.g. "AMI mortality rate"), not the generic
-    // top-level metric name, so the pivot stays contextual.
-    const primaryDisplayName = currentConcept
-      ? `${conceptAliases(currentConcept.id)[0] ?? currentConcept.displayName} ${METRIC_WORDS_BY_ID[plan.metric] ?? ""}`.trim()
-      : metricDisplayName(plan.metric) ?? "overall rating";
-    if (ownershipFilter) {
-      ownershipItems.push(`Show me hospitals with best ${primaryDisplayName}${scopeSuffix}`);
+      const sameFamily = CONCEPTS_WITH_REAL_MEASURES.filter((other) => other.id !== currentConcept.id && other.measureCodesByMetric?.[plan.metric]);
+      const otherFamilies = Object.entries(SHOWCASE_BY_FAMILY)
+        .filter(([family]) => family !== FAMILY_OF_METRIC[plan.metric])
+        .map(([, ids]) => rotate(ids, seed)[0]!);
+      conceptIds.push(...rotate(sameFamily.map((other) => other.id), seed), ...otherFamilies);
     } else {
-      for (const ownership of OWNERSHIP_ROTATION) {
-        ownershipItems.push(`Show me ${ownership} hospitals with best ${primaryDisplayName}`);
+      const family = FAMILY_OF_METRIC[primaryMetricId];
+      const ordered = family ? [family, ...Object.keys(SHOWCASE_BY_FAMILY).filter((name) => name !== family)] : rotate(Object.keys(SHOWCASE_BY_FAMILY), seed);
+      const lists = ordered.map((name) => rotate(SHOWCASE_BY_FAMILY[name]!, seed));
+      for (let index = 0; index < 5; index++) {
+        for (const list of lists) {
+          if (list[index] !== undefined) conceptIds.push(list[index]!);
+        }
       }
     }
+    for (const conceptId of [...new Set(conceptIds)]) {
+      const chip = conceptChip(conceptId, plan.metric, scopeSuffix);
+      if (chip) conceptItems.push(chip);
+    }
 
-    // Breadth/pivot: several peer states, not just the next rotation step.
+    // Breadth/pivot: ownership, over all the registered labels (rotated) - uses the current CONCEPT's own short name
+    // + metric word when concept-scoped (e.g. "AMI mortality rate"), not the generic top-level metric name.
+    const primaryDisplayName = currentConcept
+      ? `${bestEndWord(plan.metric)} ${`${conceptAliases(currentConcept.id)[0] ?? currentConcept.displayName} ${METRIC_WORDS_BY_ID[plan.metric] ?? ""}`.trim()}`
+      : rankedPhrase(primaryMetricId);
+    const ownershipValue = typeof ownershipFilter?.value === "string" ? ownershipFilter.value : undefined;
+    if (ownershipValue === "Department of Defense%") {
+      // A military (DoD) answer is a list with no ratings (D11): the rated federal hospitals are the veterans ones.
+      ownershipItems.push(`Show me veterans hospitals with ${rankedPhrase("hospital-overall-rating")}${scopeSuffix}`);
+    } else if (ownershipFilter) {
+      ownershipItems.push(`Show me hospitals with ${primaryDisplayName}${scopeSuffix}`);
+    }
+    for (const ownership of rotate(OWNERSHIP_ROTATION, seed).slice(0, 2)) {
+      ownershipItems.push(`Show me ${ownership} hospitals with ${primaryDisplayName}${scopeSuffix}`);
+    }
+
+    // Phase 3.5: hospital types and flags (5B-4), in the answer's own scope.
+    for (const chip of rotate(ATTRIBUTE_CHIPS, seed).slice(0, 2)) {
+      attributeItems.push(chip(scopeSuffix));
+    }
+
+    // Breadth/pivot: several peer states, not just the next rotation step. A jurisdiction with neighbours of its own
+    // (DC, Puerto Rico, the territories, and the states next to them) uses those first.
     if (stateValues.length >= 1) {
       const peers: string[] = [];
-      let anchor = stateValues;
-      for (let i = 0; i < Math.min(3, PEER_STATE_CODES.length); i++) {
+      for (const peer of PEER_JURISDICTIONS[stateValues[stateValues.length - 1]!] ?? []) {
+        if (!stateValues.includes(peer)) peers.push(peer);
+      }
+      let anchor = [...stateValues, ...peers];
+      for (let i = 0; peers.length < 3 && i < PEER_STATE_CODES.length; i++) {
         const peer = nextPeerState(anchor);
         if (!peer || peers.includes(peer)) {
           break;
@@ -398,10 +535,13 @@ function buildSuccessSuggestionPool(context: SuggestionContext): string[] {
             : `Show me 5-star hospitals in ${stateNames.join(", ")} and ${stateName(peer)}`,
         );
       }
+    } else {
+      peerItems.push(...rotate(JURISDICTION_CHIPS, seed));
     }
 
-    // metric items are already in `pool`; take one of each kind in turn
-    const groups = [pool.splice(0, pool.length), conceptItems, ownershipItems, peerItems];
+    // Take one of each kind in turn (the metric items are in `pool`). Phase 3.5: a sibling measure leads, so the first
+    // three - the fallback when the model is slow - always offer one.
+    const groups = [conceptItems, pool.splice(0, pool.length), ownershipItems, attributeItems, peerItems];
     for (let index = 0; groups.some((group) => index < group.length); index++) {
       for (const group of groups) {
         const item = group[index];
@@ -409,6 +549,11 @@ function buildSuccessSuggestionPool(context: SuggestionContext): string[] {
           pool.push(item);
         }
       }
+    }
+    // A military (DoD) list leads with its rated federal alternative.
+    const veterans = ownershipValue === "Department of Defense%" ? pool.findIndex((chip) => chip.startsWith("Show me veterans hospitals")) : -1;
+    if (veterans > 0) {
+      pool.unshift(...pool.splice(veterans, 1));
     }
   }
 
@@ -473,7 +618,8 @@ function failurePathSuggestions(context: SuggestionContext): string[] {
     }
 
     const tokens: string[] = [];
-    for (const entry of parsed.slice(0, 3)) {
+    // Phase 3.5: every candidate is offered (a county in 4 states showed 3; "Washington" was missing).
+    for (const entry of parsed) {
       if (!entry.city) {
         continue;
       }
@@ -502,7 +648,7 @@ function failurePathSuggestions(context: SuggestionContext): string[] {
     for (const alternative of answerability.alternatives.slice(0, 3)) {
       const displayName = metricDisplayName(alternative.capabilityId);
       if (displayName) {
-        candidates.push(`Show me hospitals with best ${displayName}`);
+        candidates.push(`Show me hospitals with ${rankedPhrase(alternative.capabilityId, displayName)}`);
       }
     }
     candidates.push(...SAFE_FALLBACK_SUGGESTIONS);
@@ -619,7 +765,10 @@ export async function generateHealthcareSuggestionsWithLLMRephrasing(
   // the same 3.
   if (context.success) {
     const pool = buildSuccessSuggestionPool(context);
-    if (pool.length <= 3) {
+    // Phase 3.5: a military (DoD) answer is a list with no ratings (D11); its pool leads with the rated federal
+    // alternative (veterans hospitals), which a model's "diverse" pick tends to skip. It is used as built.
+    const military = context.executionPlan?.filters.some((filter) => filter.field === "ownership" && filter.value === "Department of Defense%");
+    if (pool.length <= 3 || military) {
       return pool;
     }
     const selected = await raceWithTimeout(
@@ -631,6 +780,8 @@ export async function generateHealthcareSuggestionsWithLLMRephrasing(
     if (!selected || selected.length !== 3) {
       return pool.slice(0, 3);
     }
+    // Phase 3.5: a pick the model reworded into the opposite direction is dropped; the pool backfills below.
+    const kept = selected.filter(chipKeepsDirection);
 
     // Batch 5A-1: a model picks freely (the paid tier, measured, tends to keep all three in the question's own scope,
     // and phrases some so loosely that the runtime's dry run drops them). So the picks are followed by a chip that
@@ -649,9 +800,21 @@ export async function generateHealthcareSuggestionsWithLLMRephrasing(
       );
     };
     const pivot = pool.find(pivotsScope);
-    const ordered = selected.some(pivotsScope) || !pivot ? selected : [selected[0]!, selected[1]!, pivot, selected[2]!];
+    const ordered = kept.some(pivotsScope) || !pivot ? kept : [...kept.slice(0, 2), pivot, ...kept.slice(2)];
 
-    return [...new Set([...ordered, ...pool])];
+    // Phase 3.5: the backfill skips a plain measure chip whose measure a kept chip already names in other words
+    // ("Which hospitals rank highest for Nurse Communication ..." and "... Patient Experience for Nurse Communication"
+    // were both shown).
+    const measureOf = (chip: string): string | undefined =>
+      /^Show me hospitals with (?:lowest|best) /.test(chip)
+        ? (/ for (.+?)(?: in .+)?$/.exec(chip)?.[1] ?? /^Show me hospitals with (?:lowest|best) (.+?)(?: in .+)?$/.exec(chip)?.[1])
+        : undefined;
+    const backfill = pool.filter((chip) => {
+      const measure = measureOf(chip)?.toLowerCase();
+      return !measure || !ordered.some((kept) => kept !== chip && kept.toLowerCase().includes(measure));
+    });
+
+    return [...new Set([...ordered, ...backfill])];
   }
 
   // Failure path: pool is already small/topic-specific
@@ -681,5 +844,6 @@ export async function generateHealthcareSuggestionsWithLLMRephrasing(
     return deterministic;
   }
 
-  return [...rephrased, ...deterministic.slice(3)];
+  // Phase 3.5: a rewording that reversed its chip's direction falls back to the chip as generated.
+  return [...rephrased.map((chip, index) => (chipKeepsDirection(chip) ? chip : toRephrase[index]!)), ...deterministic.slice(3)];
 }
