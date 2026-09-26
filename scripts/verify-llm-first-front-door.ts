@@ -393,7 +393,8 @@ async function main() {
     // live) and skipped the clarification; with them 0/5 wrong dimension and 4/5 clarifications.
     // Batch 5B-4: 11,800 -> 12,200 (the brief cleared up to 13,000-15,000). RULE 3(f) names the 5 hospital types and
     // the 2 flags once, RULE 1 keeps them as slots and RULE 6 no longer reports them: measured 12,077.
-    check("I1", "normalizer prompt <= 12,200 chars (was 15,906 = 3,730 tokens)", prompt.length > 0 && prompt.length <= 12200, `chars=${prompt.length}`);
+    // 2,000 sweep Batch B: 12,200 -> 12,500 (government sub-labels + ownership / type synonyms).
+    check("I1", "normalizer prompt <= 12,500 chars (was 15,906 = 3,730 tokens)", prompt.length > 0 && prompt.length <= 12500, `chars=${prompt.length}`);
     check("I2", 'normalizer prompt keeps the city slot and the missing-"in" rule (the frontend-failure fix)', prompt.includes("in <City>, <State>") && prompt.includes('the "in" may be missing'), "city-slot / no-in rule text missing from prompt");
   }
 

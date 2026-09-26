@@ -31,7 +31,7 @@ export interface SummaryMeasure {
 }
 
 export interface SummaryContext {
-  kind: "ranking" | "list" | "profile" | "comparison" | "table";
+  kind: "ranking" | "list" | "profile" | "comparison" | "table" | "grouped";
   measure?: SummaryMeasure;
   filters: string[];
   scope: string;
@@ -226,8 +226,16 @@ export function buildSummaryContext(input: {
   // A list (the list templates) carries emergency_services and is ordered by name, not by its rating column; every
   // other shape with a value column is ordered best first by its template, with or without a ranking word.
   const listShape = "emergency_services" in first && value?.column === "overall_rating";
+  // 2,000 sweep (Batch E): the top-rated hospital in each county or state ("Break down the best hospitals by county in
+  // Texas") comes ordered by the group, not by rating: read as a ranking, the first county's 1-star hospital "led".
+  // Only the grouping templates return rows without a city, one per group.
+  const groupedBy = !("city" in first) && rows.length > 1
+    ? (["county", "state"] as const).find((key) => key in first && new Set(rows.map((row) => row[key])).size === rows.length)
+    : undefined;
   const kind: SummaryContext["kind"] = hasIdentityList
     ? "comparison"
+    : groupedBy
+      ? "grouped"
     : rows.length === 1 && "hospital_type" in first && ("mort_measures_better" in first || "birthing_friendly" in first)
       ? "profile"
       : listShape
@@ -301,7 +309,9 @@ export function buildSummaryContext(input: {
           ? "one hospital's profile"
           : kind === "comparison"
             ? `${rows.length} hospitals compared side by side`
-            : `${rows.length} rows`;
+            : kind === "grouped"
+              ? `the top-rated hospital in each of ${rows.length} ${groupedBy === "county" ? "counties" : "states"}, listed by ${groupedBy}, not ranked against each other`
+              : `${rows.length} rows`;
 
   return {
     kind,

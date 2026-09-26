@@ -611,9 +611,7 @@ var SemanticPipeline = class {
       if (candidate.semanticType !== "metric") {
         continue;
       }
-      candidate.isFallback = rewritten.appliedReplacements.some(
-        (applied) => applied.replacement.includes(candidate.phrase)
-      );
+      candidate.isFallback = rewritten.appliedReplacements.some((applied) => applied.replacement.includes(candidate.phrase)) && !` ${rewritten.original.toLowerCase()} `.includes(` ${candidate.phrase.toLowerCase()}`);
     }
     const modifierTokenIndices = analyzed.map((analyzedToken, index) => ({ role: analyzedToken.role, index })).filter((entry) => entry.role === "modifier").map((entry) => entry.index);
     const originalTokenValues = analyzed.map(

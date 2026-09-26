@@ -1,5 +1,5 @@
 import { supabase } from "../../shared/supabase.ts";
-import { getRuntimeEngine, lookupHospitalOverallRating } from "./domain-registry.ts";
+import { describeResultNote, getRuntimeEngine, lookupHospitalOverallRating } from "./domain-registry.ts";
 // Tier1 Task 6: the 3 guaranteed-safe, already-verified-working starter
 // queries - used only for the narrow bypass paths below that call
 // lookupHospitalOverallRating() directly (raw SqlExecutor result, never
@@ -486,12 +486,19 @@ export async function handleContinuation(
       };
     }
 
+    // 2,000 sweep (Batch E): an empty Turn 2 answer ("Texas" for Houston County's heart-failure mortality, a hospital
+    // that reports no score) gets the same one-line explanation as an empty Turn 1 answer instead of a blank table.
+    const note = result.rows.length === 0
+      ? await describeResultNote([], (result as { executedParameters?: Record<string, unknown> }).executedParameters)
+      : undefined;
+
     return {
       success: true,
       requestId,
       answerability: result.answerability,
       trace: result.trace,
       answer: JSON.stringify(result.rows, null, 2),
+      ...(note ? { summary: note } : {}),
       metadata: {
         rowCount: result.rowCount,
       },

@@ -10,9 +10,15 @@ export const readmissionRateByFacilityIdsSqlTemplate: SqlTemplateDefinition = {
   description:
     "Phase 7: fetches readmission measure-classification values for an exact, already-determined set of facility_ids (no ranking, no limit) - used to enrich a multi-metric result with a secondary metric.",
 
+  // 2,000 sweep (Batch E): a comparison uses this template as its primary answer ("How does Cleveland Clinic's
+  // readmission rate compare to Mayo Clinic's?"), which showed facility ids only; as a secondary metric the merge
+  // writes the same values the primary row already has.
   template: `
 SELECT
     facility_id,
+    hospital_name,
+    city,
+    state,
     readm_measures_better,
     readm_measures_no_different,
     readm_measures_worse,

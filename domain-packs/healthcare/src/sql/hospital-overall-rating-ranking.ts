@@ -10,8 +10,11 @@ export const hospitalOverallRatingRankingSqlTemplate: SqlTemplateDefinition = {
   description:
     "Returns the highest rated hospitals. Tier1 Task 5 balanced-limits fix: a single-state/nationwide request returns the top 10 overall; a multi-state request returns the top 5 PER named state (via ROW_NUMBER() OVER PARTITION BY state), so every requested state gets fair representation instead of one state's tied hospitals crowding out another's.",
 
+  // 2,000 sweep (Batch A3): a scope in which CMS rated no hospital at all (physician-owned in Indiana, American Samoa,
+  // Ponce) returned 0 rows although it holds hospitals. Such a scope is listed alphabetically instead (D11, generalised:
+  // the domain's result note says why); whenever at least one hospital in scope is rated, the rows are exactly as before.
   template: `
-WITH ranked_facilities AS (
+WITH scoped AS (
     SELECT
         facility_id,
         hospital_name,
@@ -19,15 +22,10 @@ WITH ranked_facilities AS (
         city,
         county,
         ownership,
-        overall_rating,
-        ROW_NUMBER() OVER (
-            PARTITION BY (CASE WHEN :multiState = true THEN state ELSE 'ALL' END)
-            ORDER BY overall_rating :direction NULLS LAST, hospital_name ASC
-        ) AS rank_within_scope
+        overall_rating
     FROM warehouse_hospitals
     WHERE
-        overall_rating IS NOT NULL
-        AND (:state IS NULL OR UPPER(state) = UPPER(:state))
+        (:state IS NULL OR UPPER(state) = UPPER(:state))
         AND (:multiState = false OR UPPER(state) IN (:states))
         AND (:county IS NULL OR UPPER(county) = UPPER(:county))
         AND (:city IS NULL OR UPPER(city) = UPPER(:city))
@@ -36,6 +34,18 @@ WITH ranked_facilities AS (
         AND (:hospitalType IS NULL OR UPPER(hospital_type) LIKE UPPER(:hospitalType))
         AND (:emergencyServices IS NULL OR emergency_services = CAST(:emergencyServices AS BOOLEAN))
         AND (:birthingFriendly IS NULL OR birthing_friendly = :birthingFriendly)
+),
+ranked_facilities AS (
+    SELECT
+        scoped.*,
+        ROW_NUMBER() OVER (
+            PARTITION BY (CASE WHEN :multiState = true THEN state ELSE 'ALL' END)
+            ORDER BY overall_rating :direction NULLS LAST, hospital_name ASC
+        ) AS rank_within_scope
+    FROM scoped
+    WHERE
+        overall_rating IS NOT NULL
+        OR NOT EXISTS (SELECT 1 FROM scoped AS rated WHERE rated.overall_rating IS NOT NULL)
 )
 SELECT
     facility_id,

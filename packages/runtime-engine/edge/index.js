@@ -144,6 +144,14 @@ function isLlmFirstFrontDoorEnabled() {
 function withoutEntityPhrases(normalizedQuery, matches) {
   return matches.filter((match) => match.semanticType === "entity").reduce((text, match) => text.split(` ${match.phrase} `).join(" "), ` ${normalizedQuery} `).trim();
 }
+var COUNT = "(\\d{1,2}|one|two|three|four|five|six|seven|eight|nine)";
+var COUNT_WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9 };
+function requestedCount(question) {
+  const text = question.toLowerCase().replace(/-/g, " ");
+  const match = text.match(new RegExp(`\\b(?:top|bottom|best|worst|highest|lowest)\\s+${COUNT}\\b(?!\\s*stars?\\b)`)) ?? text.match(new RegExp(`\\b${COUNT}\\s+(?:best|worst|top|bottom|highest|lowest|safest)\\b`));
+  const count = match?.[1] ? COUNT_WORDS[match[1]] ?? Number(match[1]) : void 0;
+  return count !== void 0 && count > 0 ? count : void 0;
+}
 function createRuntimeEngine({
   runtime,
   semantic,
@@ -315,7 +323,10 @@ function createRuntimeEngine({
             answerability: { status: "not_directly_answerable" }
           };
         }
-        if (hasRelationshipWithoutBenchmark(semanticResult.matches)) {
+        const namedRecords = semanticResult.matches.filter(
+          (candidate) => candidate.semanticType === "entity" && candidate.definition.identifiesUniqueRecord === true
+        ).length;
+        if (hasRelationshipWithoutBenchmark(semanticResult.matches) && namedRecords < 2) {
           return {
             success: false,
             rows: [],
@@ -668,6 +679,11 @@ function createRuntimeEngine({
               }
             }
           }
+        }
+        const count = templateId.endsWith("-ranking") && parameters.multiState !== true ? requestedCount(request.rewrittenFrom ?? request.question) : void 0;
+        if (count !== void 0 && count < primaryResult.rows.length) {
+          primaryResult.rows = primaryResult.rows.slice(0, count);
+          primaryResult.rowCount = primaryResult.rows.length;
         }
         return {
           ...primaryResult,

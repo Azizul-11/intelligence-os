@@ -15,13 +15,16 @@ import { psiConcepts } from "../concepts/psi";
 import { hcahpsDimensionConcepts } from "../concepts/hcahps-dimensions";
 import { STATE_NAMES_BY_CODE } from "./execution-strategy";
 import { OWNERSHIP } from "./ownership-directory";
+import { CITIES } from "./geographic-directory";
 import type { PromptWording } from "@intelligence/llm-model-gateway";
 import {
+  AMBIGUOUS_TERMS,
   CANONICAL_REPAIRS,
   COVERAGE_SUMMARY,
   HEALTHCARE_FILLER_WORDS,
   LAY_VOCABULARY,
   SCOPE_GUIDANCE,
+  type AmbiguousTerm,
   type CanonicalRepair,
   type LayVocabulary,
   type ScopeGuidance,
@@ -31,6 +34,10 @@ import { HEALTHCARE_PROMPT_WORDING } from "./prompt-wording";
 export interface CapabilityCatalog {
   metrics: { displayName: string; description?: string }[];
   states: string[];
+  /** 2,000 sweep (Batch C): the two-letter codes behind `states`, for the phrase mapper (a code typed in lower case). */
+  stateCodes?: string[];
+  /** 2,000 sweep (Batch D): the lower-case city names the geographic directory knows, for a city typed in lower case. */
+  cityNames?: string[];
   ownerships: string[];
   /**
    * PrePhase 9.5 Round 2: condition-specific concepts (AMI, CABG, COPD,
@@ -53,6 +60,8 @@ export interface CapabilityCatalog {
    * the platform answers correctly.
    */
   unsupportedTopics: string[];
+  /** 2,000 sweep (Batch A2): phrases in which a topic word is not the topic, keyed by topic (see UNSUPPORTED_TOPIC_EXCEPTIONS). */
+  unsupportedTopicExceptions?: Record<string, string[]>;
   /** A handful of real, pre-verified-working questions - the same shape SAFE_FALLBACK_SUGGESTIONS already uses, extended for onboarding/capability-explanation prompts. */
   exampleAnswerableQuestions: string[];
   /** Illustrative only - what the platform is explicitly NOT for, so the LLM never tries to force-fit an off-topic question into a metric. */
@@ -73,6 +82,14 @@ export interface CapabilityCatalog {
   prompts?: PromptWording;
   /** Batch 5A-2: what a canonical question the model wrote that the pipeline cannot rank means here (lay-vocabulary.ts). */
   canonicalRepairs?: CanonicalRepair[];
+  /**
+   * 2,000 sweep (Batch E): unsupported topics as regular expressions. A year: the data is one CMS release, so "in 2019",
+   * "since 2020" or "in 2030" asks for a period it does not hold (every catalog row naming a year expects a refusal). A
+   * numeric threshold ("below 15%", "between 80% and 90%"): the rankings compare hospitals, they do not filter by value.
+   */
+  unsupportedPatterns?: string[];
+  /** 2,000 sweep (Batch D): a word that alone is ambiguous; a question using it is clarified, whatever the model wrote. */
+  ambiguousTerms?: AmbiguousTerm[];
 }
 
 const METRIC_DISPLAY_NAME_BY_ID = new Map(healthcareMetrics.map((m) => [m.id, m.displayName]));
@@ -130,9 +147,38 @@ const KNOWN_UNSUPPORTED_TOPICS = [
   "since", "over time", "years ago", "decile",
   "ed wait", "ed waits", "er wait", "er waits", "wait time", "wait times", "volumes", "price", "prices", "pricing",
   "how much does", "how much is", "how much do", "doctors", "surgeons", "time trend", "time trends",
+  // 2,000 sweep (Batch A2): the survey item's own wording (D3, item level) - "doctors explain things" alone is the doctor
+  // communication score now (UNSUPPORTED_TOPIC_EXCEPTIONS), so the item keeps its refusal by this literal instead.
+  "in a way you can understand",
+  // 2,000 sweep (Batch D): the survey's top-box share (only the linear score is loaded), one patient's own record, and
+  // a specialty no table holds. Narrow on purpose: "diagnosed with heart failure, which hospital ..." is a real ask.
+  "9 or 10", "top box", "what diagnosis", "which diagnosis", "plastic surgery", "cosmetic surgery",
+  // Batch E: schooling, not a hospital measure ("the best university to study nursing near Mayo Clinic"). Not "university":
+  // university hospitals are hospitals.
+  "study nursing", "nursing school", "nursing schools",
+  // Batch E: what no table holds, which the model answered with a neighbouring measure (central line infections as
+  // accidental puncture, wrong-site surgery as PSI 15, pain management as communication about medicines) or dropped
+  // ("best cancer hospitals in Texas" answered as the overall rating). Checked against the 2,000 catalog: every question
+  // containing one expects a refusal.
+  "central line", "central line infections", "clabsi", "c diff", "mrsa", "wrong site surgery", "wrong site",
+  "parking", "pain management", "how busy", "weight loss surgery", "bariatric", "cancer hospital", "cancer hospitals",
+  "cancer care", "cancer treatment", "oncology", "dental", "dentist", "patients admitted", "yesterday", "medicaid",
+  "insurance", "medical records", "rehab", "rehabilitation",
   // Batch 5B-5: DC ("dc", "d.c.", "district of columbia", refused since Batch 3) and the territories are registered
   // jurisdictions now (runtime/entity-provider.ts STATES).
 ];
+
+/**
+ * 2,000 sweep (Batch A2): three topic words refused real questions (12 rows): "since" in a narrative ("since my dad's
+ * heart attack last year we want the best hospital"), "doctors" as the doctor communication score ("doctors explain
+ * things clearly"), and "address" as a verb ("hospitals that address heart failure well"). In these phrases the word is
+ * not the topic; "since 2020", "best doctors in Ohio" and "the address of Mayo Clinic" are still refused.
+ */
+const UNSUPPORTED_TOPIC_EXCEPTIONS: Record<string, string[]> = {
+  since: ["since my", "since our", "since his", "since her", "since their", "since i", "since we", "since he", "since she", "since they", "since your"],
+  doctors: ["doctors explain", "doctors who explain", "doctors that explain", "doctors communicate", "doctors who communicate", "doctors that communicate"],
+  address: ["that address", "which address", "who address", "to address"],
+};
 
 const REGISTERED_ALIAS_PHRASES = new Set(
   healthcareAliases.flatMap((alias) => alias.aliases).map((phrase) => phrase.toLowerCase()),
@@ -169,6 +215,8 @@ export const DOMAIN_CAPABILITIES: CapabilityCatalog = {
     ...(metric.description ? { description: metric.description } : {}),
   })),
   states: Array.from(new Set(STATE_NAMES_BY_CODE.values())).sort(),
+  stateCodes: Array.from(STATE_NAMES_BY_CODE.keys()).sort(),
+  cityNames: Array.from(CITIES.keys()),
   ownerships: Array.from(new Set(Array.from(OWNERSHIP.values()).map((value) => value.label))),
   concepts: CONCEPTS_WITH_REAL_MEASURES.filter((concept) => !SURVEY_CONCEPT_IDS.has(concept.id)).map((concept) => ({
     displayName: concept.displayName,
@@ -189,6 +237,7 @@ export const DOMAIN_CAPABILITIES: CapabilityCatalog = {
       ...KNOWN_UNSUPPORTED_TOPICS.filter((topic) => !REGISTERED_ALIAS_PHRASES.has(topic)),
     ]),
   ),
+  unsupportedTopicExceptions: UNSUPPORTED_TOPIC_EXCEPTIONS,
   exampleAnswerableQuestions: [
     "Best hospitals in Texas",
     "Show me non-profit hospitals with lowest mortality rate",
@@ -209,4 +258,9 @@ export const DOMAIN_CAPABILITIES: CapabilityCatalog = {
   fillerWords: [...HEALTHCARE_FILLER_WORDS],
   prompts: HEALTHCARE_PROMPT_WORDING,
   canonicalRepairs: [...CANONICAL_REPAIRS],
+  ambiguousTerms: [...AMBIGUOUS_TERMS],
+  unsupportedPatterns: [
+    "\\b(?:19|20)\\d{2}\\b",
+    "\\b(?:above|below|under|over|between|less than|more than|greater than|at least|at most)\\s+\\d+(?:\\.\\d+)?\\s*(?:%|percent)",
+  ],
 };

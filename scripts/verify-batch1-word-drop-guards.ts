@@ -168,7 +168,9 @@ check("binding decline: trace `llm-normalization` = unsupported with the terms a
 
 // 1.3: a decline that names nothing keeps today's behaviour (C071 / D058 depend on it). Batch 3: "rated" is understood on
 // the first pass now, so C071 no longer reaches the LLM front door at all; D058 still does and still needs this.
-r = await run("I want a state-by-state view of the top hospitals", async () => ({ meta: prov }));
+// 2,000 sweep (Batch D): D058 itself ("state-by-state view") is understood on the first pass now; "overview" keeps the
+// same question at the front door.
+r = await run("I want a state-by-state overview of the top hospitals", async () => ({ meta: prov }));
 check("decline without terms: the deterministic pipeline still answers", r.success && r.rowCount > 0, `success=${r.success} rows=${r.rowCount}`);
 check("decline without terms: trace status stays `unavailable`", gate(r, "llm-normalization")?.status === "unavailable");
 

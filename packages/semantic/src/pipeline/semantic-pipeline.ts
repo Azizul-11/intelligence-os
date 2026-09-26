@@ -476,9 +476,12 @@ export class SemanticPipeline {
         continue;
       }
 
-      candidate.isFallback = rewritten.appliedReplacements.some(
-        (applied) => applied.replacement.includes(candidate.phrase),
-      );
+      // 2,000 sweep (Batch E): a phrase the user typed is explicit even when a rule rewrote the words around it ("best
+      // Hospital Overall Rating" also matches the "best hospital" idiom; "overall ratings" is rewritten to its singular).
+      // Marked fallback, it was dropped next to a second metric ("... and lowest mortality").
+      candidate.isFallback =
+        rewritten.appliedReplacements.some((applied) => applied.replacement.includes(candidate.phrase)) &&
+        !` ${rewritten.original.toLowerCase()} `.includes(` ${candidate.phrase.toLowerCase()}`);
     }
 
     // Phase 6.2: associate a ranking direction with metric candidates,

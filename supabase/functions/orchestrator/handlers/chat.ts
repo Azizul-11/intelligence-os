@@ -492,7 +492,8 @@ async function runChat(
       : buildVerifiedSummary(request.question, result.rows as Record<string, unknown>[], (result as { executedParameters?: Record<string, unknown> }).executedParameters, []).catch(
           (): VerifiedSummary => ({}),
         ),
-    early ? early.tie : Promise.resolve(undefined),
+    // 2,000 sweep (Batch A3): an empty answer gets the domain's one-line explanation instead of a blank table.
+    early ? early.tie : result.rows.length === 0 ? describeResultNote([], (result as { executedParameters?: Record<string, unknown> }).executedParameters) : Promise.resolve(undefined),
     validateAlternates(typeof lay?.alternates === "string" ? lay.alternates.split("\n").filter(Boolean) : []),
   ]);
   const ignored = lastGate(result.trace, "unaccounted-word-guard");

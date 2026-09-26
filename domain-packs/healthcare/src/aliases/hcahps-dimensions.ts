@@ -28,6 +28,11 @@ export const hcahpsCleanlinessAlias = concept("hcahps-cleanliness", [
   "Hospital Room and Bathroom Cleanliness",
   "Sanitary",
   "Most Sanitary",
+  // 2,000 sweep (Batch C): "hospitals with clean bathrooms in Pittsburgh" was answered as a plain list with the dimension
+  // silently dropped; as a named dimension the engine asks the front door, whose phrase group completes the question.
+  "Clean Bathrooms",
+  "Cleanest Bathrooms",
+  "Spotless Rooms",
 ]);
 export const hcahpsNurseCommunicationAlias = concept("hcahps-nurse-communication", ["Nurse Communication", "Communication With Nurses"]);
 export const hcahpsDoctorCommunicationAlias = concept("hcahps-doctor-communication", ["Doctor Communication"]);

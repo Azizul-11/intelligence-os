@@ -134,7 +134,8 @@ async function main() {
     // Batch 5B-1: 10,200 -> 10,350; Batch 5B-2: 10,350 -> 11,300 (see the matching I1 guard in
     // verify-llm-first-front-door.ts for the measurement and why the brief's own 10,500 estimate fell short).
     // Batch 5B-3: 11,300 -> 11,800 (same measurement as I1). Batch 5B-4: 11,800 -> 12,200 (hospital types and flags).
-    check("the rewrite prompt stays within its size budget (12,200 chars)", prompt.length <= 12200, `chars=${prompt.length}`);
+    // 2,000 sweep Batch B: 12,200 -> 12,500 (the three government sub-labels as their own ownership words, and the ownership / type synonyms).
+    check("the rewrite prompt stays within its size budget (12,500 chars)", prompt.length <= 12500, `chars=${prompt.length}`);
     console.log(`    [size] rewrite prompt = ${prompt.length} chars (5A-1: 8,795; before the 5A audit: 15,906)`);
 
     const summary = await systemPromptOf((g) => g.summarizeResult("q", [{ a: 1 }], undefined, wording), "ok");
@@ -162,16 +163,17 @@ async function main() {
   // -------------------------------------------------------------------------------------------- 4. hook
   console.log("\n4 - the hook: `unsupported`, `closest`");
   {
-    const unlisted = mapNormalizerResult({ status: "unsupported", canonical_question: null, unsupported_terms: ["free parking"], interpretation: "free parking", closest: ["Show me best hospitals", "  Show me best hospitals in Texas  ", "", "x".repeat(300), "a fourth"] }, DOMAIN_CAPABILITIES);
+    // 2,000 sweep (Batch E): "parking" is a listed topic now (capability-catalog.ts); "free wifi" is still unlisted.
+    const unlisted = mapNormalizerResult({ status: "unsupported", canonical_question: null, unsupported_terms: ["free wifi"], interpretation: "free wifi", closest: ["Show me best hospitals", "  Show me best hospitals in Texas  ", "", "x".repeat(300), "a fourth"] }, DOMAIN_CAPABILITIES);
     check("an unsupported ask the domain does not list is not binding: no rewrite, the reading rides in the meta", unlisted !== null && !("canonicalQuestion" in unlisted) && !("unsupportedTerms" in unlisted) && !("clarification" in unlisted));
     const meta = (unlisted as any)?.meta ?? {};
-    check("the reading is recorded", meta.interpretation === "free parking" && meta.unsupported_terms === "free parking", JSON.stringify(meta));
+    check("the reading is recorded", meta.interpretation === "free wifi" && meta.unsupported_terms === "free wifi", JSON.stringify(meta));
     check("closest becomes at most 3 alternates, trimmed, one per line, empty and over-long entries dropped", meta.alternates === "Show me best hospitals\nShow me best hospitals in Texas\na fourth", JSON.stringify(meta.alternates));
     // Batch 5B-1: "stroke" is a registered topic now (concepts/stroke.ts). Batch 5B-2: "sepsis" is too
     // (concepts/sepsis.ts); "hospital acquired infections" still has no measure.
     const listed = mapNormalizerResult({ status: "unsupported", canonical_question: null, unsupported_terms: ["hospital acquired infections"] }, DOMAIN_CAPABILITIES) as any;
     check("an unsupported ask that names a listed topic is still a binding refusal", Array.isArray(listed?.unsupportedTerms) && listed.unsupportedTerms[0] === "hospital acquired infections", JSON.stringify(listed));
-    check("markup in the model's reading is never passed on", ((mapNormalizerResult({ status: "unsupported", interpretation: "**free** parking" }, DOMAIN_CAPABILITIES) as any)?.meta ?? {}).interpretation === undefined);
+    check("markup in the model's reading is never passed on", ((mapNormalizerResult({ status: "unsupported", interpretation: "**free** wifi" }, DOMAIN_CAPABILITIES) as any)?.meta ?? {}).interpretation === undefined);
     const ok = mapNormalizerResult({ status: "ok", canonical_question: "Show me hospitals in Florida", unsupported_terms: ["mental health"], closest: [] }, DOMAIN_CAPABILITIES) as any;
     check("an ok rewrite is unchanged by the new fields", ok?.canonicalQuestion === "Show me hospitals in Florida" && ok.meta?.unsupported_terms === "mental health" && ok.meta?.alternates === undefined, JSON.stringify(ok));
     const old = mapNormalizerResult({ status: "fallback", canonical_question: null }, DOMAIN_CAPABILITIES);
@@ -207,11 +209,11 @@ async function main() {
     }
 
     const generic = new Set(["Unable to resolve question.", "Unable to create query plan."]);
-    const asked = "hospitals with free parking";
-    const gate = { status: "unavailable", detail: { unsupported_terms: "free parking", interpretation: "a helipad", alternates: "Show me best hospitals\nShow me best hospitals in Texas" } };
+    const asked = "hospitals with free wifi";
+    const gate = { status: "unavailable", detail: { unsupported_terms: "free wifi", interpretation: "a helipad", alternates: "Show me best hospitals\nShow me best hospitals in Texas" } };
     const message = buildInterpretedRefusal(gate, "Unable to resolve question.", generic, DOMAIN_CAPABILITIES.coverageSummary, asked);
-    check("the refusal echoes the user's own words and says what is tracked", /^I understand you're looking for "free parking", but I don't have that\. I currently track heart attack/.test(message ?? "") && /Try one of the questions below\.$/.test(message ?? ""), String(message));
-    check("a reading copied from a prompt example is never quoted back (\"a helipad\" for \"free parking\")", !/helipad/.test(message ?? ""));
+    check("the refusal echoes the user's own words and says what is tracked", /^I understand you're looking for "free wifi", but I don't have that\. I currently track heart attack/.test(message ?? "") && /Try one of the questions below\.$/.test(message ?? ""), String(message));
+    check("a reading copied from a prompt example is never quoted back (\"a helipad\" for \"free wifi\")", !/helipad/.test(message ?? ""));
     check("a reading that is not in what the user typed, with no term to fall back on, gives the generic card", buildInterpretedRefusal({ status: "unavailable", detail: { interpretation: "a helipad" } }, "Unable to resolve question.", generic, "x", asked) === undefined);
     check("a reading built only from the user's own words is echoed", /^I understand you're looking for "a cardiologist", but/.test(buildInterpretedRefusal({ status: "unavailable", detail: { interpretation: "a cardiologist" } }, "Unable to create query plan.", generic, "x", "cardiologist in Boston") ?? ""));
     check("an off-topic ask is not echoed back as if it were a topic (the model reported the whole question as the term)", buildInterpretedRefusal({ status: "unavailable", detail: { unsupported_terms: "who won the game last night" } }, "Unable to resolve question.", generic, "x", "who won the game last night") === undefined && buildInterpretedRefusal({ status: "unavailable", detail: { unsupported_terms: "the weather in Dallas" } }, "Unable to create query plan.", generic, "x", "what is the weather in Dallas") === undefined);
@@ -231,7 +233,7 @@ async function main() {
     const runtime = createDomainRuntime(healthcareDomain);
     const sqlExecutor = new SqlExecutor(new SupabaseDatabaseAdapter(createClient(env.supabaseUrl, env.supabaseServiceRoleKey)));
     const replies: Record<string, any> = {
-      "hospitals with free parking": { status: "unsupported", canonical_question: null, unsupported_terms: ["free parking"], interpretation: "free parking", filler_dropped: [], closest: ["Show me best hospitals", "Show me best hospitals in Texas", "Show me hospitals with best Unicorn Score"] },
+      "hospitals with free wifi": { status: "unsupported", canonical_question: null, unsupported_terms: ["free wifi"], interpretation: "free wifi", filler_dropped: [], closest: ["Show me best hospitals", "Show me best hospitals in Texas", "Show me hospitals with best Unicorn Score"] },
       // Batch 5B-1: "stroke" is a registered topic now. Batch 5B-2: "sepsis" is too; "hospital acquired infections"
       // still has no measure, so it still exercises this path.
       "hospitals that treat hospital acquired infections": { status: "unsupported", canonical_question: null, unsupported_terms: ["hospital acquired infections"], interpretation: "hospital acquired infections", closest: ["Show me best hospitals"] },
@@ -262,10 +264,10 @@ async function main() {
     const sqlCalls = (r: any) => (r.trace ?? []).reduce((sum: number, g: any) => sum + (g.sqlCalls ?? 0), 0);
     const gateOf = (r: any) => [...(r.trace ?? [])].reverse().find((g: any) => g.phase === "llm-normalization");
 
-    const parking = await run("hospitals with free parking");
+    const parking = await run("hospitals with free wifi");
     const pg = gateOf(parking);
     check("a model decline that no catalog topic covers ends in a refusal with 0 SQL (Phase 8)", parking.success === false && sqlCalls(parking) === 0, `success=${parking.success} sql=${sqlCalls(parking)}`);
-    check("the trace carries the reading, the terms and the alternates", pg?.status === "unavailable" && pg.detail?.interpretation === "free parking" && pg.detail?.unsupported_terms === "free parking" && gateAlternates(pg).length === 3, JSON.stringify(pg));
+    check("the trace carries the reading, the terms and the alternates", pg?.status === "unavailable" && pg.detail?.interpretation === "free wifi" && pg.detail?.unsupported_terms === "free wifi" && gateAlternates(pg).length === 3, JSON.stringify(pg));
     const shown: string[] = [];
     for (const candidate of gateAlternates(pg)) {
       if ((await run(candidate, { dryRun: true })).success) shown.push(candidate);

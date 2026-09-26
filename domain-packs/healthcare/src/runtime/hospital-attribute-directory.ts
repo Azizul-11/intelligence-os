@@ -35,17 +35,33 @@ export const HOSPITAL_TYPES = new Map<string, HospitalTypeValue>([
   ["pediatric", CHILDRENS],
   ["psychiatric", PSYCHIATRIC],
   ["rural emergency", RURAL_EMERGENCY],
+  // 2,000 sweep (Batch B2): everyday names. "cah" alone is never a key (36 hospital names end in "CAH"); "cahs", "reh" and
+  // "small rural" appear in no hospital, city or county name. A critical access hospital is CMS's small rural hospital.
+  ["cahs", CRITICAL],
+  ["small rural", CRITICAL],
+  ["reh", RURAL_EMERGENCY],
 ]);
 
 /** `emergency_services` (boolean). Only this phrase moves: "emergency department", "ER" and "ED" stay unsupported. */
 export const EMERGENCY_SERVICES = new Map<string, string>([
   ["emergency services", "true"],
   ["emergency service", "true"],
+  // 2,000 sweep (Batch B2): a round-the-clock ER is a hospital that provides emergency services; the bare ER words stay
+  // unsupported (waits, volumes), so only the "24 hour" phrasing moves.
+  ["24 hour emergency room", "true"],
+  ["24 hour emergency rooms", "true"],
+  ["24 hour er", "true"],
+  ["24 hour emergency", "true"],
 ]);
 
 /** `birthing_friendly` ('Y'); "birthing-friendly" normalizes to the same key. */
 export const BIRTHING_FRIENDLY = new Map<string, string>([
   ["birthing friendly", "Y"],
+  // 2,000 sweep (Batch B2): CMS's Birthing-Friendly designation is the maternity-care designation the data holds.
+  // "maternity" is bare although one hospital name contains it (Sutter Maternity & Surgery Center): a full name wins.
+  ["maternity", "Y"],
+  ["labor and delivery", "Y"],
+  ["having a baby", "Y"],
 ]);
 
 /** The execution parameters the three attribute entities bind (entities/hospital-type.ts and the two flag entities). */

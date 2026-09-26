@@ -53,6 +53,13 @@ export interface LayVocabularyLike {
 export interface LayMapOptions {
   /** Lower-case words of the places the domain knows (state names); a leftover word outside them and the slot words must look like a proper name. */
   placeWords?: ReadonlySet<string>;
+  /**
+   * 2,000 sweep (Batch C): lower-case two-letter place codes (state codes). Accepted only as the LAST leftover word, in any
+   * case ("side effects explained nv"), and written upper-case in the rewrite, where the pipeline resolves the code.
+   */
+  placeCodes?: ReadonlySet<string>;
+  /** 2,000 sweep (Batch D): lower-case names of the cities the domain knows, for a city typed in lower case before such a code. */
+  cityNames?: ReadonlySet<string>;
 }
 
 export interface LayMapping {
@@ -219,17 +226,36 @@ export function mapLayLanguage(question: string, vocabulary: LayVocabularyLike, 
     }
   }
 
-  while (residual.length > 0 && TRAILING_PREPOSITIONS.has(residual[residual.length - 1].lower)) {
+  // What is left must be slots the pipeline resolves. Anything else (a word the vocabulary has never seen) is not
+  // guessed at: no rewrite, and the model reads the whole sentence.
+  // The question's own last word, not merely the last one left over ("ok so I'm trying..." is never Oklahoma).
+  const last = tokens[tokens.length - 1];
+  const trailingCode = (token: Token): boolean => token === last && (options.placeCodes?.has(token.lower) ?? false);
+  // 2,000 sweep (Batch D): the lower-case words right before that final code are its city when they name one the domain
+  // knows ("psi 90 score el paso tx"): written as a name, and the code (even "in") is kept, as if both had been typed
+  // capitalised. The longest known name wins; a word before it that names nothing still sends the question to the model.
+  const cityWords = new Set<Token>();
+  if (trailingCode(last) && options.cityNames) {
+    const run: Token[] = [];
+    for (let k = tokens.length - 2; k >= 0 && run.length < 3; k--) {
+      if (!residual.includes(tokens[k]) || kept.has(k) || !/^\p{Ll}+$/u.test(tokens[k].text) || isSlotToken(tokens[k], singleSlotWords, placeWords)) break;
+      run.unshift(tokens[k]);
+    }
+    const name = [0, 1, 2].map((from) => run.slice(from)).find((words) => words.length > 0 && options.cityNames?.has(words.map((t) => t.lower).join(" ")));
+    name?.forEach((token) => cityWords.add(token));
+  }
+
+  while (residual.length > 0 && TRAILING_PREPOSITIONS.has(residual[residual.length - 1].lower) && !(cityWords.size > 0 && residual[residual.length - 1] === last)) {
     residual.pop();
   }
 
-  // What is left must be slots the pipeline resolves. Anything else (a word the vocabulary has never seen) is not
-  // guessed at: no rewrite, and the model reads the whole sentence.
-  if (residual.some((token) => !kept.has(tokens.indexOf(token)) && !isSlotToken(token, singleSlotWords, placeWords))) {
+  if (residual.some((token) => !kept.has(tokens.indexOf(token)) && !isSlotToken(token, singleSlotWords, placeWords) && !trailingCode(token) && !cityWords.has(token))) {
     return { correctedText, corrections };
   }
 
-  const suffix = residual.length > 0 ? ` ${residual.map((token) => token.text).join(" ")}` : "";
+  const written = (token: Token): string =>
+    trailingCode(token) ? token.text.toUpperCase() : cityWords.has(token) ? token.text.charAt(0).toUpperCase() + token.text.slice(1) : token.text;
+  const suffix = residual.length > 0 ? ` ${residual.map(written).join(" ")}` : "";
   // Same base, several groups ("good hospital near me"): the highest priority supplies the note, else the first with one.
   const primaryMatch = [...matches].sort((a, b) => (b.group.priority ?? 0) - (a.group.priority ?? 0)).find((m) => m.group.note !== undefined) ?? matches[0];
   const primary = primaryMatch.group;

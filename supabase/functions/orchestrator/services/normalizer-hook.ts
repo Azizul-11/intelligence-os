@@ -34,15 +34,31 @@ export interface NormalizerResultLike {
 
 export interface UnsupportedTopicCatalog {
   unsupportedTopics?: readonly string[];
+  /**
+   * 2,000 sweep (Batch A2): a topic word the domain refuses on its own ("since", "doctors") that is not the topic when the
+   * question also has one of these phrases ("since my dad's stroke", "doctors explain things"); keyed by topic.
+   */
+  unsupportedTopicExceptions?: Readonly<Record<string, readonly string[]>>;
   /** Batch 5A-1: the layperson vocabulary the domain owns (see services/lay-mapper.ts). */
   layVocabulary?: LayVocabularyLike;
   /** Batch 5A-1: the domain's place names (its states), so a leftover place word is recognised as a slot. */
   states?: readonly string[];
+  /** 2,000 sweep (Batch C): the domain's two-letter place codes, for a code typed in lower case at the end of a question. */
+  stateCodes?: readonly string[];
+  /** 2,000 sweep (Batch D): the domain's lower-case city names, for a city typed in lower case before such a code. */
+  cityNames?: readonly string[];
   /**
    * Batch 5A-2: what a canonical question the model wrote that the pipeline cannot rank means in this domain (a rewrite of
    * it, and the plain note that replaces the model's own reading). Applied to a model's rewrite only.
    */
   canonicalRepairs?: readonly { pattern: string; flags?: string; replacement: string; note: string }[];
+  /**
+   * 2,000 sweep (Batch D): a word that alone is ambiguous in this domain. A question with `term` and none of `unless` is
+   * answered with `reason` as a clarification whenever the model rewrote it anyway; a model decline or clarification stands.
+   */
+  ambiguousTerms?: readonly { term: string; unless: readonly string[]; reason: string; caseSensitive?: boolean }[];
+  /** 2,000 sweep (Batch E): unsupported topics no literal can list (a year); regular-expression sources, matched on the lower-case question. */
+  unsupportedPatterns?: readonly string[];
 }
 
 type Meta = { meta: Record<string, string | number | boolean> };
@@ -57,9 +73,14 @@ export type NormalizerHookResult =
 const words = (text: string): string => ` ${text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim()} `;
 
 /** True when the term contains the topic as whole words (never a substring of a longer word). */
-function namesTopic(term: string, topics: readonly string[]): boolean {
+function namesTopic(term: string, topics: readonly string[], catalog?: UnsupportedTopicCatalog): boolean {
   const padded = words(term);
-  return topics.some((topic) => padded.includes(words(topic)));
+  return topics.some((topic) => padded.includes(words(topic)) && !excepted(padded, topic, catalog));
+}
+
+/** True when the (already padded) text uses the topic word in one of the domain's non-topic phrases. */
+function excepted(padded: string, topic: string, catalog?: UnsupportedTopicCatalog): boolean {
+  return (catalog?.unsupportedTopicExceptions?.[topic] ?? []).some((phrase) => padded.includes(words(phrase)));
 }
 
 /**
@@ -91,7 +112,7 @@ export function mapNormalizerResult(result: NormalizerResultLike, catalog?: Unsu
   const topics = catalog?.unsupportedTopics ?? [];
   const terms = (result.unsupported_terms ?? [])
     .map((term) => String(term).trim())
-    .filter((term) => term.length > 0 && namesTopic(term, topics));
+    .filter((term) => term.length > 0 && namesTopic(term, topics, catalog));
 
   if (terms.length > 0) {
     return { unsupportedTerms: terms, ...meta };
@@ -148,9 +169,18 @@ export function precheckUnsupported(question: string, catalog?: UnsupportedTopic
   for (const topic of catalog?.unsupportedTopics ?? []) {
     const key = words(topic);
 
-    if (padded.includes(key) && !seen.has(key)) {
+    if (padded.includes(key) && !seen.has(key) && !excepted(padded, topic, catalog)) {
       seen.add(key);
       hits.push(topic);
+    }
+  }
+
+  for (const pattern of catalog?.unsupportedPatterns ?? []) {
+    const match = question.toLowerCase().match(new RegExp(pattern, "u"));
+
+    if (match && !seen.has(match[0])) {
+      seen.add(match[0]);
+      hits.push(match[0]);
     }
   }
 
@@ -184,6 +214,8 @@ export async function normalizeQuestion(
   const lay = catalog?.layVocabulary
     ? mapLayLanguage(question, catalog.layVocabulary, {
         placeWords: new Set((catalog.states ?? []).flatMap((state) => state.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean))),
+        placeCodes: new Set((catalog.stateCodes ?? []).map((code) => code.toLowerCase())),
+        cityNames: catalog.cityNames ? new Set(catalog.cityNames) : undefined,
       })
     : undefined;
   const corrected = lay && lay.corrections.length > 0 ? lay.corrections.join("; ") : undefined;
@@ -213,7 +245,17 @@ export async function normalizeQuestion(
     };
   }
 
-  const result = repairCanonical(mapNormalizerResult(await normalize(lay?.correctedText ?? question), catalog), catalog);
+  let result = repairCanonical(mapNormalizerResult(await normalize(lay?.correctedText ?? question), catalog), catalog);
+  const padded = words(lay?.correctedText ?? question);
+  const ambiguous = (catalog?.ambiguousTerms ?? []).find(
+    ({ term, unless, caseSensitive }) =>
+      (caseSensitive ? ` ${question.replace(/[^\p{L}\p{N}]+/gu, " ")} `.includes(` ${term} `) : padded.includes(words(term))) &&
+      !unless.some((word) => padded.includes(words(word))),
+  );
+
+  if (ambiguous && result && "canonicalQuestion" in result) {
+    result = { clarification: ambiguous.reason, meta: { ...result.meta, ambiguousTerm: ambiguous.term } };
+  }
 
   if (!corrected) {
     return result;

@@ -2,6 +2,8 @@ import type { SqlTemplateDefinition } from "@intelligence/domain-sdk";
 
 import { STATE_NAMES_BY_CODE } from "./execution-strategy";
 import { describeHospitalAttributeResult, HOSPITAL_ATTRIBUTE_PARAMETERS, UNRATED_OWNERSHIPS } from "./hospital-attribute-directory";
+import { concepts } from "../concepts";
+import { summaryFilters } from "./summary-context";
 
 /**
  * Batch 5A-1 (D5): the plain overall-rating ranking returns the first 10 hospitals of everything that ties for the
@@ -58,6 +60,46 @@ WHERE
  */
 const PLAIN_RANKING_COLUMNS = ["facility_id", "hospital_name", "state", "city", "county", "ownership", "overall_rating"];
 
+/** The measure a condition-level ranking ran for, by its display name (e.g. "Postoperative Sepsis"). */
+function measureName(code: unknown): string | undefined {
+  return typeof code === "string" ? concepts.find((concept) => Object.values(concept.measureCodesByMetric ?? {}).includes(code))?.displayName : undefined;
+}
+
+/**
+ * 2,000 sweep (Batch A3): the one line an empty answer gets, built from the filters the engine executed with, e.g.
+ * "No hospital in the CMS data matches all of: Oregon; rural emergency hospitals."
+ */
+export function describeEmptyResult(parameters: Record<string, unknown> | undefined): string {
+  const parts = summaryFilters(parameters);
+  const measure = measureName(parameters?.measureCode);
+
+  if (measure) {
+    parts.push(`a reported ${measure} score`);
+  }
+
+  return parts.length > 0 ? `No hospital in the CMS data matches all of: ${parts.join("; ")}.` : "No hospital in the CMS data matches this search.";
+}
+
+/**
+ * 2,000 sweep (Batch A3): the overall-rating ranking lists a scope alphabetically when CMS rated none of its hospitals
+ * (sql/hospital-overall-rating-ranking.ts); the note says so - D11 generalised from the unrated types and DoD to any
+ * such scope (physician-owned in Indiana, American Samoa, Ponce). Only the ranking shape: a list is alphabetical anyway.
+ */
+function describeUnratedRanking(rows: readonly Record<string, unknown>[], parameters: Record<string, unknown> | undefined): string | undefined {
+  const first = rows[0];
+
+  if (!first || !("overall_rating" in first) || "hospital_type" in first || rows.some((row) => row.overall_rating !== null && row.overall_rating !== undefined)) {
+    return undefined;
+  }
+
+  const scope = summaryFilters(parameters);
+  const matching = scope.length > 0 ? ` matching ${scope.join("; ")}` : "";
+
+  return rows.length === 1
+    ? `CMS has not published an overall star rating for the 1 hospital${matching}, so it is listed, not ranked.`
+    : `CMS has not published an overall star rating for any of the ${rows.length} hospitals${matching}, so they are listed alphabetically, not ranked.`;
+}
+
 const SCOPE_PARAMETERS = ["states", "multiState", "state", "county", "city", "ownership", ...HOSPITAL_ATTRIBUTE_PARAMETERS] as const;
 
 export type TieSqlRunner = (
@@ -83,6 +125,11 @@ export async function describeOverallRatingTies(input: {
   const { rows, parameters, run } = input;
   const first = rows[0];
 
+  // 2,000 sweep (Batch A3): an empty answer says what matched nothing instead of showing a blank table.
+  if (rows.length === 0) {
+    return describeEmptyResult(parameters);
+  }
+
   // Batch 5B-4: a hospital-type or flag filter has its own note first (D11 for an unrated type, or how many a nationwide
   // list matched); otherwise the tie below is counted with those filters too (SCOPE_PARAMETERS).
   const filtered =
@@ -93,6 +140,12 @@ export async function describeOverallRatingTies(input: {
 
   if (attributeNote) {
     return attributeNote;
+  }
+
+  const unratedNote = describeUnratedRanking(rows, parameters);
+
+  if (unratedNote) {
+    return unratedNote;
   }
 
   if (!parameters || !first || parameters.multiState === true || rows.length < 2 || !PLAIN_RANKING_COLUMNS.every((column) => column in first)) {

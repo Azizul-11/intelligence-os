@@ -17,6 +17,9 @@ import type { LexicalRewriteRule } from "@intelligence/domain-sdk";
 export const healthcareLexicalRewrites: readonly LexicalRewriteRule[] = [
   { pattern: "highest rated hospitals", replacement: "hospital overall rating" },
   { pattern: "lowest rated hospitals", replacement: "hospital overall rating" },
+  // 2,000 sweep (Batch D): before "best hospitals", so the whole phrase is one resolved span (see the grouping rules below).
+  { pattern: "break down the best hospitals", replacement: "hospital overall rating" },
+  { pattern: "break down the top hospitals", replacement: "hospital overall rating" },
   { pattern: "best hospitals", replacement: "hospital overall rating" },
   { pattern: "worst hospitals", replacement: "hospital overall rating" },
   { pattern: "top hospitals", replacement: "hospital overall rating" },
@@ -58,6 +61,12 @@ export const healthcareLexicalRewrites: readonly LexicalRewriteRule[] = [
   // failing cleanly. "overall ratings" is specific enough to carry no
   // such collision.
   { pattern: "overall ratings", replacement: "hospital overall rating" },
+  // 2,000 sweep (Batch B): "do tribal hospitals have ratings" names the overall rating with no measure word; it reached the
+  // model, whose answer ("ratings" unsupported vs a rewrite) flipped with the ownership words added to the prompt.
+  { pattern: "have ratings", replacement: "have hospital overall rating" },
+  // 2,000 sweep (Batch C): "Is Mayo Clinic good on overall mortality?" is the hospital-wide rate (a named hospital skips the
+  // front door, so no phrase group sees it); direction-free, so the words around it keep their meaning.
+  { pattern: "overall mortality", replacement: "hospital wide mortality" },
   // Batch 4: ranking phrasings that name no metric ("hospitals ranked by
   // state", "which hospital comes out on top") and "for each <unit>" as a
   // grouping. Same idiom, same fallback metric as above: an explicitly named
@@ -68,6 +77,10 @@ export const healthcareLexicalRewrites: readonly LexicalRewriteRule[] = [
   { pattern: "best experience", replacement: "patient experience" },
   { pattern: "for each state", replacement: "by state" },
   { pattern: "for each county", replacement: "by county" },
+  // 2,000 sweep (Batch D): more grouping wordings (and "break down the best hospitals" at the top). Each left a word
+  // unresolved ("break down", "view"), so the question went to the model, which dropped the grouping.
+  { pattern: "state by state view", replacement: "by state" },
+  { pattern: "state by state", replacement: "by state" },
   // Batch 5B-4: the emergency-services flag is written after "hospitals" ("hospitals with emergency services in Ohio",
   // "hospitals in Texas that provide emergency services"); the ownership-word position ("emergency services hospitals
   // in Ohio") is the shape the planner answers, exactly like "non-profit hospitals in Ohio".
@@ -117,4 +130,14 @@ export const healthcareMisspellingRewrites: readonly LexicalRewriteRule[] = [
   // deterministic layers answer once the word is spelled right.
   { pattern: "hosptials", replacement: "hospitals" },
   { pattern: "hospitls", replacement: "hospitals" },
+  // 2,000 sweep (Batch C): typos the deterministic path answered wrongly or not at all ("Compare stroke mortalty in New York
+  // and New Jersey" returned a patient-experience ranking). Not words in any hospital, city or county name.
+  { pattern: "mortalty", replacement: "mortality" },
+  { pattern: "storke", replacement: "stroke" },
+  { pattern: "lowst", replacement: "lowest" },
+  { pattern: "ratting", replacement: "rating" },
+  // Batch D: "What are the hospitals in Gaum?" was asked "Did you mean Georgia (GA)?".
+  { pattern: "gaum", replacement: "guam" },
+  // Batch E: "hospitals in Florda for hart failur" was refused.
+  { pattern: "florda", replacement: "florida" },
 ];

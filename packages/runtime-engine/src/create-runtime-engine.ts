@@ -235,6 +235,24 @@ function withoutEntityPhrases(normalizedQuery: string, matches: readonly { seman
     .trim();
 }
 
+const COUNT = "(\\d{1,2}|one|two|three|four|five|six|seven|eight|nine)";
+const COUNT_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9 };
+
+/**
+ * 2,000 sweep (Batch E): how many results the question asks for ("top 5", "bottom 3", "the 3 worst"), read from the
+ * user's own words (a rewrite drops the number). A star count ("top 5 star hospitals") is not a count, and "first" /
+ * "last" are left out ("in the last 3 years"). Generic English, no domain word.
+ */
+function requestedCount(question: string): number | undefined {
+  const text = question.toLowerCase().replace(/-/g, " ");
+  const match =
+    text.match(new RegExp(`\\b(?:top|bottom|best|worst|highest|lowest)\\s+${COUNT}\\b(?!\\s*stars?\\b)`)) ??
+    text.match(new RegExp(`\\b${COUNT}\\s+(?:best|worst|top|bottom|highest|lowest|safest)\\b`));
+  const count = match?.[1] ? (COUNT_WORDS[match[1]] ?? Number(match[1])) : undefined;
+
+  return count !== undefined && count > 0 ? count : undefined;
+}
+
 export function createRuntimeEngine({
   runtime,
   semantic,
@@ -576,7 +594,13 @@ console.log("=====================================");
       // existing "candidate-inconsistent" reason (the same one RCG-010's
       // direction contradiction already uses) - both represent the same
       // underlying state: a semantic candidate set that does not cohere.
-      if (hasRelationshipWithoutBenchmark(semanticResult.matches)) {
+      // 2,000 sweep (Batch E): with two or more named hospitals, "better than" compares them with each other ("Is Mayo
+      // Clinic better than Cleveland Clinic at treating heart failure?"); there is no reference value to ask for.
+      const namedRecords = semanticResult.matches.filter(
+        (candidate) => candidate.semanticType === "entity" && (candidate.definition as EntityDefinition).identifiesUniqueRecord === true,
+      ).length;
+
+      if (hasRelationshipWithoutBenchmark(semanticResult.matches) && namedRecords < 2) {
         return {
           success: false,
           rows: [],
@@ -1264,6 +1288,19 @@ if (
       }
     }
   }
+}
+
+// 2,000 sweep (Batch E): "top 5" / "bottom 3" - every ranking template returns up to 10 rows (rank_within_scope <= 10),
+// so a smaller count the user asked for trims the one ranked list (template ids ending "-ranking"; "the 3 safest" is
+// planned as a lookup but still ranks). Groupings ("-ranking-by-state"), comparisons ("-by-facility-ids") and multi-state
+// rankings (5 per state) are left whole. A count above what came back changes nothing.
+const count = templateId.endsWith("-ranking") && (parameters as Record<string, unknown>).multiState !== true
+  ? requestedCount(request.rewrittenFrom ?? request.question)
+  : undefined;
+
+if (count !== undefined && count < primaryResult.rows.length) {
+  primaryResult.rows = primaryResult.rows.slice(0, count);
+  primaryResult.rowCount = primaryResult.rows.length;
 }
 
 return {
