@@ -122,7 +122,10 @@ async function main() {
     const prompt = await systemPromptOf((g) => g.normalizeMessyLanguage("hospitals in tx", DOMAIN_CAPABILITIES), answer);
     const rules = wording?.normalizer?.rules ?? [];
     const examples = wording?.normalizer?.examples ?? [];
-    check("the domain supplies the rewrite rules and examples", rules.length > 10 && examples.length > 8);
+    check("the domain supplies the rewrite rules", rules.length > 10);
+    // Batch Normalizer Enhancement: the 15 few-shot examples are removed on purpose (the audit found every model equal
+    // or better without them) - "examples.length > 8" is no longer the right invariant; the right one is "empty".
+    check("the domain supplies no few-shot examples (removed: Batch Normalizer Enhancement)", examples.length === 0);
     check("every rule line the domain wrote is in the prompt", rules.filter(Boolean).every((line) => prompt.includes(line)));
     check("every example line the domain wrote is in the prompt", examples.every((line) => prompt.includes(line)));
     check("the subject comes from the domain", prompt.startsWith(`You rewrite ONE user question about ${wording?.normalizer?.subject} into`));
@@ -135,6 +138,8 @@ async function main() {
     // verify-llm-first-front-door.ts for the measurement and why the brief's own 10,500 estimate fell short).
     // Batch 5B-3: 11,300 -> 11,800 (same measurement as I1). Batch 5B-4: 11,800 -> 12,200 (hospital types and flags).
     // 2,000 sweep Batch B: 12,200 -> 12,500 (the three government sub-labels as their own ownership words, and the ownership / type synonyms).
+    // Batch Normalizer Enhancement: 12,500 -> 11,748 net (survey-topic hints +735, the 15 few-shot examples -1,420,
+    // the Safety Performance vs PSI disambiguation sentence +~380, rounding).
     check("the rewrite prompt stays within its size budget (12,500 chars)", prompt.length <= 12500, `chars=${prompt.length}`);
     console.log(`    [size] rewrite prompt = ${prompt.length} chars (5A-1: 8,795; before the 5A audit: 15,906)`);
 

@@ -59,6 +59,13 @@ export interface UnsupportedTopicCatalog {
   ambiguousTerms?: readonly { term: string; unless: readonly string[]; reason: string; caseSensitive?: boolean }[];
   /** 2,000 sweep (Batch E): unsupported topics no literal can list (a year); regular-expression sources, matched on the lower-case question. */
   unsupportedPatterns?: readonly string[];
+  /**
+   * Batch Normalizer Enhancement: a topic keyed here is a refusal only when the question ALSO contains one of these
+   * companion words - an unkeyed topic is refused on its own, as before. "years ago" alone is a narrative connector
+   * ("my grandpa had bypass surgery years ago"); paired with a comparison word ("better", "changed", "trend") it asks
+   * for a historical snapshot this platform does not hold.
+   */
+  unsupportedTopicRequires?: Readonly<Record<string, readonly string[]>>;
 }
 
 type Meta = { meta: Record<string, string | number | boolean> };
@@ -81,6 +88,12 @@ function namesTopic(term: string, topics: readonly string[], catalog?: Unsupport
 /** True when the (already padded) text uses the topic word in one of the domain's non-topic phrases. */
 function excepted(padded: string, topic: string, catalog?: UnsupportedTopicCatalog): boolean {
   return (catalog?.unsupportedTopicExceptions?.[topic] ?? []).some((phrase) => padded.includes(words(phrase)));
+}
+
+/** True (the default) unless the topic is keyed in `unsupportedTopicRequires` and none of its companion words appear. */
+function hasRequiredCompanion(padded: string, topic: string, catalog?: UnsupportedTopicCatalog): boolean {
+  const companions = catalog?.unsupportedTopicRequires?.[topic];
+  return !companions || companions.some((word) => padded.includes(words(word)));
 }
 
 /**
@@ -169,7 +182,7 @@ export function precheckUnsupported(question: string, catalog?: UnsupportedTopic
   for (const topic of catalog?.unsupportedTopics ?? []) {
     const key = words(topic);
 
-    if (padded.includes(key) && !seen.has(key) && !excepted(padded, topic, catalog)) {
+    if (padded.includes(key) && !seen.has(key) && !excepted(padded, topic, catalog) && hasRequiredCompanion(padded, topic, catalog)) {
       seen.add(key);
       hits.push(topic);
     }

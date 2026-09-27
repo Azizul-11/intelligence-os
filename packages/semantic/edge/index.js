@@ -682,8 +682,20 @@ var SemanticPipeline = class {
       semanticCandidates.map((candidate) => candidate.canonicalKey)
     );
     const ontologyResult = this.ontology.resolve(matchResult.canonicalKey);
+    const insideResolvedEntityPhrase = (index) => semanticCandidates.some((candidate) => {
+      if (candidate.semanticType !== "entity") {
+        return false;
+      }
+      const phraseWords = candidate.phrase.split(" ");
+      for (let start = Math.max(0, index - phraseWords.length + 1); start <= index; start++) {
+        if (phraseWords.every((word, offset) => analyzed[start + offset]?.token.value === word)) {
+          return true;
+        }
+      }
+      return false;
+    });
     const unsupportedNegation = analyzed.some(
-      (analyzedToken) => analyzedToken.role === "negator"
+      (analyzedToken, index) => analyzedToken.role === "negator" && !insideResolvedEntityPhrase(index)
     );
     return {
       resolved: ontologyResult.found,

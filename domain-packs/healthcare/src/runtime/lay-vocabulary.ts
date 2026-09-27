@@ -115,6 +115,8 @@ const PSI_WORSE = "(?:worst|bottom|highest|most)";
 // D2: the model can name the metric but drop which indicator ("highest PSI 90 patient safety scores" was rewritten
 // live to "Show me hospitals with highest Patient Safety Indicator"); with no indicator named, the composite is meant.
 const PSI_COMPOSITE_NOTE = "No specific safety indicator was named, so this shows the PSI 90 Patient Safety Composite.";
+// V4 fix plan (Batch 3): a PSI name the model appends "Mortality Rate", " Rate" or " scores" to, in either direction word.
+const PSI_TAIL = "(?: Mortality Rates?| Rates?| scores?)?";
 // Batch 5B-3: a patient-survey dimension IS a Patient Experience topic, so "best Patient Experience for Cleanliness" is
 // the correct canonical question and must never be "repaired" to a condition's mortality below; and a model that writes
 // the dimension as if it were a metric ("best Cleanliness") gets the Patient Experience question back.
@@ -136,6 +138,23 @@ const RATED_NOTE = "Showing the CMS overall star rating, the rating that ranks w
 const BIRTHING_NOTE = "Showing hospitals with the CMS Birthing-Friendly designation.";
 
 export const CANONICAL_REPAIRS: readonly CanonicalRepair[] = [
+  // V4 fix plan (Batch 3): the four anchored PSI repairs below only match `^(Show me .*?hospitals with) <direction>
+  // <name>...$` - a multi-dimension rewrite that puts a place, type or ownership phrase before "with" ("hospitals in
+  // Louisiana with lowest ...") or after the name ("... Mortality Rate", "... scores") slips past all four and is
+  // never repaired. These three replace the indicator's own words IN PLACE (keeping whatever precedes "Show me
+  // ...best/worst" and whatever follows the name), so any surrounding qualifier survives. Tried first (repairCanonical
+  // stops at the first match): every canonical question the four anchored repairs below already fixed matches one of
+  // these three the same way (verified offline against the 2,000 sweep, the 823-row post-fix run and the V4 500-row
+  // sweep: 0 outputs those repairs already produced are changed by trying these first), so the four are kept only as
+  // an unreachable fallback rather than deleted in the same change.
+  { pattern: `^(Show me .*?)${PSI_BETTER} (?:(?:${WHOLE_HOSPITAL_METRICS}|Mortality Rate) for )?(${PSI_NAMES})${PSI_TAIL}(?=[ .?!,]|$)(.*)$`, flags: "i", replacement: "$1lowest Patient Safety Indicator for $2$3", note: PSI_NOTE },
+  { pattern: `^(Show me .*?)${PSI_WORSE} (?:(?:${WHOLE_HOSPITAL_METRICS}|Mortality Rate) for )?(${PSI_NAMES})${PSI_TAIL}(?=[ .?!,]|$)(.*)$`, flags: "i", replacement: "$1highest Patient Safety Indicator for $2$3", note: PSI_NOTE },
+  {
+    pattern: "^(Show me .*?(?:best|top|highest|lowest|worst|bottom|most|fewest)) Patient Safety Indicators?(?: scores?| rates?)?(?! for)( .*)?[.?!]*$",
+    flags: "i",
+    replacement: "$1 Patient Safety Indicator for Patient Safety Composite$2",
+    note: PSI_COMPOSITE_NOTE,
+  },
   {
     pattern: "^(Show me .*?hospitals with (?:best|top|highest|lowest|worst|bottom|most|fewest)) Patient Safety Indicators?( in .+)?[.?!]*$",
     flags: "i",
@@ -145,6 +164,7 @@ export const CANONICAL_REPAIRS: readonly CanonicalRepair[] = [
   // 2,000 sweep (RC02, 137 rows): the model also writes the indicator with lowest/highest/fewest/most, as a "Mortality Rate
   // for" question, or bare ("lowest Postoperative Sepsis"), sometimes with a trailing "rate"; each was a dead end ("could not be
   // carried through to planning" / "Unable to create query plan"). A PSI is lower-is-better: lowest/fewest/best/top -> lowest.
+  // Unreachable now (the position-independent repairs above match every input these do; kept as a fallback, see comment above).
   { pattern: `^(Show me .*?hospitals with) ${PSI_BETTER} (?:${WHOLE_HOSPITAL_METRICS}|Mortality Rate) for (${PSI_NAMES})(?: Rates?)?( in .+)?[.?!]*$`, flags: "i", replacement: "$1 lowest Patient Safety Indicator for $2$3", note: PSI_NOTE },
   { pattern: `^(Show me .*?hospitals with) ${PSI_WORSE} (?:${WHOLE_HOSPITAL_METRICS}|Mortality Rate) for (${PSI_NAMES})(?: Rates?)?( in .+)?[.?!]*$`, flags: "i", replacement: "$1 highest Patient Safety Indicator for $2$3", note: PSI_NOTE },
   { pattern: `^(Show me .*?hospitals with) ${PSI_BETTER} (${PSI_NAMES})(?: Rates?)?( in .+)?[.?!]*$`, flags: "i", replacement: "$1 lowest Patient Safety Indicator for $2$3", note: PSI_NOTE },
@@ -233,6 +253,10 @@ export const SPELLINGS: Readonly<Record<string, string>> = {
   hopsitals: "hospitals",
   hopsital: "hospital",
   surgury: "surgery",
+  // V4 fix plan (Batch 1): so "weight loss sugery" still hits the existing "weight loss surgery" unsupported topic
+  // below, rather than being read as a mistyped clinical concept ("gov hospitols in Colorado weight loss sugery
+  // top 3" was answered as CABG mortality once the retained "top 3" no longer masked the topic with a guard refusal).
+  sugery: "surgery",
   ...HEART_SPELLINGS,
 };
 
@@ -700,7 +724,16 @@ export const BLOCKERS: readonly string[] = [
 const SYMPTOM_WORDS = new Set(["problem", "problems", "issue", "issues", "trouble", "symptom", "symptoms", "concern", "concerns"]);
 // Batch 5B-4: "facility"/"facilities" are structural ("highest Cleanliness scores among non-profit facilities" was refused on that
 // word alone); they name the hospitals being asked about, never a topic.
-export const HEALTHCARE_FILLER_WORDS: readonly string[] = [...TOPICAL_FILLER.filter((word) => !SYMPTOM_WORDS.has(word)), "facility", "facilities", "nationwide"];
+// V4 fix plan (Batch 1): "across the country" is the same nationwide scope as "nationwide" above, just written as two words
+// ("show me the top 10 hospitals across the country by ..." was refused on "across country").
+export const HEALTHCARE_FILLER_WORDS: readonly string[] = [
+  ...TOPICAL_FILLER.filter((word) => !SYMPTOM_WORDS.has(word)),
+  "facility",
+  "facilities",
+  "nationwide",
+  "across",
+  "country",
+];
 
 export const LAY_VOCABULARY: LayVocabulary = {
   spellings: SPELLINGS,
@@ -810,12 +843,8 @@ export const LAY_PROMPT_RULES: readonly string[] = [
   "Filler (\"checkup\", \"screening\", \"test\", \"problem\", \"issue\", \"please\", \"recommend\") is dropped and listed in filler_dropped: never a reason to refuse or ask, never an unsupported term.",
 ];
 
-/** Format examples for the rules above; they used to be hard-coded in the gateway. */
-export const LAY_PROMPT_EXAMPLES: readonly string[] = [
-  "\"best hospital for heart pain Houston\" -> \"Show me hospitals with lowest Mortality Rate for Acute Myocardial Infarction in Houston\"",
-  "\"best hospital for chest pain in Columbus, Ohio\" -> \"Show me hospitals with lowest Mortality Rate for Acute Myocardial Infarction in Columbus, Ohio\"",
-  "\"hospital for trouble breathing in Ohio\" -> \"Show me hospitals with lowest Mortality Rate for COPD in Ohio\"",
-];
+// Batch Normalizer Enhancement: LAY_PROMPT_EXAMPLES (3 format examples for RULE 4) is removed - prompt-wording.ts no
+// longer quotes any few-shot examples (see its own comment); this was its only consumer.
 
 const escapeForRegex = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const COLLIDING_TYPOS = Object.entries(HEART_SPELLINGS)

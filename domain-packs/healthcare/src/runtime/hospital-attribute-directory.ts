@@ -39,6 +39,13 @@ export const HOSPITAL_TYPES = new Map<string, HospitalTypeValue>([
   // "small rural" appear in no hospital, city or county name. A critical access hospital is CMS's small rural hospital.
   ["cahs", CRITICAL],
   ["small rural", CRITICAL],
+  // V4 fix plan (Batch 4): a bare "acute" ("top 3 county owned acute emergency services ... ohio") is not a
+  // registered key - only "acute care" is - so a rewrite that keeps "acute" right before the domain's own "hospital(s)"
+  // word had nothing to bind it to and the type filter was silently dropped. Two words only, and only right before
+  // "hospital(s)": no hospital, city or county name contains "acute hospital", and the PSI phrase "Acute Kidney
+  // Injury" never has "hospital(s)" as its very next word, so this cannot collide with it.
+  ["acute hospitals", ACUTE],
+  ["acute hospital", ACUTE],
   ["reh", RURAL_EMERGENCY],
 ]);
 

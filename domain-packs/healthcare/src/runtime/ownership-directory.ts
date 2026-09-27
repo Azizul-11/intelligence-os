@@ -40,7 +40,13 @@ export const OWNERSHIP = new Map<string, OwnershipValue>([
   ["government owned", { label: "government", likePattern: "Government%" }],
   // Batch 3: "state owned" names one sub-label, not all government ownership (the warehouse's own value is
   // "Government - State"); a broader "Government%" match returned county and federal hospitals as state-owned ones.
-  ["state owned", { label: "government", likePattern: "Government - State%" }],
+  // V4 fix plan (Batch 4): its own label, not "government" - the prompt's ownership list is built from the set of
+  // unique labels (capability-catalog.ts), so sharing "government" collapsed this sub-label into the generic one the
+  // same way federal/local/district all did before Batch B1 gave each its own label (comment below); the model,
+  // given only "government" back, wrote "government" and a different filter was applied ("5 star state-owned
+  // hospitals in Arizona" answered as plain government hospitals, no 5-star filter either).
+  ["state owned", { label: "state-owned", likePattern: "Government - State%" }],
+  ["state-owned", { label: "state-owned", likePattern: "Government - State%" }],
   ["public", { label: "government", likePattern: "Government%" }],
   // Bug L Part A (2026-09-15): common misspellings of "government" -
   // confirmed live that these previously matched nothing at all (exact-

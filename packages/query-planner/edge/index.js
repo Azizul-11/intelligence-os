@@ -139,6 +139,27 @@ var EntityParameterResolver = class {
   }
 };
 
+// src/requested-count.ts
+var COUNT = "(\\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)";
+var COUNT_WORDS = {
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10
+};
+function requestedCount(question) {
+  const text = question.toLowerCase().replace(/-/g, " ");
+  const match = text.match(new RegExp(`\\b(?:top|bottom|best|worst|highest|lowest)\\s+${COUNT}\\b(?!\\s*stars?\\b)`)) ?? text.match(new RegExp(`\\b${COUNT}\\s+(?:best|worst|top|bottom|highest|lowest|safest)\\b`));
+  const count = match?.[1] ? COUNT_WORDS[match[1]] ?? Number(match[1]) : void 0;
+  return count !== void 0 && count > 0 ? count : void 0;
+}
+
 // src/query-planner.ts
 var QUESTION_FILLER_WORDS = /* @__PURE__ */ new Set([
   "show",
@@ -633,6 +654,13 @@ var QueryPlanner = class _QueryPlanner {
    * that survived the rewrite and that nothing resolved is a dropped
    * constraint. Structural and domain-agnostic: never inspects what a word
    * means, only whether some semantic candidate accounted for it.
+   *
+   * V4 fix plan (Batch 1): a number the user typed as part of a limit phrase ("top 5", "bottom three", "3 worst")
+   * is exempt when, and only when, it is the SAME number `requestedCount(originalQuestion)` reads and will apply -
+   * never a bare "5 star" or a threshold/year the model happened to keep, which still trip the guard exactly as
+   * before. "highest/lowest/best/worst first" is an ordering cue ("lowest first"), not a count; a bare "first" with
+   * no ranking word before it still trips the guard. Both checks run only when `originalQuestion` is given (the one
+   * call site that rewrites the question), so what nothing else changes.
    */
   findUnaccountedWords(normalizedQuery, allMatches, domainEntities, originalQuestion) {
     const words = this.unaccountedWords(
@@ -645,7 +673,10 @@ var QueryPlanner = class _QueryPlanner {
       return words;
     }
     const typed = new Set(new Normalizer2().normalize(originalQuestion).split(" ").filter(Boolean));
-    return words.filter((word) => typed.has(word));
+    const count = requestedCount(originalQuestion);
+    const isRequestedLimitToken = (word) => count !== void 0 && (word === String(count) || COUNT_WORDS[word] === count);
+    const isOrderingFirst = (word) => word === "first" && /\b(?:highest|lowest|best|worst)\s+first\b/.test(normalizedQuery);
+    return words.filter((word) => typed.has(word) && !isRequestedLimitToken(word) && !isOrderingFirst(word));
   }
   unaccountedWords(normalizedQuery, allMatches, domainEntities, alsoIgnore = () => false) {
     const consumedWords = /* @__PURE__ */ new Set();
@@ -1185,6 +1216,8 @@ function detectSubsumedBenchmarkRisk(candidates, normalizedQuery, aliasDefinitio
   return null;
 }
 export {
+  COUNT,
+  COUNT_WORDS,
   ExecutionPlanMapper,
   INTENT_KEYWORDS,
   QueryIntentDetector,
@@ -1192,5 +1225,6 @@ export {
   SemanticCollector,
   assessPlanCompleteness,
   detectSubsumedBenchmarkRisk,
-  hasRelationshipWithoutBenchmark
+  hasRelationshipWithoutBenchmark,
+  requestedCount
 };

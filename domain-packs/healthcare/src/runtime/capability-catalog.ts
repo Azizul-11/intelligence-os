@@ -90,6 +90,13 @@ export interface CapabilityCatalog {
   unsupportedPatterns?: string[];
   /** 2,000 sweep (Batch D): a word that alone is ambiguous; a question using it is clarified, whatever the model wrote. */
   ambiguousTerms?: AmbiguousTerm[];
+  /**
+   * Batch Normalizer Enhancement: a topic keyed here is a refusal only when the question ALSO contains one of these
+   * companion words. "years ago" alone is a narrative connector ("my grandpa had bypass surgery years ago and now
+   * needs another one"); only a comparison word ("better", "changed", "trend"...) turns it into a real, unanswerable
+   * historical-snapshot request ("was the rating better five years ago?" - the only two catalog rows that need it).
+   */
+  unsupportedTopicRequires?: Record<string, string[]>;
 }
 
 const METRIC_DISPLAY_NAME_BY_ID = new Map(healthcareMetrics.map((m) => [m.id, m.displayName]));
@@ -166,6 +173,12 @@ const KNOWN_UNSUPPORTED_TOPICS = [
   "insurance", "medical records", "rehab", "rehabilitation",
   // Batch 5B-5: DC ("dc", "d.c.", "district of columbia", refused since Batch 3) and the territories are registered
   // jurisdictions now (runtime/entity-provider.ts STATES).
+  // V4 fix plan (Batch 1): organ transplants and pediatric surgery are not registered concepts (no measure the
+  // warehouse holds names them); refusing them at the pre-check, before any model call, is what already happens for
+  // "cancer care" and "weight loss surgery" above. Added because the unaccounted-word guard's new limit-count
+  // tolerance (this batch) would otherwise have let a stacked "top N"/"top five" carry a question with one of these
+  // words past the guard undetected, into a wrong answer instead of the refusal it already got today by coincidence.
+  "transplant", "pediatric surgery", "kids surgery",
 ];
 
 /**
@@ -176,7 +189,15 @@ const KNOWN_UNSUPPORTED_TOPICS = [
  */
 const UNSUPPORTED_TOPIC_EXCEPTIONS: Record<string, string[]> = {
   since: ["since my", "since our", "since his", "since her", "since their", "since i", "since we", "since he", "since she", "since they", "since your"],
-  doctors: ["doctors explain", "doctors who explain", "doctors that explain", "doctors communicate", "doctors who communicate", "doctors that communicate"],
+  // Batch Normalizer Enhancement: "doctors actually explain" (an adverb between "doctors" and the verb) and "doctors
+  // listen"/"doctors treat" (two verbs the earlier list did not cover) were still refused - the Doctor Communication
+  // survey item, not a request for clinician-level information.
+  doctors: [
+    "doctors explain", "doctors who explain", "doctors that explain", "doctors actually explain", "doctors really explain",
+    "doctors communicate", "doctors who communicate", "doctors that communicate",
+    "doctors listen", "doctors who listen", "doctors that listen", "doctors actually listen",
+    "doctors treat", "doctors who treat", "doctors that treat",
+  ],
   address: ["that address", "which address", "who address", "to address"],
 };
 
@@ -263,4 +284,7 @@ export const DOMAIN_CAPABILITIES: CapabilityCatalog = {
     "\\b(?:19|20)\\d{2}\\b",
     "\\b(?:above|below|under|over|between|less than|more than|greater than|at least|at most)\\s+\\d+(?:\\.\\d+)?\\s*(?:%|percent)",
   ],
+  unsupportedTopicRequires: {
+    "years ago": ["better", "worse", "trend", "changed", "compare", "compared", "comparison", "improved", "declined", "used to be"],
+  },
 };

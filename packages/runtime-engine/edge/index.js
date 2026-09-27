@@ -1,5 +1,5 @@
 // src/create-runtime-engine.ts
-import { assessPlanCompleteness, hasRelationshipWithoutBenchmark, detectSubsumedBenchmarkRisk } from "@intelligence/query-planner";
+import { assessPlanCompleteness, hasRelationshipWithoutBenchmark, detectSubsumedBenchmarkRisk, requestedCount } from "@intelligence/query-planner";
 
 // src/build-clarification-message.ts
 function isAmbiguousCandidate(value) {
@@ -143,14 +143,6 @@ function isLlmFirstFrontDoorEnabled() {
 }
 function withoutEntityPhrases(normalizedQuery, matches) {
   return matches.filter((match) => match.semanticType === "entity").reduce((text, match) => text.split(` ${match.phrase} `).join(" "), ` ${normalizedQuery} `).trim();
-}
-var COUNT = "(\\d{1,2}|one|two|three|four|five|six|seven|eight|nine)";
-var COUNT_WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9 };
-function requestedCount(question) {
-  const text = question.toLowerCase().replace(/-/g, " ");
-  const match = text.match(new RegExp(`\\b(?:top|bottom|best|worst|highest|lowest)\\s+${COUNT}\\b(?!\\s*stars?\\b)`)) ?? text.match(new RegExp(`\\b${COUNT}\\s+(?:best|worst|top|bottom|highest|lowest|safest)\\b`));
-  const count = match?.[1] ? COUNT_WORDS[match[1]] ?? Number(match[1]) : void 0;
-  return count !== void 0 && count > 0 ? count : void 0;
 }
 function createRuntimeEngine({
   runtime,
@@ -313,6 +305,32 @@ function createRuntimeEngine({
             unaccountedWords: frontDoorUnaccounted.join(" "),
             scope: "front-door-declined"
           });
+        }
+        if (request.rewrittenFrom && !request.qualifierRestoreAttempted && (runtime.domain.preservedEntityParameters?.length ?? 0) > 0) {
+          const rawResolution = semantic.resolve(request.rewrittenFrom);
+          const rawHasUniqueRecordMatch = rawResolution.matches.some(
+            (candidate) => candidate.semanticType === "entity" && candidate.definition.identifiesUniqueRecord === true
+          );
+          if (!rawHasUniqueRecordMatch) {
+            const boundEntityParameters = (matches) => new Map(
+              matches.filter((candidate) => candidate.semanticType === "entity" && candidate.resolvedValue !== void 0 && candidate.resolvedValue !== null).map((candidate) => [candidate.definition.execution?.parameter, candidate])
+            );
+            const keptParameters = boundEntityParameters(semanticResult.matches);
+            const lostQualifiers = [...boundEntityParameters(rawResolution.matches)].filter(
+              ([parameter]) => parameter !== void 0 && runtime.domain.preservedEntityParameters.includes(parameter) && !keptParameters.has(parameter)
+            );
+            if (lostQualifiers.length > 0) {
+              const restoredPhrases = lostQualifiers.map(([, candidate]) => candidate.phrase);
+              tracker.enter("qualifier-restore");
+              tracker.exit("qualifier-restore", "restored", 0, void 0, { restored: restoredPhrases.join("; ") });
+              const recursiveResult = await engine.execute({
+                ...request,
+                question: `${request.question} ${restoredPhrases.join(" ")}`,
+                qualifierRestoreAttempted: true
+              });
+              return { ...recursiveResult, trace: [...tracker.gates, ...recursiveResult.trace ?? []] };
+            }
+          }
         }
         if (semanticResult.unsupportedNegation) {
           return {

@@ -12,6 +12,11 @@ const HIP_KNEE_TERMS = [
   "hip and knee",
   "total hip",
   "total knee",
+  // V4 fix plan (Batch 3): the concept's own CMS display name (concepts/elective-primary-tha-tka.ts), which the
+  // model writes verbatim from the prompt ("lowest Elective Primary Hip/Knee Arthroplasty complication rate") - the
+  // phrase was previously registered only next to a lay joint word, so this exact wording had no complication-rate
+  // alias and was refused as out of scope.
+  "elective primary hip knee arthroplasty",
 ];
 const COMPLICATION_TERMS = ["complication", "complications", "complication rate", "complication rates"];
 const HIP_KNEE_COMPLICATION_ALIASES = HIP_KNEE_TERMS.flatMap((joint) =>

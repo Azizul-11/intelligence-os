@@ -9,11 +9,31 @@
  */
 import type { PromptWording } from "@intelligence/llm-model-gateway";
 
-import { LAY_PROMPT_EXAMPLES, LAY_PROMPT_RULES } from "./lay-vocabulary";
+import { LAY_PROMPT_RULES } from "./lay-vocabulary";
 import { hcahpsDimensionConcepts } from "../concepts/hcahps-dimensions";
 
+/**
+ * Batch Normalizer Enhancement: audit evidence (docs/Post Capability Expansion Work/NORMALIZER_MODEL_UPGRADE_AUDIT.md
+ * §0.3) showed the model refuses colloquial survey wording ("less noise", "clean bathrooms", "get some sleep") when
+ * these dimensions are named only by their clinical display name. A short everyday hint per dimension, tested in that
+ * audit's probe (flash 22 -> 27 of 30 semantic/slot questions, no regression on any other model), fixes it for free -
+ * no model swap needed. Keyed by concept id, not displayName, so a renamed dimension keeps its hint.
+ */
+const SURVEY_TOPIC_HINTS: Readonly<Record<string, string>> = {
+  "hcahps-cleanliness": "clean rooms and bathrooms, sanitary, germaphobe-friendly",
+  "hcahps-nurse-communication": "nurses listen, explain clearly, treat you with respect",
+  "hcahps-doctor-communication": "doctors listen, explain in plain English, treat you with respect",
+  "hcahps-medicine-communication": "explain what new pills are for, side effects explained",
+  "hcahps-discharge-information": "instructions before going home, leaving-the-hospital instructions",
+  "hcahps-quietness": "less noise, peaceful at night, quiet rooms, where you can sleep",
+  "hcahps-recommend": "would recommend it to friends and family",
+  "hcahps-overall-survey-rating": "patients' own 0-10 rating of the hospital",
+};
+
 /** Batch 5B-3: the patient-survey dimensions, named once (not under CONDITIONS - see capability-catalog.ts). */
-const SURVEY_TOPICS = hcahpsDimensionConcepts.map((concept) => concept.displayName).join(", ");
+const SURVEY_TOPICS = hcahpsDimensionConcepts
+  .map((concept) => (SURVEY_TOPIC_HINTS[concept.id] ? `${concept.displayName} (${SURVEY_TOPIC_HINTS[concept.id]})` : concept.displayName))
+  .join(", ");
 
 export const HEALTHCARE_PROMPT_WORDING: PromptWording = {
   normalizer: {
@@ -27,7 +47,7 @@ export const HEALTHCARE_PROMPT_WORDING: PromptWording = {
       "",
       "RULE 3 - THE REQUEST SHAPES (the \"in\" may be missing in the original):",
       "(a) LISTING - a location (state, city, or city + state) and no metric or ranking word is a COMPLETE request: \"Show me hospitals in <location>\", with an ownership word before \"hospitals\" when present (\"Show me government hospitals in <location>\"). Status ok. Never ask for clarification when a location is present.",
-      "(b) RANKING - \"Show me hospitals with <best|top|highest|lowest|worst> <metric>\", then \"in <City>\", \"in <City>, <State>\" or \"in <State>\" - only the location parts the original had (an ownership word goes before \"hospitals\": \"Show me non-profit hospitals with lowest Mortality Rate in Ohio\"). good/great/excellent = best; bad/poor = worst; \"safest\" = best Safety Performance (with a listed condition it means that condition's lowest Mortality Rate, RULE 3(c)); every superlative (safest, strongest, top-rated) is a ranking word. For Mortality Rate, Readmission Rate and Patient Safety Indicator lower is better: best/good/fewest -> lowest, worst/bad/most -> highest (\"hospital with good mortality\" -> \"Show me hospitals with lowest Mortality Rate\"; \"fewest pressure ulcers\" -> \"Show me hospitals with lowest Patient Safety Indicator for Pressure Ulcer\"); SURVEY TOPICS: higher is better. Use the metric's exact display name from METRICS; a metric name alone is never a canonical question. A ranking needs NO location.",
+      "(b) RANKING - \"Show me hospitals with <best|top|highest|lowest|worst> <metric>\", then \"in <City>\", \"in <City>, <State>\" or \"in <State>\" - only the location parts the original had (an ownership word goes before \"hospitals\": \"Show me non-profit hospitals with lowest Mortality Rate in Ohio\"). good/great/excellent = best; bad/poor = worst; \"safest\" = best Safety Performance (with a listed condition it means that condition's lowest Mortality Rate, RULE 3(c)); \"safety score(s)\", \"patient safety score(s)\", \"safety rating\" and \"safety track record\" with NO specific complication or indicator named also mean Safety Performance, never Patient Safety Indicator - only a named complication (pressure ulcer, blood clot, sepsis, bedsores, fall with fracture, kidney injury, hemorrhage, accidental puncture, failure to rescue) or \"PSI\"/\"patient safety indicator(s)\" itself means Patient Safety Indicator; every superlative (safest, strongest, top-rated) is a ranking word. For Mortality Rate, Readmission Rate and Patient Safety Indicator lower is better: best/good/fewest -> lowest, worst/bad/most -> highest (\"hospital with good mortality\" -> \"Show me hospitals with lowest Mortality Rate\"; \"fewest pressure ulcers\" -> \"Show me hospitals with lowest Patient Safety Indicator for Pressure Ulcer\"); SURVEY TOPICS: higher is better. Use the metric's exact display name from METRICS; a metric name alone is never a canonical question. A ranking needs NO location.",
       "(c) CONDITION - a listed clinical condition (see CONDITIONS) with no ranking word defaults to \"lowest\" of its mortality or readmission measure (\"bypass surgery readmission\" -> \"Show me hospitals with lowest CABG Readmission\"); with a ranking word keep its direction. A condition never needs a location. For a condition, \"safest\", \"best\", \"strong\" and \"top\" all mean its lowest Mortality Rate.",
       "(d) STAR RATING - \"3 star\", \"3 start\", \"5-star\" is a Hospital Overall Rating filter, always written \"N-star\" (never \"Hospital Overall Rating of N\"), e.g. \"Show me 3-star hospitals in Georgia\". It needs a state - with none in the question, status need_clarification.",
       `(e) SURVEY TOPICS (Patient Experience, higher is better): ${SURVEY_TOPICS} (\"survey star rating\"). Write \"Show me hospitals with best Patient Experience for <topic>\". \"communication\" naming no nurses, doctors or medicines is need_clarification, reason \"Nurse, doctor or medicine communication?\".`,
@@ -41,22 +61,13 @@ export const HEALTHCARE_PROMPT_WORDING: PromptWording = {
       "RULE 6 - REPORT WHAT IS NOT SUPPORTED (a report only: it never changes status, canonical_question or any other rule):",
       "Fill unsupported_terms with the user's EXACT words (copied from the question) for anything they ask FOR that is outside METRICS, CONDITIONS, SURVEY TOPICS, HOSPITAL TYPES, FLAGS, OWNERSHIPS, STATES, US places and hospital names: a condition or measure that is not listed, a symptom (except the plain wording in RULE 4), a hospital attribute or service (emergency-room wait times, staff responsiveness), a time window (a year, \"since 2020\"). Never list comparison words, hospital names, typos or informal wording of a LISTED thing, filler, or code fragments. Choose status and canonical_question exactly as the other rules say; when nothing is unsupported, unsupported_terms is [].",
     ],
-    examples: [
-      "EXAMPLES - they show FORMAT only. Never copy a place, ownership type or metric from an example into a question that does not contain it.",
-      "\"goverment hospital in California\" -> \"Show me government hospitals in California\"",
-      "\"show me hospital Houson Texas\" -> \"Show me hospitals in Houston, Texas\"",
-      ...LAY_PROMPT_EXAMPLES,
-      "\"Which hospitals have the lowest mortality rates?\" -> \"Show me hospitals with lowest Mortality Rate\"",
-      "\"good saftey\" -> \"Show me hospitals with best Safety Performance\"",
-      "\"safest hospital for pneumonia near Dallas\" -> \"Show me hospitals with lowest Mortality Rate for Pneumonia in Dallas\"",
-      "\"my mom had a heart attack, which hospital is safest\" -> \"Show me hospitals with lowest Mortality Rate for Acute Myocardial Infarction\" (a condition needs no location)",
-      "\"safest hosptials\" -> \"Show me hospitals with best Safety Performance\"",
-      "\"3 start hospitals in Georgia\" -> \"Show me 3-star hospitals in Georgia\"",
-      "\"hospitals with a 4 star rating\" -> status need_clarification, reason \"Which state should I look in?\"",
-      "\"hospitals in ok\" -> \"Show me hospitals in Oklahoma\"",
-      "\"what's the weather in Dallas?\" -> status unsupported, interpretation null, closest []",
-      "\"a hospital with a helipad\" -> status unsupported, interpretation \"a helipad\", closest [\"Show me best hospitals\"]",
-    ],
+    // Batch Normalizer Enhancement: the 15 few-shot format examples that lived here are removed. The audit
+    // (docs/Post Capability Expansion Work/NORMALIZER_MODEL_UPGRADE_AUDIT.md §4.2) found every model equal or better
+    // WITHOUT them (flash 44/48 lean vs an average 39.5/48 across the two full-prompt runs) - they were added for
+    // free-tier models that pattern-matched on examples (the R2 comment in llm-model-gateway.ts), which this chain no
+    // longer uses. The output contract (the JSON shape) and every rule (RULE 1-6, including the refusal boundaries in
+    // RULE 5/6) are untouched; only the worked examples are gone.
+    examples: [],
   },
   suggestionPhrasing: [
     "You are a suggestion-phrasing assistant for a healthcare analytics platform.",

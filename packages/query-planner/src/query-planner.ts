@@ -9,6 +9,7 @@ import type { QueryIntent } from "./query-intent";
 import { SemanticCollector } from "./semantic-collector";
 
 import { EntityParameterResolver } from "./entity-parameter-resolver";
+import { COUNT_WORDS, requestedCount } from "./requested-count";
 
 /**
  * Bug E (Phase 3.1, 2026-09-18): a small, generic set of English
@@ -778,6 +779,13 @@ export class QueryPlanner {
    * that survived the rewrite and that nothing resolved is a dropped
    * constraint. Structural and domain-agnostic: never inspects what a word
    * means, only whether some semantic candidate accounted for it.
+   *
+   * V4 fix plan (Batch 1): a number the user typed as part of a limit phrase ("top 5", "bottom three", "3 worst")
+   * is exempt when, and only when, it is the SAME number `requestedCount(originalQuestion)` reads and will apply -
+   * never a bare "5 star" or a threshold/year the model happened to keep, which still trip the guard exactly as
+   * before. "highest/lowest/best/worst first" is an ordering cue ("lowest first"), not a count; a bare "first" with
+   * no ranking word before it still trips the guard. Both checks run only when `originalQuestion` is given (the one
+   * call site that rewrites the question), so what nothing else changes.
    */
   findUnaccountedWords(
     normalizedQuery: string,
@@ -797,8 +805,11 @@ export class QueryPlanner {
     }
 
     const typed = new Set(new Normalizer().normalize(originalQuestion).split(" ").filter(Boolean));
+    const count = requestedCount(originalQuestion);
+    const isRequestedLimitToken = (word: string): boolean => count !== undefined && (word === String(count) || COUNT_WORDS[word] === count);
+    const isOrderingFirst = (word: string): boolean => word === "first" && /\b(?:highest|lowest|best|worst)\s+first\b/.test(normalizedQuery);
 
-    return words.filter((word) => typed.has(word));
+    return words.filter((word) => typed.has(word) && !isRequestedLimitToken(word) && !isOrderingFirst(word));
   }
 
   private unaccountedWords(

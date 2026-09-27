@@ -18,6 +18,9 @@ export const hipKneeAlias: AliasDefinition = {
     "knee replacements",
     "total hips",
     "total knees",
+    // V4 fix plan (Batch 3): the concept's own CMS display name, exactly as the model writes it back from the
+    // prompt (see mortality-rate.ts's HIP_KNEE_TERMS for the matching complication-rate phrasing).
+    "Elective Primary Hip/Knee Arthroplasty",
   ],
 
   type: "concept",

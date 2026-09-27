@@ -1,8 +1,8 @@
 import type { DomainRuntime } from "@intelligence/domain-runtime";
 import type { QueryPlanner, ExecutionPlanMapper } from "@intelligence/query-planner";
-import { assessPlanCompleteness, hasRelationshipWithoutBenchmark, detectSubsumedBenchmarkRisk } from "@intelligence/query-planner";
+import { assessPlanCompleteness, hasRelationshipWithoutBenchmark, detectSubsumedBenchmarkRisk, requestedCount } from "@intelligence/query-planner";
 import type { SqlExecutor } from "@intelligence/sql-executor";
-import type { SemanticResolver } from "@intelligence/semantic";
+import type { SemanticResolver, SemanticCandidate } from "@intelligence/semantic";
 import type { ExecutionPlan, ExecutionFilter } from "@intelligence/contracts";
 import type { EntityDefinition, MetricDefinition, SqlTemplateParameter, SuggestionContext } from "@intelligence/domain-sdk";
 
@@ -235,23 +235,9 @@ function withoutEntityPhrases(normalizedQuery: string, matches: readonly { seman
     .trim();
 }
 
-const COUNT = "(\\d{1,2}|one|two|three|four|five|six|seven|eight|nine)";
-const COUNT_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9 };
-
-/**
- * 2,000 sweep (Batch E): how many results the question asks for ("top 5", "bottom 3", "the 3 worst"), read from the
- * user's own words (a rewrite drops the number). A star count ("top 5 star hospitals") is not a count, and "first" /
- * "last" are left out ("in the last 3 years"). Generic English, no domain word.
- */
-function requestedCount(question: string): number | undefined {
-  const text = question.toLowerCase().replace(/-/g, " ");
-  const match =
-    text.match(new RegExp(`\\b(?:top|bottom|best|worst|highest|lowest)\\s+${COUNT}\\b(?!\\s*stars?\\b)`)) ??
-    text.match(new RegExp(`\\b${COUNT}\\s+(?:best|worst|top|bottom|highest|lowest|safest)\\b`));
-  const count = match?.[1] ? (COUNT_WORDS[match[1]] ?? Number(match[1])) : undefined;
-
-  return count !== undefined && count > 0 ? count : undefined;
-}
+// V4 fix plan (Batch 1): `requestedCount` MOVED to `packages/query-planner/src/requested-count.ts` (imported above),
+// so this reader and the unaccounted-word guard's limit-token exemption (`QueryPlanner.findUnaccountedWords`) can
+// never disagree about which number a question asks for. Behaviour here is unchanged.
 
 export function createRuntimeEngine({
   runtime,
@@ -563,6 +549,51 @@ console.log("=====================================");
           unaccountedWords: frontDoorUnaccounted.join(" "),
           scope: "front-door-declined",
         });
+      }
+
+      // V4 fix plan (Batch 4): a stacked qualifier (a hospital type, an ownership sub-label, a flag, a star-rating
+      // filter) the rewrite silently dropped or swapped is restored from the user's OWN words, never invented and
+      // never overriding a value the rewrite already chose - only added when the rewritten question's own
+      // resolution is missing a parameter the raw question resolved. Domain-agnostic: Universal Core inspects no
+      // parameter's meaning, only whether `domain.preservedEntityParameters` lists it and whether it is present.
+      // Scoped to the rewritten run only (`request.rewrittenFrom`), bounded to one attempt
+      // (`qualifierRestoreAttempted`), and skipped whenever the raw question names a unique hospital record - a named
+      // hospital's own resolution must never be mistaken for, or disturbed by, a type/ownership/flag qualifier.
+      if (request.rewrittenFrom && !request.qualifierRestoreAttempted && (runtime.domain.preservedEntityParameters?.length ?? 0) > 0) {
+        const rawResolution = semantic.resolve(request.rewrittenFrom);
+        const rawHasUniqueRecordMatch = rawResolution.matches.some(
+          (candidate) =>
+            candidate.semanticType === "entity" &&
+            (candidate.definition as EntityDefinition).identifiesUniqueRecord === true,
+        );
+
+        if (!rawHasUniqueRecordMatch) {
+          const boundEntityParameters = (matches: readonly SemanticCandidate[]) =>
+            new Map(
+              matches
+                .filter((candidate) => candidate.semanticType === "entity" && candidate.resolvedValue !== undefined && candidate.resolvedValue !== null)
+                .map((candidate) => [(candidate.definition as EntityDefinition).execution?.parameter, candidate] as const),
+            );
+          const keptParameters = boundEntityParameters(semanticResult.matches);
+          const lostQualifiers = [...boundEntityParameters(rawResolution.matches)].filter(
+            ([parameter]) => parameter !== undefined && runtime.domain.preservedEntityParameters!.includes(parameter) && !keptParameters.has(parameter),
+          );
+
+          if (lostQualifiers.length > 0) {
+            const restoredPhrases = lostQualifiers.map(([, candidate]) => candidate.phrase);
+
+            tracker.enter("qualifier-restore");
+            tracker.exit("qualifier-restore", "restored", 0, undefined, { restored: restoredPhrases.join("; ") });
+
+            const recursiveResult = await engine.execute({
+              ...request,
+              question: `${request.question} ${restoredPhrases.join(" ")}`,
+              qualifierRestoreAttempted: true,
+            });
+
+            return { ...recursiveResult, trace: [...tracker.gates, ...(recursiveResult.trace ?? [])] };
+          }
+        }
       }
 
       // F5 safety gate: a recognized negation/exclusion marker was

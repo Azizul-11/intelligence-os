@@ -47,6 +47,11 @@ export const healthcareDomain: DomainPack = {
 
   lexicalRewrites: [...healthcareMisspellingRewrites, ...healthcareLexicalRewrites],
 
+  // V4 fix plan (Batch 4): the stacked qualifiers a rewrite must not silently drop (entities/ownership.ts,
+  // hospital-type.ts, emergency-services.ts, birthing-friendly.ts, star-rating.ts - their own `execution.parameter`
+  // values, unchanged here).
+  preservedEntityParameters: ["ownership", "hospitalType", "emergencyServices", "birthingFriendly", "overallRating"],
+
   executionStrategy: new HealthcareExecutionStrategy(),
   
   entityProvider: new HealthcareEntityProvider(),

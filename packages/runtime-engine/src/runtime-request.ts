@@ -136,4 +136,12 @@ export interface RuntimeRequest {
    * rewrite introduced itself.
    */
   rewrittenFrom?: string;
+
+  /**
+   * V4 fix plan (Batch 4): internal recursion guard only - set by create-runtime-engine.ts's own delegation to a
+   * fresh recursive execute() after restoring a qualifier the rewrite dropped (`domain.preservedEntityParameters`).
+   * Bounds qualifier restoration to exactly one attempt per original user question, the same way
+   * `llmFallbackAttempted` bounds the rewrite itself.
+   */
+  qualifierRestoreAttempted?: boolean;
 }

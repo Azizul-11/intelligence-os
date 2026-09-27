@@ -615,8 +615,34 @@ export class SemanticPipeline {
     // detection above, so LexicalRewriter's own rewriting cannot hide a
     // negator from this check. Detection only - no candidate, filter,
     // or direction is touched here.
+    //
+    // V4 fix plan (Batch 2): a negator token that sits inside a phrase the pipeline itself already resolved to a
+    // registered ENTITY is part of that entity's name, not a negation ("not for profit" tokenizes to "not"/"for"/
+    // "profit", and "not" alone is a negator, but the whole three-word span is a registered ownership phrase). Matched
+    // by the phrase's own words against `analyzed`'s token values (not by the candidate's start/end indices, which
+    // count tokens in the rewritten stream, a different length from `analyzed`'s pre-rewrite one), so this needs no
+    // index bookkeeping across the rewrite. Entity candidates only - deliberately conservative, and the only semantic
+    // type an ownership/place phrase like this one is ever built as. A negator with no such covering phrase (`hospitals
+    // NOT in Texas`, `best hospitals EXCLUDING Texas`, `hospitals that are NOT non-profit`) still trips the gate: in
+    // each, the negator itself sits outside every resolved entity's own phrase span.
+    const insideResolvedEntityPhrase = (index: number): boolean =>
+      semanticCandidates.some((candidate) => {
+        if (candidate.semanticType !== "entity") {
+          return false;
+        }
+
+        const phraseWords = candidate.phrase.split(" ");
+
+        for (let start = Math.max(0, index - phraseWords.length + 1); start <= index; start++) {
+          if (phraseWords.every((word, offset) => analyzed[start + offset]?.token.value === word)) {
+            return true;
+          }
+        }
+
+        return false;
+      });
     const unsupportedNegation = analyzed.some(
-      (analyzedToken) => analyzedToken.role === "negator",
+      (analyzedToken, index) => analyzedToken.role === "negator" && !insideResolvedEntityPhrase(index),
     );
 
     // const aliasResult = this.aliasResolver.resolve(rewritten.rewritten);

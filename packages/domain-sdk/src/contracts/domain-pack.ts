@@ -51,6 +51,15 @@ export interface DomainPack {
    */
   lexicalRewrites?: readonly LexicalRewriteRule[];
 
+  /**
+   * V4 fix plan (Batch 4): the execution parameter names (entity `execution.parameter` values) of resolved-entity
+   * qualifiers that must survive an LLM rewrite unchanged - a stacked qualifier the model drops (a hospital type, an
+   * ownership sub-label, a flag) is restored from the user's own words rather than silently answered as a broader
+   * question. Universal Core never inspects what a parameter name means, only whether the raw question resolved one
+   * that the rewritten question's resolution does not. A domain with no such qualifiers may omit this entirely.
+   */
+  preservedEntityParameters?: readonly string[];
+
   executionStrategy: DomainExecutionStrategy;
   
   entityProvider: EntityProvider;
