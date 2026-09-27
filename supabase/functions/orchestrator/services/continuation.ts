@@ -10,6 +10,8 @@ import { describeResultNote, getRuntimeEngine, lookupHospitalOverallRating } fro
 import { SAFE_FALLBACK_SUGGESTIONS } from "@intelligence/healthcare-domain";
 
 import { continuationQuestion } from "./continuation-question.ts";
+import { buildVerifiedSummary, recordRejectedSummary } from "./verified-summary.ts";
+import { composeSummary } from "./graceful-message.ts";
 
 import type { ChatRequest } from "../types/request.ts";
 import type { ChatResponse } from "../types/response.ts";
@@ -488,9 +490,22 @@ export async function handleContinuation(
 
     // 2,000 sweep (Batch E): an empty Turn 2 answer ("Texas" for Houston County's heart-failure mortality, a hospital
     // that reports no score) gets the same one-line explanation as an empty Turn 1 answer instead of a blank table.
-    const note = result.rows.length === 0
-      ? await describeResultNote([], (result as { executedParameters?: Record<string, unknown> }).executedParameters)
-      : undefined;
+    const executedParameters = (result as { executedParameters?: Record<string, unknown> }).executedParameters;
+    const note = result.rows.length === 0 ? await describeResultNote([], executedParameters) : undefined;
+
+    // Post-clarification summary fix (2026-09-27): a Turn 2 answer never called the summarizer at all - only the
+    // zero-row disclosure above ever populated `summary`. Mirrors chat.ts's own Turn 1 path exactly: the note (when
+    // present) is `alreadyShown` context for the model, and the two are combined with the same composeSummary() used
+    // there, so a clarified answer reads the same way a Turn 1 answer does. A rejected summary is recorded on the
+    // trace the same way, never silently patched or shown unverified.
+    const verified = await buildVerifiedSummary(reconstructed.question, result.rows as Record<string, unknown>[], executedParameters, note ? [note] : []).catch(
+      () => ({}) as Awaited<ReturnType<typeof buildVerifiedSummary>>,
+    );
+    const summary = composeSummary(note, verified.summary);
+
+    if (verified.rejected) {
+      await recordRejectedSummary(requestId, result.trace, verified.rejected);
+    }
 
     return {
       success: true,
@@ -498,9 +513,10 @@ export async function handleContinuation(
       answerability: result.answerability,
       trace: result.trace,
       answer: JSON.stringify(result.rows, null, 2),
-      ...(note ? { summary: note } : {}),
+      ...(summary ? { summary } : {}),
       metadata: {
         rowCount: result.rowCount,
+        ...(verified.rejected ? { summaryRejected: verified.rejected } : {}),
       },
       suggestions: result.suggestions,
     };
