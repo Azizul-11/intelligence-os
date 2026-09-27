@@ -673,7 +673,7 @@ function toProvenance(trace: ChainTrace, startedAt: number): LlmProvenance {
 
 /** One gateway call made while serving a request. `provider: "none"` = every tier failed or the deadline ran out. */
 export type LlmCallRecord = LlmProvenance & {
-  role: "normalizer" | "summary" | "suggestions" | "conversational";
+  role: "normalizer" | "summary" | "suggestions" | "conversational" | "intent";
 };
 
 // Per-request, not module-level: an edge isolate serves concurrent requests,
@@ -917,6 +917,11 @@ export interface CapabilityCatalog {
   prompts?: PromptWording;
   exampleAnswerableQuestions: string[];
   nonAnswerableExamples: string[];
+  /**
+   * ConversationalFix (2026-09-27): one sentence naming what the domain answers today - the only domain content
+   * classifyConversationalIntent() ever sees, never a term list. Absent = the triage prompt names no domain at all.
+   */
+  coverageSummary?: string;
 }
 
 /**
@@ -987,6 +992,13 @@ export interface SuggestionPromptContext {
   resolvedState?: string | undefined;
   candidates: string[];
 }
+
+/**
+ * ConversationalFix (2026-09-27): the whole point of classifyConversationalIntent() is to be faster than the paid
+ * normalizer chain it stands in front of (measured ~3.1 s) - a short, hard budget on the free chain, well under
+ * that, so a slow/unavailable provider never adds net latency versus not having this check at all.
+ */
+const CONVERSATIONAL_INTENT_DEADLINE_MS = 2500;
 
 export class LLMModelGateway implements LLMProvider {
   /**
@@ -1265,6 +1277,49 @@ export class LLMModelGateway implements LLMProvider {
       return fallback;
     } finally {
       recordCall("conversational", trace, startedAt);
+    }
+  }
+
+  /**
+   * ConversationalFix (2026-09-27): a cheap, domain-agnostic triage call - see
+   * docs/Post Capability Expansion Work/ConversationalFIx/AUDIT_CONVERSATIONAL_INTENT_ROUTING.md. Runs on the free
+   * `chain` (the same one handleConversational already uses) with a short deadline: a wrong or timed-out call must
+   * never delay, let alone intercept, a real analytical question, so any uncertainty returns undefined and the
+   * caller proceeds exactly as it already does without this method existing. Takes only the domain's own one-line
+   * `coverageSummary` (never a term list), so this stays a sibling of Universal Core, never a consumer of a
+   * specific domain - exactly like describeCapabilities() above.
+   */
+  async classifyConversationalIntent(question: string, capabilities?: CapabilityCatalog): Promise<"conversational" | undefined> {
+    const systemPrompt = [
+      "You triage a single message sent to a data-analytics platform.",
+      "Decide only whether it is CASUAL CONVERSATION - a greeting, small talk, thanks, or a question about what",
+      "this assistant can do - or a REAL REQUEST for data, facts, or analysis, on any topic.",
+      capabilities?.coverageSummary ? `This platform's data covers: ${capabilities.coverageSummary}.` : "",
+      "A request for information the platform does not hold (e.g. news, weather, a public figure, a stock price) is",
+      "still a data request, never casual conversation. A vague filler with no specific topic, metric, place, or",
+      "question of its own (e.g. \"tell me something\", \"tell me anything\", \"surprise me\") is casual conversation,",
+      "not a data request - there is nothing named to look up.",
+      'Return ONLY this JSON shape: {"intent": "conversational" | "data_request"}',
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    const trace: ChainTrace = { attempts: 0, tiers: [] };
+    const startedAt = Date.now();
+    try {
+      const result = await this.runJSON<{ intent?: string }>(
+        this.chain,
+        systemPrompt,
+        question,
+        { temperature: 0, deadlineMs: CONVERSATIONAL_INTENT_DEADLINE_MS },
+        trace,
+      );
+      return result?.intent === "conversational" ? "conversational" : undefined;
+    } catch (error) {
+      logFallbackEvent("classifyConversationalIntent", "all providers exhausted or deadline exceeded", error);
+      return undefined;
+    } finally {
+      recordCall("intent", trace, startedAt);
     }
   }
 

@@ -152,7 +152,8 @@ function createRuntimeEngine({
   executor,
   llmFallback,
   preprocessQuestion,
-  unsupportedPrecheck
+  unsupportedPrecheck,
+  conversationalCheck
 }) {
   const engine = {
     async execute(incomingRequest) {
@@ -161,6 +162,39 @@ function createRuntimeEngine({
         request.requestId ?? crypto.randomUUID(),
         request.question
       );
+      const tryConversationalCheck = async () => {
+        if (!conversationalCheck) {
+          return void 0;
+        }
+        tracker.enter("conversational-check");
+        const conversational = await conversationalCheck(request.question);
+        if (!conversational) {
+          tracker.exit("conversational-check", "analytical", 0);
+          return void 0;
+        }
+        const suggestions2 = [];
+        for (const candidate of conversational.suggestions) {
+          if (suggestions2.length >= 4) {
+            break;
+          }
+          const trial = await engine.execute({ question: candidate, dryRun: true });
+          if (trial.success) {
+            suggestions2.push(candidate);
+          }
+        }
+        tracker.exit("conversational-check", "conversational", 0, "conversational", {
+          answer: conversational.answer.slice(0, 300)
+        });
+        return {
+          success: true,
+          rows: [],
+          rowCount: 0,
+          answerability: { status: "conversational" },
+          conversationalAnswer: conversational.answer,
+          suggestions: suggestions2,
+          trace: tracker.gates
+        };
+      };
       let frontDoorUnaccounted = [];
       let capturedExecutionPlan;
       const runPipeline = async () => {
@@ -736,6 +770,10 @@ function createRuntimeEngine({
         );
         const fullyUnderstood = planner.isFullyUnderstood(resolved.normalizedQuery, resolved.matches, runtime.domain.entities);
         if (!hasUniqueRecordMatch && !fullyUnderstood) {
+          const conversationalResult = await tryConversationalCheck();
+          if (conversationalResult) {
+            return conversationalResult;
+          }
           preNormalizeAttempted = true;
           tracker.enter("llm-normalization");
           const rewrite = await llmFallback(request.question);
@@ -798,6 +836,10 @@ function createRuntimeEngine({
       if (preNormalizeAttempted && pendingClarification && !result.success && result.answerability?.status !== "ambiguous") {
         result = { ...result, error: pendingClarification };
       } else if (!result.success && result.answerability?.status !== "ambiguous" && llmFallback && !request.llmFallbackAttempted && !preNormalizeAttempted && !request.dryRun) {
+        const conversationalResult = await tryConversationalCheck();
+        if (conversationalResult) {
+          return conversationalResult;
+        }
         const rewrite = await llmFallback(request.question);
         if (rewrite && "canonicalQuestion" in rewrite && rewrite.canonicalQuestion !== request.question) {
           tracker.enter("llm-normalization");

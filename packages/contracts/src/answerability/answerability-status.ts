@@ -9,4 +9,9 @@
 export type AnswerabilityStatus =
   | "answerable"
   | "ambiguous"
-  | "not_directly_answerable";
+  | "not_directly_answerable"
+  /**
+   * ConversationalFix (2026-09-27): the request was casual conversation or a capability question, not a real
+   * request for data - never proceeds to deterministic execution by construction. See RuntimeResult.conversationalAnswer.
+   */
+  | "conversational";

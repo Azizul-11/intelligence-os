@@ -225,6 +225,18 @@ type CreateRuntimeEngineOptions = {
    * request for that topic). A hit is the same binding refusal a model decline is (0 SQL). Ignored unless the front door is on.
    */
   unsupportedPrecheck?: (question: string) => readonly string[];
+  /**
+   * ConversationalFix (2026-09-27): optional, supplied by the orchestrator's bootstrap next to `llmFallback`/
+   * `unsupportedPrecheck` - a cheap, domain-agnostic check for whether a question that reaches this exact point
+   * (not a unique-record match, not already fully understood) is small talk or a capability question rather than
+   * a real request for data. Called ONLY here, immediately before `llmFallback` (the paid chain) would otherwise
+   * run, so a question already resolved above never reaches this hook and pays no added latency. Universal Core
+   * never inspects why the hook decided what it decided - a defined result short-circuits straight to a
+   * conversational, 0-SQL answer (`RuntimeResult.conversationalAnswer`); undefined (uncertain, or genuinely
+   * analytical) falls straight through to today's unchanged behavior. See
+   * docs/Post Capability Expansion Work/ConversationalFIx/AUDIT_CONVERSATIONAL_INTENT_ROUTING.md.
+   */
+  conversationalCheck?: (question: string) => Promise<{ answer: string; suggestions: readonly string[] } | undefined>;
 };
 
 /** The words of `normalizedQuery` left after every resolved entity's own words are taken out (both are already normalized). */
@@ -248,6 +260,7 @@ export function createRuntimeEngine({
   llmFallback,
   preprocessQuestion,
   unsupportedPrecheck,
+  conversationalCheck,
 }: CreateRuntimeEngineOptions): RuntimeEngine {
   // Tier1 Task 6: `engine` is declared before `execute` runs so the
   // suggestion dry-run loop below can recursively call `engine.execute`
@@ -271,6 +284,53 @@ export function createRuntimeEngine({
         request.requestId ?? crypto.randomUUID(),
         request.question,
       );
+
+      /**
+       * ConversationalFix (2026-09-27): shared by both `llmFallback` call sites below (Layer 0.5 and its Layer 1
+       * on-failure mirror) - a question can reach either one, and both are equally "about to pay for the paid
+       * chain," so both get the same cheap conversational triage first. Returns undefined (uncertain, or
+       * genuinely analytical) to fall straight through to the existing, unchanged `llmFallback` call; a defined
+       * result should be returned directly by the caller. See CreateRuntimeEngineOptions.conversationalCheck's own
+       * doc comment and docs/Post Capability Expansion Work/ConversationalFIx/AUDIT_CONVERSATIONAL_INTENT_ROUTING.md.
+       */
+      const tryConversationalCheck = async (): Promise<RuntimeResult | undefined> => {
+        if (!conversationalCheck) {
+          return undefined;
+        }
+        tracker.enter("conversational-check");
+        const conversational = await conversationalCheck(request.question);
+
+        if (!conversational) {
+          tracker.exit("conversational-check", "analytical", 0);
+          return undefined;
+        }
+
+        const suggestions: string[] = [];
+        for (const candidate of conversational.suggestions) {
+          if (suggestions.length >= 4) {
+            break;
+          }
+          // Same dry-run proof RuntimeResult.suggestions already guarantees everywhere else in this file - a
+          // model-written example question is never trusted as answerable on its own.
+          const trial = await engine.execute({ question: candidate, dryRun: true });
+          if (trial.success) {
+            suggestions.push(candidate);
+          }
+        }
+
+        tracker.exit("conversational-check", "conversational", 0, "conversational", {
+          answer: conversational.answer.slice(0, 300),
+        });
+        return {
+          success: true,
+          rows: [],
+          rowCount: 0,
+          answerability: { status: "conversational" },
+          conversationalAnswer: conversational.answer,
+          suggestions,
+          trace: tracker.gates,
+        };
+      };
 
       // Batch 5A-1 (scoped guard): the words of the RAW question that nothing resolved, set only when the LLM front
       // door (Layer 0.5) was consulted because of such words and produced no rewrite. The pipeline below then runs on
@@ -1465,6 +1525,13 @@ return {
         const fullyUnderstood = planner.isFullyUnderstood(resolved.normalizedQuery, resolved.matches, runtime.domain.entities);
 
         if (!hasUniqueRecordMatch && !fullyUnderstood) {
+          // ConversationalFix (2026-09-27): tried before the paid normalizer, never after - see
+          // tryConversationalCheck's own doc comment above.
+          const conversationalResult = await tryConversationalCheck();
+          if (conversationalResult) {
+            return conversationalResult;
+          }
+
           preNormalizeAttempted = true;
           tracker.enter("llm-normalization");
           const rewrite = await llmFallback(request.question);
@@ -1621,6 +1688,15 @@ return {
         !preNormalizeAttempted &&
         !request.dryRun
       ) {
+        // ConversationalFix (2026-09-27): the Layer 1 (on-failure) mirror of the Layer 0.5 check above - reached
+        // when a question was trivially "fully understood" (no unaccounted words left to send to Layer 0.5, e.g.
+        // every word is filler) yet still failed deterministic resolution outright ("what's up" has nothing left
+        // to account for and nothing to resolve either).
+        const conversationalResult = await tryConversationalCheck();
+        if (conversationalResult) {
+          return conversationalResult;
+        }
+
         const rewrite = await llmFallback(request.question);
         if (
           rewrite &&

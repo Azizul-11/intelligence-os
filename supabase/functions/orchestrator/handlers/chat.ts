@@ -242,6 +242,22 @@ async function runChat(
   });
   await persistTrace(requestId, request.question, result);
 
+  // ConversationalFix (2026-09-27): the `conversationalCheck` hook (create-runtime-engine.ts) caught this - a
+  // not-yet-understood question that turned out to be small talk / a capability question, not a real analytical
+  // request. 0 SQL, same shape Layer 0's own regex branch above already returns; `result.rows` is empty so none of
+  // the normal success-path machinery below (row summary, tie note) applies here.
+  if (result.success && result.answerability?.status === "conversational") {
+    const suggestions = result.suggestions && result.suggestions.length > 0 ? result.suggestions : getDomainCapabilities().exampleAnswerableQuestions.slice(0, 3);
+    return {
+      success: true,
+      answer: result.conversationalAnswer ?? "",
+      requestId,
+      answerability: result.answerability,
+      trace: result.trace,
+      suggestions,
+    };
+  }
+
   // Phase 8.10 Layer 2 Task 1: Automatic Turn 1 pending interaction creation
   if (!result.success && result.answerability) {
     // CLARIFICATION: Identity ambiguous

@@ -21,19 +21,11 @@ import { SupabaseDatabaseAdapter } from "../packages/sql-executor/src/supabase-d
 import { createClient } from "@supabase/supabase-js";
 import { llmGateway } from "../packages/llm-model-gateway/src/llm-model-gateway";
 import { env } from "./shared/env";
-
-// Mirrors chat.ts's own isConversational() classifier exactly.
-const CONVERSATIONAL_PATTERNS: RegExp[] = [
-  /^(hi|hello|hey|hiya|howdy|greetings|yo)\b/i,
-  /^(what can you do|what do you do|capabilities|help|what is this|who are you|what are you)\b/i,
-  /^(thanks|thank you|bye|goodbye)\b/i,
-  /^(how (are|do) you work|explain (yourself|what you can do))\b/i,
-];
-function isConversational(question: string): boolean {
-  const trimmed = question.trim().toLowerCase();
-  if (trimmed.length === 0 || trimmed.length > 60) return false;
-  return CONVERSATIONAL_PATTERNS.some((pattern) => pattern.test(trimmed));
-}
+// ConversationalFix (2026-09-27): was a stale, prefix-matching local copy of chat.ts's classifier (would have
+// wrongly swallowed "hi show me hospitals in HI") - imports the real, whole-utterance-anchored implementation
+// instead, the same one verify-batch1-word-drop-guards.ts already tests. See
+// docs/Post Capability Expansion Work/ConversationalFIx/AUDIT_CONVERSATIONAL_INTENT_ROUTING.md.
+import { isConversational } from "../supabase/functions/orchestrator/services/conversational";
 
 const runtime = createDomainRuntime(healthcareDomain);
 const semantic = createSemanticResolver(runtime.registry, runtime.entityProvider);

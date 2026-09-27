@@ -80,7 +80,7 @@ export interface ChatResponse {
    * question).
    */
   llmCalls?: {
-    role: "normalizer" | "summary" | "suggestions" | "conversational";
+    role: "normalizer" | "summary" | "suggestions" | "conversational" | "intent";
     provider: string;
     model: string;
     keyId: string;

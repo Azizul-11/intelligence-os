@@ -97,6 +97,16 @@ export function getRuntimeEngine(): RuntimeEngine {
       normalizeQuestion(question, DOMAIN_CAPABILITIES, (text) => llmGateway.normalizeMessyLanguage(text, DOMAIN_CAPABILITIES)),
     // Batch 5C: the same deterministic scope check, for the questions that skip the front door (a named hospital, a chip).
     unsupportedPrecheck: (question: string) => precheckUnsupported(question, DOMAIN_CAPABILITIES),
+    // ConversationalFix (2026-09-27): replaces closed-whitelist-regex expansion for informal small talk the front
+    // door's own regex (services/conversational.ts) doesn't recognize ("bro", "what's up", a typo'd "tell me
+    // somthing") - see AUDIT_CONVERSATIONAL_INTENT_ROUTING.md. A cheap free-tier classification first; only a
+    // confident "conversational" verdict reuses the existing handleConversational() onboarding reply (unchanged
+    // since Layer 0's regex branch in chat.ts). Anything else - "data_request", a timeout, every provider down -
+    // returns undefined and the paid normalizer above runs exactly as it already does today.
+    conversationalCheck: async (question: string) => {
+      const intent = await llmGateway.classifyConversationalIntent(question, DOMAIN_CAPABILITIES);
+      return intent === "conversational" ? llmGateway.handleConversational(question, DOMAIN_CAPABILITIES) : undefined;
+    },
   });
 
   return runtimeEngine;

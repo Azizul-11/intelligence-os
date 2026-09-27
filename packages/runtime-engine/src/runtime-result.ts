@@ -99,4 +99,14 @@ export interface RuntimeResult<T = unknown> {
    * that would itself fail if clicked.
    */
   suggestions?: string[];
+
+  /**
+   * ConversationalFix (2026-09-27): present only when `answerability.status === "conversational"` - an optional
+   * `conversationalCheck` hook (see CreateRuntimeEngineOptions) decided this not-yet-understood question was small
+   * talk or a capability question rather than a real request for data, before the paid normalizer was ever tried.
+   * `rows` stays empty (0 SQL); the caller renders this text directly, exactly as the front-door regex classifier's
+   * own conversational branch already does. Universal Core never inspects this string - it only carries whatever
+   * the hook returned back to the caller.
+   */
+  conversationalAnswer?: string;
 }
