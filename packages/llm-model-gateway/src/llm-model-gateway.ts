@@ -1299,6 +1299,14 @@ export class LLMModelGateway implements LLMProvider {
       "still a data request, never casual conversation. A vague filler with no specific topic, metric, place, or",
       "question of its own (e.g. \"tell me something\", \"tell me anything\", \"surprise me\") is casual conversation,",
       "not a data request - there is nothing named to look up.",
+      "A short phrase that NAMES a subject this platform's data covers or that resembles one (even informally",
+      "worded, misspelled, or with no verb and no question mark at all) is a data request about that subject,",
+      "never casual conversation - naming a subject at all, however tersely, is what makes it one. Reserve",
+      "\"conversational\" for a message that is about the assistant or the interaction itself (a greeting, thanks,",
+      "farewell, or a question about what this assistant can do) or that truly names no subject at all. A phrase",
+      "about what can be searched, asked, or looked up HERE, naming no specific subject of its own (e.g. \"what i",
+      "can search here\", \"what can I ask\"), is still a capability question, not a data request - words like",
+      "\"search\"/\"ask\"/\"look up\" describe the ACT of using the platform, they are not themselves a subject.",
       'Return ONLY this JSON shape: {"intent": "conversational" | "data_request"}',
     ]
       .filter(Boolean)
