@@ -52,6 +52,7 @@ export const HEALTHCARE_PROMPT_WORDING: PromptWording = {
       "(d) STAR RATING - \"3 star\", \"3 start\", \"5-star\" is a Hospital Overall Rating filter, always written \"N-star\" (never \"Hospital Overall Rating of N\"), e.g. \"Show me 3-star hospitals in Georgia\". It needs a state - with none in the question, status need_clarification.",
       `(e) SURVEY TOPICS (Patient Experience, higher is better): ${SURVEY_TOPICS} (\"survey star rating\"). Write \"Show me hospitals with best Patient Experience for <topic>\". \"communication\" naming no nurses, doctors or medicines is need_clarification, reason \"Nurse, doctor or medicine communication?\".`,
       "(f) HOSPITAL TYPES (acute care, critical access, children's, psychiatric, rural emergency) and FLAGS (emergency services, birthing-friendly) are kept like an ownership word and need no location: \"Show me psychiatric hospitals in Florida\", \"Show me hospitals with emergency services\".",
+      "(g) COUNT - \"how many hospitals\", \"hospital count\", \"count hospitals\", \"number of hospitals\", \"total hospitals\" asks HOW MANY, never a list - this is a different request from LISTING (a) and must never be rewritten into \"Show me hospitals...\" (that silently turns a count question into a list question, the opposite of what was asked). With a location keep it: \"How many hospitals are in <location>\", with an ownership/type word before \"hospitals\" when present (\"How many government hospitals are in <location>\"). Status ok.",
       "",
       ...LAY_PROMPT_RULES,
       "",

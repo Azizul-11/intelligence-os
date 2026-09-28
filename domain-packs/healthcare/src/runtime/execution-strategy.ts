@@ -552,6 +552,22 @@ export class HealthcareExecutionStrategy
       (filter) => filter.field === "city",
     );
 
+    // ConversationalFix follow-up (2026-09-28): "how many hospitals are in <county/city>" was reaching this point
+    // with metric "hospital-count" and a county/city scope filter, but HealthcareTemplateSelector's own
+    // hardcoded hospital-count mapping only ever knew "hospital-count-by-state" - the filter's own parameter
+    // wasn't declared on that template, so it fell through to the generic path below and answered as a plain
+    // hospital list instead of a count (a real, silent-wrong-shape result, confirmed live). Same "scope filter,
+    // not a dimensional grouping" reasoning as the county/city check just above - checked before the grouped-
+    // ranking/intent-map logic so a county/city count never reaches the state-only mapping at all.
+    if (executionPlan.metric === "hospital-count" && executionPlan.operation === "aggregate") {
+      if (hasCountyFilter) {
+        return "hospital-count-by-county";
+      }
+      if (hasCityFilter) {
+        return "hospital-count-by-city";
+      }
+    }
+
     // RCG-008: grouped ranking. Universal Core only ever supplies an
     // opaque dimension canonical key on ExecutionPlan.grouping -
     // Healthcare owns the mapping from that key to its own grouped SQL

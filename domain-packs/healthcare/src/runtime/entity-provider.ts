@@ -294,8 +294,19 @@ export class HealthcareEntityProvider
       }
     }
     
+    // ConversationalFix follow-up (2026-09-28): the bare word "many" is also a real, registered city (Many,
+    // Louisiana) - matching it here made "how MANY hospitals are in <city>" resolve TWO city candidates (the
+    // quantifier word and the real place), which then correctly refused as an unsafe multi-value filter but for
+    // the wrong reason (a false collision, not a genuine one). "how many" is the exact, already-registered
+    // hospital-count metric alias and is overwhelmingly more common than a query naming this one small town - a
+    // genuine query about it still resolves via its qualified form ("Many, Louisiana" / "Many, LA"), matched
+    // elsewhere as a multi-word phrase, not here (this only skips the BARE single-word match below, exactly as
+    // if "many" simply weren't in CITIES - every other resolution strategy in this function still runs).
+    // Deliberate, narrow exclusion - not a general stopword list.
+    const isQuantifierWord = normalizedPhrase === "many";
+
     // Check if phrase is a bare city name (or an informal name of one)
-    const cityValue = CITIES.get(INFORMAL_CITY_NAMES.get(normalizedPhrase) ?? normalizedPhrase);
+    const cityValue = isQuantifierWord ? undefined : CITIES.get(INFORMAL_CITY_NAMES.get(normalizedPhrase) ?? normalizedPhrase);
     if (cityValue) {
       return {
         found: true,

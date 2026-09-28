@@ -11,6 +11,8 @@ export * from "./hospital-overall-rating-ranking";
 export * from "./hospital-overall-rating-ranking-coverage";
 export * from "./mortality-rate-ranking-coverage";
 export * from "./hospital-count-by-state";
+export * from "./hospital-count-by-county";
+export * from "./hospital-count-by-city";
 export * from "./hospital-list-by-state";
 export * from "./hospital-list-nationwide";
 export * from "./safety-performance-ranking";
@@ -48,6 +50,8 @@ from "./hospital-overall-rating-ranking-coverage";
 import { mortalityRateRankingCoverageSqlTemplate }
 from "./mortality-rate-ranking-coverage";
 import { hospitalCountByStateSqlTemplate } from "./hospital-count-by-state";
+import { hospitalCountByCountySqlTemplate } from "./hospital-count-by-county";
+import { hospitalCountByCitySqlTemplate } from "./hospital-count-by-city";
 import { hospitalListByStateSqlTemplate } from "./hospital-list-by-state";
 import { hospitalListNationwideSqlTemplate } from "./hospital-list-nationwide";
 import { safetyPerformanceRankingSqlTemplate } from "./safety-performance-ranking";
@@ -83,6 +87,8 @@ export const healthcareSqlTemplates = [
     patientExperienceRankingSqlTemplate,
     lengthOfStaySqlTemplate,
     hospitalCountByStateSqlTemplate,
+    hospitalCountByCountySqlTemplate,
+    hospitalCountByCitySqlTemplate,
     hospitalListByStateSqlTemplate,
     hospitalListNationwideSqlTemplate,
     safetyPerformanceRankingSqlTemplate,
