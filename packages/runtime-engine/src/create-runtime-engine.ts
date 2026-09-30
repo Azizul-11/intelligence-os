@@ -1,3 +1,4 @@
+/** Builds the RuntimeEngine: runs a question through semantic resolution, the Phase 8 answerability gates, SQL execution, and the optional LLM layers, end to end. */
 import type { DomainRuntime } from "@intelligence/domain-runtime";
 import type { QueryPlanner, ExecutionPlanMapper } from "@intelligence/query-planner";
 import { assessPlanCompleteness, hasRelationshipWithoutBenchmark, detectSubsumedBenchmarkRisk, requestedCount } from "@intelligence/query-planner";
@@ -14,17 +15,7 @@ import { buildClarificationMessage } from "./build-clarification-message";
 import { buildGuidanceMessage } from "./build-guidance-message";
 import { PhaseGateTracker, type PhaseGateDetail } from "./phase-gate-tracker";
 
-/**
- * Phase 8.8: structural equality for a filter's resolved value against a
- * candidate parameter's resolved value - deliberately not `===` alone,
- * since Domain-owned parameter resolution (e.g. Healthcare's own
- * "hospital" -> "hospitalId"/"facilityIds" renaming) may copy a filter's
- * value under a different parameter name. Comparing by VALUE, not by
- * NAME, is what lets this stay Domain-agnostic: Universal Core never
- * needs to know any Domain's renaming convention, only that a filter's
- * value must actually reach *some* parameter the selected template
- * declares, under whatever name that Domain gave it.
- */
+/** Phase 8.8: compares by VALUE, not parameter NAME, so a Domain's own renaming (e.g. "hospital" -> "hospitalId") never breaks this check - keeps it Domain-agnostic. */
 function valuesMatch(a: unknown, b: unknown): boolean {
   if (Array.isArray(a) && Array.isArray(b)) {
     return a.length === b.length && a.every((value, index) => value === b[index]);
@@ -34,25 +25,13 @@ function valuesMatch(a: unknown, b: unknown): boolean {
 }
 
 /**
- * Phase 8.8: a single filter is compatible with a candidate template when
- * some parameter that template declares resolves (by value, see
- * valuesMatch()) to that filter's value, and - for a multi-value "in"
- * filter - that parameter is declared "array"-typed (the only shape
- * SqlExecutor's array rendering is safe for). Factored out unchanged from
- * the original Phase 8.8 gate so Phase 8.9's alternative discovery can
- * reuse the exact same mechanism against a candidate metric's own
- * template, rather than a second implementation of the same rule.
- *
- * Tier1 Task 5 (Phase 1): only an "in"-operator filter can ever be
- * incompatible. A scalar "=" filter with no matching template parameter
- * is left alone (return true) - this is deliberately unconditional,
- * unrelated to operation type, so a redundant, coarser scalar filter
- * alongside an already-resolved identity (e.g. a "state" filter beside a
- * "hospital" filter that already uniquely determines the record) is
- * never treated as incompatible, exactly as before. This is what makes
- * it safe to apply this same check to every operation - previously the
- * caller had to scope it to "rank"/"aggregate" only to avoid that exact
- * false positive on "lookup"/"compare".
+ * Phase 8.8: a filter is compatible with a candidate template when some declared parameter resolves (by value, see
+ * valuesMatch()) to that filter's value, and - for a multi-value "in" filter - that parameter is "array"-typed (the
+ * only shape SqlExecutor's array rendering is safe for). Shared as-is with Phase 8.9's alternative discovery below.
+ * Tier1 Task 5: only "in" filters can ever be incompatible - a scalar "=" filter with no matching parameter is left
+ * alone (return true) unconditionally, so a redundant, coarser filter beside an already-resolved identity (e.g.
+ * "state" beside a uniquely-identifying "hospital") is never flagged. This is what makes the check safe to apply to
+ * every operation, not just "rank"/"aggregate".
  */
 function isFilterCompatibleWithTemplate(
   filter: ExecutionFilter,
@@ -77,19 +56,12 @@ const ALTERNATIVE_OPERATION_FLAG = {
 } as const;
 
 /**
- * Phase 8.9: when the requested metric has no available execution
- * capability, look for other real, currently-supported Domain-declared
- * metrics that could execute this exact same request shape - same
- * operation, same filters/scope - in its place. Not a new similarity or
- * scoring model: a candidate qualifies only by satisfying the same three
- * checks the rest of the runtime already applies to the requested metric
- * itself (the operation-appropriate capability flag, Phase 8.5's
- * found/enabled template-existence check, and Phase 8.8's own filter-
- * compatibility check above) - "same category" is deliberately not one of
- * them, since two metrics sharing a category may still query entirely
- * different, independently-unavailable tables. Returns candidates in
- * `runtime.domain.metrics`' own declaration order; never scored or
- * ranked.
+ * Phase 8.9: when the requested metric has no available execution capability, look for other real, currently-
+ * supported Domain-declared metrics that could execute this same request shape in its place. Not a new similarity
+ * model - a candidate qualifies only by the same three checks already applied to the requested metric itself
+ * (capability flag, Phase 8.5 template-existence, Phase 8.8 filter-compatibility). "Same category" is deliberately
+ * not one of them, since same-category metrics may query entirely different, independently-unavailable tables.
+ * Returns candidates in declaration order, never scored or ranked.
  */
 function discoverAlternatives(
   unavailableMetricId: string,
@@ -135,20 +107,10 @@ function discoverAlternatives(
 }
 
 /**
- * Phase 3.6 (LLM-First Front Door, 2026-09-18): staged-rollout feature
- * flag for Layer 0.5 (see the doc comment above its call site below).
- * Read directly from the process environment - a generic ops toggle,
- * not a Healthcare-specific concern, so this does not cross the
- * Universal-vs-Domain boundary any more than
- * packages/llm-model-gateway's own direct `process.env.*` reads for
- * provider API keys already do. Read via `globalThis` rather than a
- * bare `process` reference so this package needs no new `@types/node`
- * dependency (packages/runtime-engine has never previously touched
- * process env - keeping the diff to exactly the 2 files this task
- * scopes real logic changes to, per its own Decision Ladder guardrail).
- * Defaults to disabled: the pre-existing conditional-on-failure Layer 1
- * behavior remains the production default until this flag is
- * explicitly set to the literal string "true".
+ * Phase 3.6: staged-rollout feature flag for Layer 0.5 (see its call site below). A generic ops toggle, not a
+ * Healthcare concern, so this doesn't cross the Universal-vs-Domain boundary. Read via `globalThis` rather than a
+ * bare `process` reference so this package needs no new `@types/node` dependency. Defaults to disabled - the
+ * pre-existing Layer 1 behavior stays the production default until set to the literal string "true".
  */
 function isLlmFirstFrontDoorEnabled(): boolean {
   const env = (globalThis as { process?: { env?: Record<string, string | undefined> } })
@@ -163,31 +125,12 @@ type CreateRuntimeEngineOptions = {
   executionPlanMapper: ExecutionPlanMapper;
   executor: SqlExecutor;
   /**
-   * LLM Integration Layer 1 (Messy Input Normalizer): optional hook,
-   * supplied only by the orchestrator's bootstrap (wired to
-   * llmGateway.normalizeMessyLanguage()) - Universal Core stays 100%
-   * LLM-unaware when this is omitted (every pre-existing caller,
-   * including every verification script). Called only when the
-   * "semantic-incomplete" dead end fires; its return value is NEVER
-   * trusted as answerable on its own - a `canonicalQuestion` rewrite is
-   * re-run through this exact same engine's full pipeline (see the
-   * execute() wrapper below) before it can produce a real result. A
-   * `clarification` reply (PrePhase 9.5) is never re-run - it only
-   * replaces the gate's raw error text with the LLM's own natural-
-   * language follow-up question, for cases where guessing a rewrite
-   * would require inventing a scope (e.g. a state) the user never gave.
-   *
-   * `meta` (R7): optional opaque diagnostics from whatever answered (which
-   * service, attempts, latency). Layer 0.5 records it verbatim as `detail` on
-   * the "llm-normalization" trace entry and never reads it; a result with only
-   * `meta` means "no usable answer" and is traced as "unavailable".
-   *
-   * `unsupportedTerms` (Batch 1, Step 1.3): the hook declining the question
-   * AND naming what it asks for that the domain cannot answer. Unlike "no
-   * usable answer" this is binding: Layer 0.5 refuses the request (0 SQL)
-   * instead of running the deterministic pipeline on the raw text, where
-   * those words would be silently dropped. A hook that cannot name the terms
-   * keeps returning `{ meta }` / `null` and the pipeline still gets its turn.
+   * LLM Integration Layer 1 (Messy Input Normalizer): optional hook (orchestrator-supplied, wired to
+   * `llmGateway.normalizeMessyLanguage()`) - Universal Core stays LLM-unaware when omitted. Fires only on
+   * "semantic-incomplete"; a `canonicalQuestion` is never trusted directly, it's re-run through this engine's
+   * full pipeline. `clarification` just replaces the gate's error text with a natural-language follow-up (no
+   * re-run, avoids guessing a scope the user never gave). `meta` is opaque diagnostics, traced verbatim and
+   * otherwise unread. `unsupportedTerms` (Batch 1) is a binding refusal (0 SQL), unlike a bare "no usable answer".
    */
   llmFallback?: (question: string) => Promise<
     | { canonicalQuestion: string; meta?: PhaseGateDetail }
@@ -197,44 +140,26 @@ type CreateRuntimeEngineOptions = {
     | null
   >;
   /**
-   * Bug L Beyond (Phase 2, 2026-09-17): optional hook, supplied only by
-   * the orchestrator's bootstrap - a domain-owned, deterministic,
-   * synchronous rewrite of the raw question text applied BEFORE
-   * anything else (semantic resolution, the tracer, Layer 1). Universal
-   * Core never inspects what this does or which words it rewrites; it
-   * only ever calls whatever function the wiring layer supplies, exactly
-   * as `llmFallback` above already works. This exists so a Domain SDK
-   * can deterministically expand its own domain-specific short forms
-   * (e.g. Healthcare's own US state abbreviations) using a signal
-   * (letter case) that is destroyed by the time the request reaches
-   * `semantic.resolve()` - see `HealthcareEntityProvider`'s own
-   * documented reason for never registering abbreviations in its
-   * case-insensitive `STATES` map. Applied once, unconditionally, at
-   * the very top of `execute()` - safe to also run on an already-
-   * expanded or LLM-rewritten question (a idempotent no-op when no
-   * matching short form is present).
+   * Bug L Beyond: optional hook, orchestrator-supplied - a domain-owned, deterministic, synchronous rewrite of the
+   * raw question applied before anything else. Universal Core never inspects what it rewrites. Exists so a Domain
+   * SDK can expand its own short forms (e.g. Healthcare's state abbreviations) using letter case, a signal already
+   * destroyed by the time `semantic.resolve()` runs. Applied once, unconditionally, at the top of `execute()` -
+   * idempotent no-op when nothing matches.
    */
   preprocessQuestion?: (question: string) => string;
   /**
-   * Batch 5C: optional, supplied by the orchestrator's bootstrap next to `llmFallback`: the domain's own deterministic
-   * scope check (the topics it knows it cannot answer, matched exactly on whole words; no model, no SQL, returns the topics
-   * found). Layer 0.5 runs it inside `llmFallback`, but a question the deterministic layers already understood (a named
-   * entity, a suggestion chip) skips Layer 0.5 and with it that check, so "was <hospital> better 5 years ago" was answered as
-   * a question about the hospital with the time ask dropped. Here it also runs on those questions, on what is left of the
-   * question after the words of every resolved entity are removed (an entity whose own name contains a topic word is not a
-   * request for that topic). A hit is the same binding refusal a model decline is (0 SQL). Ignored unless the front door is on.
+   * Batch 5C: optional, orchestrator-supplied - the domain's own deterministic scope check (topics it can't
+   * answer, matched on whole words; no model, no SQL). Layer 0.5 runs it inside `llmFallback`, but a question that
+   * skips Layer 0.5 (already-resolved entity, chip) skips this too, so it also runs standalone here, on the
+   * question's remaining words after resolved-entity words are removed. A hit is the same binding refusal (0 SQL)
+   * a model decline is. Ignored unless the front door is on.
    */
   unsupportedPrecheck?: (question: string) => readonly string[];
   /**
-   * ConversationalFix (2026-09-27): optional, supplied by the orchestrator's bootstrap next to `llmFallback`/
-   * `unsupportedPrecheck` - a cheap, domain-agnostic check for whether a question that reaches this exact point
-   * (not a unique-record match, not already fully understood) is small talk or a capability question rather than
-   * a real request for data. Called ONLY here, immediately before `llmFallback` (the paid chain) would otherwise
-   * run, so a question already resolved above never reaches this hook and pays no added latency. Universal Core
-   * never inspects why the hook decided what it decided - a defined result short-circuits straight to a
-   * conversational, 0-SQL answer (`RuntimeResult.conversationalAnswer`); undefined (uncertain, or genuinely
-   * analytical) falls straight through to today's unchanged behavior. See
-   * docs/Post Capability Expansion Work/ConversationalFIx/AUDIT_CONVERSATIONAL_INTENT_ROUTING.md.
+   * ConversationalFix: optional, orchestrator-supplied - a cheap, domain-agnostic check for whether a question
+   * reaching this point is small talk/a capability question rather than a real data request. Runs only right
+   * before `llmFallback` (the paid chain), so anything resolved above never pays its latency. A defined result
+   * short-circuits to a conversational, 0-SQL answer; undefined falls through to unchanged behavior.
    */
   conversationalCheck?: (question: string) => Promise<{ answer: string; suggestions: readonly string[] } | undefined>;
 };
@@ -361,21 +286,13 @@ console.log(
 );
 console.log("=====================================");
 
-      // Tier0 Task 6: Layer 2 continuation structural identity
-      // injection. A Turn 2 continuation whose request carries a
-      // `forcedIdentityCandidate` already pinned down exactly which
-      // candidate the user meant in Turn 1 - re-deriving that same
-      // identity from the reconstructed question's text alone is not
-      // safe to assume (see RuntimeRequest.forcedIdentityCandidate's own
-      // doc comment): it can re-trigger the identical ambiguity Turn 1
-      // already resolved. Matches the forced candidate's opaque `value`
-      // against every ambiguity's own `candidates` list, by value only
-      // (never by name or domain vocabulary, mirroring valuesMatch()'s
-      // own by-value philosophy) - never trusting a value the offered
-      // candidates didn't actually contain. Only ever resolves an
-      // ambiguity that still exists on this fresh resolution; an entity
-      // that already resolved (successfully or not) through the
-      // ordinary text pipeline is left untouched.
+      // Tier0 Task 6: Layer 2 continuation structural identity injection. A Turn 2 request carrying a
+      // `forcedIdentityCandidate` already pinned down which candidate the user meant in Turn 1 - re-deriving it
+      // from the reconstructed text alone is not safe (can re-trigger the same ambiguity). Matches the forced
+      // candidate's opaque `value` against every ambiguity's `candidates` list, by value only (mirroring
+      // valuesMatch()), never trusting a value the offered candidates didn't contain. Only resolves an ambiguity
+      // that still exists on this fresh resolution; an entity already resolved through the ordinary pipeline is
+      // left untouched.
       if (request.forcedIdentityCandidate && semanticResult.identityAmbiguities) {
         const forcedValue = request.forcedIdentityCandidate.value;
         const matchIndex = semanticResult.identityAmbiguities.findIndex((ambiguity) =>
@@ -455,47 +372,22 @@ console.log("=====================================");
         semanticResult.resolved = true;
       }
 
-      // Phase 8.1: an entity mention resolved to more than one legitimate
-      // candidate identity (e.g. two real hospitals sharing the same
-      // name). Previously this was indistinguishable from the phrase not
-      // being understood at all - the mention was silently dropped and
-      // the rest of the query could still execute as if it had never been
-      // mentioned. Refuse honestly instead, before any planning or SQL
-      // execution, and never silently choose one candidate.
-      //
-      // Phase 8.3: the refusal message is now a targeted clarification -
-      // naming the ambiguous mention and its actual candidate labels,
-      // when the Domain SDK supplies them - instead of a fixed generic
-      // sentence.
-      //
-      // Post-8.3 gate-ordering fix: checked BEFORE `!semanticResult.resolved`
-      // (previously checked after it). identityAmbiguities can be populated
-      // even when nothing else in the query resolved (e.g. a bare entity
-      // mention with no recognized metric) - `resolved` reflects a
-      // completely separate signal (the matcher/ontology's own primary
-      // canonicalKey resolution) and its falsity does not mean the
-      // ambiguity information is any less real or any less useful. A
-      // concrete, already-detected ambiguous-identity signal is always
-      // more actionable than the generic "Unable to resolve question."
-      // message, so it must not be discarded merely because some other,
-      // unrelated part of semantic resolution also failed. The gate
-      // itself (this check's condition, its whole-request-refusal
-      // granularity) is otherwise unchanged from Phase 8.1/8.3.
+      // Phase 8.1: an entity mention resolving to more than one legitimate candidate identity (e.g. two hospitals
+      // sharing a name) is refused honestly before any planning/SQL, never silently resolved to one candidate.
+      // Phase 8.3: the refusal names the ambiguous mention and its actual candidate labels when the Domain SDK
+      // supplies them, instead of a fixed generic sentence.
+      // Post-8.3 gate-ordering fix: checked BEFORE `!semanticResult.resolved`, since `identityAmbiguities` can be
+      // populated even when nothing else resolved (`resolved` is a separate signal) - a concrete ambiguity is
+      // always more actionable than the generic "Unable to resolve question." fallback and must not be discarded
+      // just because something else also failed.
       tracker.enter("entity-identity-ambiguity");
 
-      // Batch 4: a named entity whose qualifying place holds none of its
-      // candidates ("Memorial Hospital in Alabama") is refused, never
-      // answered without the name and never turned into a question about
-      // candidates the user did not ask about. 0 SQL.
-      //
-      // Not for a Layer 2 continuation: its identities are pinned by value
-      // (`forcedIdentityCandidate`, `companionEntities`), and the reconstructed
-      // text ends with the place the user just chose - which, in a comparison
-      // ("compare memorial hospital vs CUERO REGIONAL HOSPITAL in CARTHAGE, IL"),
-      // lands on the LAST named hospital and contradicts it. That "not found"
-      // is an artifact of the appended qualifier, never a fact about the
-      // request (Turn 1 would already have refused a real one). Refusing here
-      // dropped the second hospital of every comparison Turn 2.
+      // Batch 4: a named entity whose qualifying place holds none of its candidates ("Memorial Hospital in
+      // Alabama") is refused, never answered without the name. 0 SQL.
+      // Not for a Layer 2 continuation: its identities are pinned by value (`forcedIdentityCandidate`,
+      // `companionEntities`), and the reconstructed text ends with the place the user just chose, which in a
+      // comparison lands on the LAST named hospital and contradicts the first - refusing here dropped the second
+      // hospital of every comparison Turn 2.
       const identitiesPinnedByContinuation =
         request.identityAlreadyResolved === true ||
         request.forcedIdentityCandidate !== undefined ||
@@ -556,21 +448,12 @@ console.log("=====================================");
         };
       }
 
-      // Batch 1 (Step 1.2): unaccounted-word gate for an LLM-rewritten
-      // question. A word the user typed, that the rewrite kept and that no
-      // semantic candidate accounted for (a qualifier the domain has no
-      // vocabulary for) is a constraint the pipeline would silently drop and
-      // answer without - a broader answer returned as if it satisfied the
-      // request. Refused honestly before any planning or SQL (0 SQL, the same
-      // `semantic-incomplete` reason as the dead end above, so the orchestrator
-      // shows its usual guidance). Deliberately scoped to the rewritten run:
-      // measured against the 600-query baseline this catches real drops with
-      // no regression, while the same rule on a first pass would refuse
-      // correct answers that merely carry a harmless extra word (filler or
-      // comparison wording) - those first-pass words are judged by the LLM
-      // (its `unsupported_terms`), not by vocabulary here.
-      // A word the rewrite introduced itself is ignored (see
-      // QueryPlanner.findUnaccountedWords). Domain-agnostic: no vocabulary.
+      // Batch 1: unaccounted-word gate for an LLM-rewritten question. A word the user typed that the rewrite kept
+      // and no semantic candidate accounted for is a constraint the pipeline would silently drop and answer
+      // without - refused honestly before any SQL (same `semantic-incomplete` reason as the dead end above).
+      // Scoped to the rewritten run only: the same rule on a first pass would refuse correct answers carrying a
+      // harmless extra word - those are judged by the LLM's own `unsupported_terms` instead. A word the rewrite
+      // introduced itself is ignored (see QueryPlanner.findUnaccountedWords). Domain-agnostic: no vocabulary.
       if (request.rewrittenFrom) {
         const dropped = planner.findUnaccountedWords(
           semanticResult.normalizedQuery,
@@ -594,16 +477,10 @@ console.log("=====================================");
           };
         }
       } else if (frontDoorUnaccounted.length > 0) {
-        // Batch 5A-1: the scoped form of the same guard, and it ANNOTATES instead of refusing. The front door was
-        // consulted for these words and could not read them, so the deterministic answer that follows must not
-        // drop them silently: the trace records them and the caller says, in the answer, which words it ignored.
-        //
-        // Not a refusal because the recorded 600-query run says a refusal breaks working answers: of the 8 answered
-        // rows whose front door gave no rewrite, refusing would have turned 4 correct ones into refusals (rows B001,
-        // B014, D038, D058: harmless narration words) to fix 3 wrong ones. An annotation keeps every answer and
-        // discloses every drop. Still 0 extra SQL and no effect on any gate. Not applied to every first pass (the
-        // comment above): a question the deterministic layers fully understood never gets here, and one the front
-        // door rewrote is judged by the rewritten-run guard.
+        // Batch 5A-1: the scoped form of the same guard, and it ANNOTATES instead of refusing. The front door
+        // couldn't read these words, so the trace records them and the caller discloses, in the answer, which
+        // words it ignored - never silently. Not a refusal: measured against the 600-query baseline, refusing here
+        // would have turned 4 correct answers into refusals to fix 3 wrong ones. Still 0 extra SQL, no gate effect.
         tracker.enter("unaccounted-word-guard");
         tracker.exit("unaccounted-word-guard", "annotated", 0, undefined, {
           unaccountedWords: frontDoorUnaccounted.join(" "),
@@ -674,19 +551,12 @@ console.log("=====================================");
         };
       }
 
-      // Phase 8.4: a `relationship` candidate (e.g. "above"/"below") with
-      // no `benchmark` candidate to compare against cannot cohere into a
-      // valid interpretation - ExecutionPlanMapper.buildBenchmark() (RCG-009)
-      // already requires both before building any benchmark, so without
-      // this check the relationship word is silently dropped and the
-      // query executes as an ordinary, unfiltered request: a materially
-      // different, silently wrong answer returned as a success. Refused
-      // honestly here, before any planning or SQL execution, reusing the
-      // existing "candidate-inconsistent" reason (the same one RCG-010's
-      // direction contradiction already uses) - both represent the same
-      // underlying state: a semantic candidate set that does not cohere.
-      // 2,000 sweep (Batch E): with two or more named hospitals, "better than" compares them with each other ("Is Mayo
-      // Clinic better than Cleveland Clinic at treating heart failure?"); there is no reference value to ask for.
+      // Phase 8.4: a `relationship` candidate (e.g. "above"/"below") with no `benchmark` candidate to compare
+      // against cannot cohere - without this check the word is silently dropped and the query executes unfiltered,
+      // a materially different answer returned as success. Refused here, reusing "candidate-inconsistent" (same
+      // reason RCG-010's direction contradiction uses - both represent a candidate set that doesn't cohere).
+      // 2,000 sweep (Batch E): with two or more named hospitals, "better than" compares them with each other; there
+      // is no reference value to ask for.
       const namedRecords = semanticResult.matches.filter(
         (candidate) => candidate.semanticType === "entity" && (candidate.definition as EntityDefinition).identifiesUniqueRecord === true,
       ).length;
@@ -705,18 +575,10 @@ console.log("=====================================");
         };
       }
 
-      // Tier0 Task 4 (F1): a more specific benchmark alias (e.g.
-      // "national average") can be silently broken by a word inserted
-      // between its own words (e.g. "national mortality average") -
-      // PhraseExtractor only matches contiguous spans, so only a
-      // generic fallback alias (e.g. bare "average" -> median) resolves
-      // instead, and the query would otherwise execute successfully
-      // against the wrong benchmark with no signal anything went wrong.
-      // Refused honestly here, before any planning or SQL execution,
-      // reusing the same "candidate-inconsistent" reason as the two
-      // checks above - all three represent the same underlying state: a
-      // semantic candidate set that does not safely cohere into one
-      // interpretation.
+      // Tier0 Task 4 (F1): a more specific benchmark alias (e.g. "national average") can be silently broken by a
+      // word inserted between its own words (e.g. "national mortality average") - PhraseExtractor only matches
+      // contiguous spans, so a generic fallback alias resolves instead and the query executes against the wrong
+      // benchmark with no signal. Refused here, reusing the same "candidate-inconsistent" reason as above.
       const subsumedBenchmarkRisk = detectSubsumedBenchmarkRisk(
         semanticResult.matches,
         semanticResult.normalizedQuery,
@@ -819,20 +681,12 @@ if (!request.identityAlreadyResolved && runtime.domain.executionStrategy.checkPl
   }
 }
 
-// Pre-Phase 8: observe (never correct) whether every semantically
-// resolved candidate ended up represented in the plan just built.
-// Uses the raw, pre-collection candidate list (semanticResult.matches)
-// rather than plan.plan.semantic, since some semantic types (e.g.
-// "concept") are dropped by SemanticCollector before QueryPlan.semantic
-// is even built and would otherwise be invisible to this check.
-//
-// Phase 8.2 (Blocker 1): plan.plan.semantic - QueryPlanner's own,
-// already-filtered semantic collections (after filterMetricsForIntent()/
-// filterFallbackMetrics()) - is passed as a third input so the metric
-// check can tell a candidate legitimately removed by that existing
-// filtering apart from one genuinely lost during planning. Nothing in
-// QueryPlanner, ExecutionPlanMapper, or SemanticCollector changes;
-// plan.plan.semantic was already computed and already in scope here.
+// Pre-Phase 8: observe (never correct) whether every semantically resolved candidate ended up represented in the
+// plan just built. Uses the raw, pre-collection candidate list (semanticResult.matches) rather than
+// plan.plan.semantic, since some semantic types (e.g. "concept") are dropped by SemanticCollector before
+// QueryPlan.semantic even exists and would otherwise be invisible to this check.
+// Phase 8.2: plan.plan.semantic (QueryPlanner's own already-filtered collections) is passed as a third input so
+// the metric check can tell a candidate legitimately filtered out apart from one genuinely lost during planning.
 const completeness = assessPlanCompleteness(
   semanticResult.matches,
   executionPlan,
@@ -843,24 +697,13 @@ console.log("========== PLAN COMPLETENESS ==========");
 console.log(JSON.stringify(completeness, null, 2));
 console.log("========================================");
 
-// Phase 8.2: a genuinely unaccounted-for metric-type discrepancy - one
-// that survived QueryPlanner's own legitimate filtering yet still never
-// reached the ExecutionPlan - is refused before any SQL executes.
-//
-// Phase 8.8: a concept-type discrepancy is gated the same way. This is
-// not a new detector - assessPlanCompleteness() already computes a
-// concept-type discrepancy unconditionally for every concept candidate
-// (SemanticCollector never collects "concept" into QueryPlan.semantic
-// at all, so it can never legitimately reach the plan; unlike the
-// metric/entity/benchmark branches, this one has no legitimate-
-// suppression case to distinguish). Until now that evidence was
-// computed and attached to `completeness` but never gated on, letting a
-// recognized-but-unconsumed condition/topic (e.g. "...for heart attack
-// specifically") silently execute against the metric's full,
-// undifferentiated result. Category-type discrepancies (F13) remain
-// detection-only, unchanged - category has no comparable "always a
-// discrepancy" guarantee documented for its own branch, and gating on
-// it was not part of the approved Phase 8.8 scope.
+// Phase 8.2: a genuinely unaccounted-for metric-type discrepancy - one that survived QueryPlanner's own legitimate
+// filtering yet never reached the ExecutionPlan - is refused before any SQL executes.
+// Phase 8.8: a concept-type discrepancy is gated the same way (not a new detector - assessPlanCompleteness()
+// already computes it unconditionally, since SemanticCollector never collects "concept" into QueryPlan.semantic at
+// all). Previously computed but never gated on, letting a recognized-but-unconsumed condition/topic (e.g. "...for
+// heart attack specifically") silently execute against the metric's full, undifferentiated result. Category-type
+// discrepancies (F13) stay detection-only - no comparable "always a discrepancy" guarantee for that branch.
 const hasUnaccountedMetricOrConceptLoss = completeness.discrepancies.some(
   (discrepancy) => discrepancy.semanticType === "metric" || discrepancy.semanticType === "concept",
 );
@@ -910,23 +753,11 @@ if (template.template) {
   );
 }
 
-      // Phase 8.5: the semantic candidates resolved, planned, and mapped to
-      // an ExecutionPlan cleanly, but no deterministic execution mechanism
-      // exists for the requested shape at all (the Domain SDK never
-      // registered a template under this id - e.g. RCG-008's deliberately
-      // unregistered "-unsupported"/"-unbounded" ids). Distinct from every
-      // gate above: this is not an ambiguity or a candidate inconsistency,
-      // it is the simple absence of a capability. Refused honestly, before
-      // any parameter resolution or SQL execution - existing failure
-      // semantics (no SQL runs) are unchanged, only the classification is
-      // now structured instead of a bare string.
-      //
-      // Phase 8.10 Layer 1: when Phase 8.9 discovered supported
-      // alternatives, build a truthful guidance message from the Domain-
-      // owned metric labels rather than a bare technical error. The
-      // guidance renderer never executes SQL, never invents alternatives,
-      // never handles user choice - only presents what Phase 8.9 already
-      // proved exists.
+      // Phase 8.5: candidates resolved and mapped cleanly, but no deterministic execution mechanism exists for the
+      // requested shape (the Domain SDK never registered a template under this id) - simple absence of a
+      // capability, not an ambiguity. Refused before any parameter resolution or SQL.
+      // Phase 8.10 Layer 1: when Phase 8.9 discovered supported alternatives, build a truthful guidance message
+      // from the Domain-owned metric labels instead of a bare technical error.
       if (!template.found || !template.template) {
         const alternatives = discoverAlternatives(primaryMetric!, executionPlan, runtime);
         const guidanceMessage = buildGuidanceMessage(
@@ -996,44 +827,17 @@ console.log("========== PARAMETERS ==========");
 console.log(parameters);
 console.log("================================");
 
-// Phase 8.8: the plan may already be complete (every resolved candidate
-// reached ExecutionPlan.filters, per assessPlanCompleteness() above)
-// while the template Domain execution strategy selected for THIS plan
-// shape still cannot honor one of those filters - e.g. a single named
-// entity's "=" filter reaching a generic, unscoped template that
-// declares no parameter backed by that value at all (F8), or a
-// multi-value "in" filter reaching a template parameter never declared
-// as an "array" type - the only shape SqlExecutor's array-rendering is
-// safe for (compare hospital-overall-rating-by-facility-ids.ts's own
-// `facilityIds: array` parameter, the existing, correct use of this
-// exact contract). Checked by VALUE (see valuesMatch()), not by name,
-// so this stays fully Domain-agnostic even though a Domain's own
-// parameter-resolution step may rename a filter's value onto a
-// differently-named parameter. Refused honestly, before any SQL runs;
-// no new answerability reason is invented, since none of the existing
-// six accurately describes a generic plan/template shape mismatch (the
-// same reasoning as the Phase 8.7 fallback for a raw executor failure).
-//
-// Tier1 Task 5 (Phase 1): previously scoped to "rank"/"aggregate"
-// operations only, to avoid a false positive on a "lookup"/"compare"
-// request's own redundant, coarser scalar filter alongside an already-
-// resolved identity (e.g. a "state" filter alongside a "hospital"
-// filter that already uniquely identifies one facility - confirmed
-// live: "What is the overall rating of Mayo Clinic in Jacksonville,
-// Florida?" - the single-entity lookup template has no "state"
-// parameter at all and was never meant to). isFilterCompatibleWithTemplate()
-// itself now only ever flags an "in"-operator filter (an unrepresented
-// scalar "=" filter is unconditionally left alone, regardless of
-// operation - see its own updated comment), so that same redundant-
-// filter case remains unaffected here with no operation-based scoping
-// needed at all: applying this check uniformly to every operation is
-// what now lets a genuinely unsafe multi-value "in" filter (e.g. 2+
-// resolved "state" entities reaching a template with no array-typed
-// parameter to hold them) be caught before any SQL runs for a
-// "lookup"/"compare" request too, closing a live Phase 8.13 invariant
-// violation where such a request previously reached SqlExecutor
-// unguarded and leaked a raw database error with sqlCalls>0 despite a
-// `not_directly_answerable` classification.
+// Phase 8.8: the plan may be complete per assessPlanCompleteness() yet the selected template still can't honor one
+// of its filters - e.g. a scalar "=" filter reaching an unscoped template with no backing parameter (F8), or a
+// multi-value "in" filter reaching a parameter never declared "array"-typed (the only shape SqlExecutor's array
+// rendering is safe for). Checked by VALUE (valuesMatch()), not name, so this stays Domain-agnostic despite a
+// Domain's own parameter renaming. Refused before any SQL runs, reusing the Phase 8.7 fallback reasoning (no new
+// answerability reason needed).
+// Tier1 Task 5: applied uniformly to every operation, not just "rank"/"aggregate" - safe because
+// isFilterCompatibleWithTemplate() only ever flags "in" filters (an unrepresented scalar "=" is always left alone),
+// so a lookup/compare's redundant coarser filter (e.g. "state" beside an already-identifying "hospital") stays
+// unaffected, while a genuinely unsafe multi-value "in" filter is now also caught for lookup/compare, closing a
+// live Phase 8.13 violation where such a request leaked a raw DB error despite a `not_directly_answerable` result.
 const templateParameters = template.template.parameters ?? [];
 
 tracker.enter("parameter-filter-compatibility");
@@ -1121,20 +925,11 @@ if (!primaryResult.success) {
   };
 }
 
-// Phase 8.6B: the request already passed every prior gate (capability
-// valid, parameters fully resolved) and genuinely executed - this is
-// POST-HOC reclassification of an already-successful, already-real
-// result, not a new query and not a new refusal mechanism. A zero-row
-// result is data-unavailable ONLY when all of the following hold, so
-// an ordinary, legitimate empty list/ranking/aggregate result (e.g.
-// "hospitals in Wyoming" matching nothing) is never misclassified:
-// (1) the operation is a single-record "lookup", not a list/ranking/
-// aggregate/comparison/trend; (2) exactly one entity was resolved -
-// not zero (no entity at all) and not more than one (Phase 7.5's
-// explicit multi-entity comparison is a different mechanism); (3) the
-// resolved template explicitly declares `singleEntityRecord: true` -
-// a Domain-owned fact that THIS template's result represents that one
-// entity's own record, never an enumeration of matching entities.
+// Phase 8.6B: POST-HOC reclassification of an already-successful, already-real result (not a new query/refusal
+// mechanism) - a zero-row result is data-unavailable ONLY when all hold, so an ordinary empty list/ranking/
+// aggregate (e.g. "hospitals in Wyoming" matching nothing) is never misclassified: (1) operation is single-record
+// "lookup"; (2) exactly one entity resolved (not zero, not Phase 7.5's multi-entity comparison); (3) the template
+// declares `singleEntityRecord: true` - this result represents that one entity's own record, not an enumeration.
 if (primaryResult.rowCount === 0 && executionPlan.operation === "lookup") {
   const resolvedEntityCandidates = semanticResult.matches.filter(
     (candidate) => candidate.semanticType === "entity",
@@ -1264,29 +1059,12 @@ if (
     const secondaryTemplate = runtime.sqlResolver.resolve(secondaryTemplateId);
 
     if (!secondaryTemplate.found || !secondaryTemplate.template) {
-      // A requested metric must never silently disappear from a
-      // "successful" response - fail the whole request, naming exactly
-      // which metric could not be resolved.
-      //
-      // Phase 8.7: this bespoke failure return, unlike the capability-
-      // unavailable gate above for the primary metric, never attached
-      // an AnswerabilityResult - attached generically here for the same
-      // reason as the primary-execution fallback above.
-      //
-      // Phase 8.9 (multi-metric sub-slice): the whole-request failure
-      // itself is completely unchanged - still atomic, still the same
-      // error text and status. The only addition is discovering
-      // alternatives for THIS secondary metric (never the primary, never
-      // any other secondary metric) via the exact same, unmodified
-      // discoverAlternatives() the primary capability-unavailable gate
-      // already uses - reused as-is, not reimplemented. The supported
-      // primary result already computed above is never returned; it is
-      // discarded along with the rest of this failure, exactly as before.
-      //
-      // Phase 8.10 Layer 1: when alternatives exist for the unavailable
-      // secondary metric, build a truthful guidance message. The whole
-      // request still fails atomically; guidance only makes the failure
-      // message more helpful by presenting alternatives.
+      // A requested metric must never silently disappear from a "successful" response - fail the whole request,
+      // naming exactly which metric could not be resolved (Phase 8.7 attaches an AnswerabilityResult here, same as
+      // the primary-execution fallback). Phase 8.9: the failure stays atomic; the only addition is discovering
+      // alternatives for THIS secondary metric via the same unmodified discoverAlternatives() the primary gate
+      // uses - the already-computed primary result is discarded along with the rest of this failure, as before.
+      // Phase 8.10 Layer 1: when alternatives exist, build a truthful guidance message naming them.
       const alternatives = discoverAlternatives(secondaryMetric.metric, executionPlan, runtime);
       const guidanceMessage = buildGuidanceMessage(
         {
@@ -1335,17 +1113,10 @@ if (
       // Same principle: a metric that was requested but failed to
       // execute must fail the whole request, not vanish quietly.
       //
-      // Phase 8.7: same generic fallback as above - this path never
-      // attached an AnswerabilityResult before.
-      //
-      // Tier1 Task 6: this is a genuine execution-time failure (the
-      // template exists and was found, unlike the capability-unavailable
-      // gates above) - `secondaryResult.error` is a raw error string from
-      // the SQL executor/database adapter and must never reach the user
-      // verbatim (exactly the "raw SQL error on frontend" risk this task
-      // closes). Replaced with a generic, non-leaking message; the raw
-      // detail remains available server-side via logging/tracing, never
-      // in this user-facing field.
+      // Phase 8.7: same generic fallback as above - never attached an AnswerabilityResult before.
+      // Tier1 Task 6: a genuine execution-time failure (template exists, unlike the capability-unavailable gates
+      // above) - `secondaryResult.error` is a raw SQL/adapter error string and must never reach the user verbatim,
+      // so it's replaced with a generic, non-leaking message (raw detail stays server-side via logging).
       return {
         success: false,
         rows: [],
@@ -1403,78 +1174,18 @@ return {
 };
       };
 
-      // LLM Integration Layer 0.5 (LLM-First Canonical Ingress
-      // Normalizer, Phase 3.6, 2026-09-18): feature-flagged (see
-      // isLlmFirstFrontDoorEnabled() above), defaulting to OFF so the
-      // pre-existing Layer 1 (below) is the unmodified production
-      // behavior until explicitly enabled. Calls the exact same
-      // `llmFallback` hook Layer 1 already uses - not a new mechanism,
-      // just a new trigger condition: unconditionally, BEFORE the
-      // deterministic pipeline's first attempt, instead of only after
-      // it fails. This matters because several real bugs this campaign
-      // fixed (e.g. "safest hospitals in Texas" before its own alias
-      // fix, "Huston, Texas" before its own typo fix) returned
-      // `success:true` with silently WRONG data, never `success:false`
-      // - Layer 1's on-failure trigger structurally never had a chance
-      // to run for those cases at all.
-      //
-      // Skipped entirely for: a Layer-2 continuation re-execution
-      // (`identityAlreadyResolved`/`forcedIdentityCandidate`/
-      // `forcedIntent`/`companionEntities` present - these are short,
-      // already-structured Turn 2 responses matched deterministically by
-      // continuation.ts, not free natural language Layer 0.5 should
-      // rewrite), an internal suggestion dry-run (`request.dryRun` -
-      // already-clean, machine-generated candidate text), and a request
-      // that already went through this exact path once
-      // (`llmFallbackAttempted`, the same recursion guard Layer 1 below
-      // already relies on).
-      //
-      // Fast-path bypass (narrow, deliberately conservative first cut -
-      // see docs/LLM-FIRST-FRONT/05_IMPLEMENTATION_PLAN.md §2 step 1):
-      // when the raw, unmodified question already contains a uniquely-
-      // identified entity match (the concrete "tell me about Mayo
-      // Clinic" example that motivated this bypass), skip Layer 0.5
-      // entirely - an exact, already-registered proper name needs no
-      // language normalization, and this guarantees zero added LLM
-      // latency for that class of query, unchanged from today. This
-      // does not attempt to replicate query-planner.ts's own, more
-      // thorough `hasUnaccountedSubstantiveToken()` check (private to
-      // that package, and not a signal `create-runtime-engine.ts` can
-      // cheaply reuse without a 3rd file's worth of new exports) - a
-      // query that isn't an exact unique-record match simply goes
-      // through Layer 0.5, at the cost of one extra LLM round-trip for
-      // some already-fine queries. That is a latency trade-off, never a
-      // correctness one: the full, unmodified Phase 8 gate stack below
-      // still runs on whatever text results either way.
-      //
-      // Second bypass (R7 follow-up, 2026-09-19 - found via frontend
-      // testing): `planner.isFullyUnderstood()`. A question whose every
-      // word the deterministic layers already resolved (a suggestion chip,
-      // a canonical question, an aliased phrase like "goverment hospital
-      // in CA") has nothing left for an LLM to fix - it can only change
-      // what was already understood, and a chip is proven answerable by
-      // its own dry-run, which never went through the LLM. It goes
-      // straight to the deterministic pipeline. A typo, an unregistered
-      // word ("heart pain") or a lowercase state code ("oh") is NOT fully
-      // understood and still goes through Layer 0.5. If a fully-understood
-      // question then fails deterministically, the on-failure Layer 1
-      // below still gets its one attempt (`preNormalizeAttempted` stays
-      // false), exactly as with the flag off.
-      //
-      // Never trusted directly: a `canonicalQuestion` rewrite is handed
-      // to a fresh recursive `engine.execute()` (marked
-      // `llmFallbackAttempted: true`), which re-runs the ENTIRE pipeline
-      // - semantic resolution through every Phase 8 gate through
-      // execution - from the top, exactly as if the user had typed the
-      // canonical phrasing themselves. This function's own outer scope
-      // never inspects or shortcuts what that recursive call decides.
-      //
-      // Phase 3.5 (chip validation parity): a dry run validates a suggestion chip, and a click on that chip is a
-      // fresh question that meets the front door below. A chip the front door would send to the model (not every
-      // word understood, no unique record) was validated on the deterministic path only, yet answered through the
-      // model when clicked - a chip could pass here and fail on click ("... among non-profit facilities"). So a dry
-      // run is refused, 0 SQL, whenever the same question would reach the model; the exact condition the front door
-      // uses below.
+      // LLM Integration Layer 0.5 (feature-flagged, isLlmFirstFrontDoorEnabled()): tries `llmFallback` BEFORE the
+      // deterministic pipeline's first attempt, not just on failure - catches rewrites that would otherwise return
+      // success:true with silently wrong data (e.g. an unaliased phrase resolving to the wrong thing).
+      // Skipped for: Layer-2 continuations (already-structured, not free text), suggestion dry-runs, and a request
+      // that already went through this path (`llmFallbackAttempted`).
+      // Two bypasses, both latency-only (Phase 8 still gates whatever text results either way): an exact unique-
+      // record match (e.g. a named hospital) needs no normalization; and `planner.isFullyUnderstood()` - a question
+      // every word of which the deterministic layers already resolved has nothing left for an LLM to fix.
+      // A rewrite is never trusted directly - it's re-run through this engine's full pipeline from the top
+      // (`llmFallbackAttempted: true`), exactly as if the user had typed the canonical phrasing themselves.
+      // Dry-run parity: a suggestion chip is refused (0 SQL) whenever the same text would reach the model here, so
+      // a chip can never pass validation on the deterministic path and then fail differently once actually clicked.
       if (
         request.dryRun &&
         llmFallback &&
@@ -1636,43 +1347,14 @@ return {
           }
         : await runPipeline();
 
-      // LLM Integration Layer 1 (Messy Input Normalizer). PrePhase 9.5
-      // broadened this from ONLY "semantic-incomplete" to any
-      // non-ambiguous failure - live dogfooding (docs/Frontend test/
-      // PrePhase 9 LLM.md) found real typo/near-miss questions
-      // ("hospitals with best safty performence", "show me 3 start
-      // hospital") failing at OTHER gates entirely - capability-
-      // unavailable ("SQL template not found.") and missing-parameter
-      // ("I don't have enough specific information...") - not just the
-      // bare zero-candidate dead end. `status === "ambiguous"`
-      // (identity-ambiguous) is the one deliberate exception: it already
-      // has its own real clarification flow with real candidates, and an
-      // LLM rewrite would only interfere with that pending interaction.
-      // The rewrite is never trusted directly: delegating to a fresh
-      // engine.execute() re-runs the ENTIRE pipeline (semantic
-      // resolution through execution) on the rewritten text, so Rule
-      // 21/22 and Phase 8.13 hold exactly as they would for a user who
-      // typed the canonical phrasing themselves - this outer wrapper
-      // never inspects or shortcuts what that recursive call decides. If
-      // the rewrite doesn't help (still fails, or is identical to the
-      // original), the ORIGINAL result - whatever gate it came from,
-      // including any guidance message it already carries - is returned
-      // completely unchanged, never replaced with something worse.
-      //
-      // Layer 0.5 (above) already spent this request's one LLM attempt
-      // when `preNormalizeAttempted` is true - its own clarification (if
-      // any) is overlaid first, and this block is skipped rather than
-      // spending a second, redundant LLM call on the same original text.
-      //
-      // `!request.dryRun` (LLM call-count audit, R1): a suggestion-
-      // validation dry-run is a machine-generated candidate proving "would
-      // this be answerable" - when it fails it is because of a CAPABILITY
-      // gap (e.g. a metric with no ranking template), never wording an LLM
-      // could fix. Without this term every failing candidate spent a full
-      // ~3.8K-token normalizer call (measured: ~40% of successful queries,
-      // flag ON or OFF). A dry-run never executes SQL, so Phase 8.13 is
-      // untouched; the failing candidate is simply dropped, as it always
-      // effectively was.
+      // LLM Integration Layer 1 (Messy Input Normalizer): fires on any non-ambiguous failure (PrePhase 9.5 broadened
+      // this from only "semantic-incomplete", since typo/near-miss questions also fail at capability-unavailable
+      // and missing-parameter gates). "ambiguous" is excluded - it already has its own clarification flow.
+      // The rewrite is never trusted directly: a fresh engine.execute() re-runs the ENTIRE pipeline, so Rule 21/22
+      // and Phase 8.13 hold as they would for a user typing the canonical phrasing; if it doesn't help, the
+      // ORIGINAL result is returned unchanged. Skipped when Layer 0.5 already spent this request's one LLM attempt
+      // (`preNormalizeAttempted`), and for dry-runs (`!request.dryRun`) - a dry-run candidate fails on a capability
+      // gap, never wording, so normalizing it would just waste a ~3.8K-token call (measured ~40% of queries).
       if (
         preNormalizeAttempted &&
         pendingClarification &&
@@ -1856,21 +1538,11 @@ return {
           continue;
         }
 
-        // Tier1 T6 regression fix (bug 3 - production latency): validates
-        // each candidate with `dryRun: true`, which runs the full
-        // pipeline (semantic resolution, planning, template/capability
-        // selection, filter compatibility) but returns BEFORE the actual
-        // SQL execution gate (see the `request.dryRun` short-circuit
-        // above `deterministic-warehouse-execution`) - proving the
-        // candidate is answerable without a live warehouse round-trip.
-        // `includeSuggestions` is deliberately omitted so a candidate
-        // never recursively spawns suggestions of its own. Accepted
-        // trade-off: this proves "would be answerable," not "does
-        // return 1+ real rows" the way an actual execution would -
-        // mitigated by candidates only ever being drawn from patterns
-        // already known to have real data (nationwide/major-state
-        // phrasings, or the Domain's own pre-verified fallback strings),
-        // and independently spot-checked with real execution by
+        // Tier1 T6 regression fix (bug 3 - production latency): validates each candidate with `dryRun: true`, which
+        // runs the full pipeline but returns BEFORE actual SQL execution - proving answerability without a live
+        // warehouse round-trip. `includeSuggestions` is omitted so a candidate never recursively spawns its own.
+        // Accepted trade-off: proves "would be answerable," not "returns 1+ real rows" - mitigated by candidates
+        // only being drawn from patterns already known to have real data, spot-checked by
         // scripts/verify-tier1-t6-suggestions-fix.ts.
         const trial = await engine.execute({
           question: candidate,

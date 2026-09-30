@@ -1,13 +1,4 @@
-/**
- * Batch 1 (V4 fix plan): moved verbatim from `packages/runtime-engine/src/create-runtime-engine.ts` (2,000 sweep,
- * Batch E), so the unaccounted-word guard in `query-planner.ts` (`findUnaccountedWords`) and the engine's own limit
- * reader share one definition and can never disagree about which number a question asks for. Generic English, no
- * domain word.
- *
- * `ten: 10` is new here: before this move "top ten" read as no count at all (10 is `ExecutionPlanMapper`'s own
- * default, so the executed limit did not change), but the guard added in this batch needs the word registered to
- * recognize "ten" as the count it is about to exempt.
- */
+/** Shared with the unaccounted-word guard in query-planner.ts, so both read the same number from a question. */
 export const COUNT = "(\\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)";
 export const COUNT_WORDS: Record<string, number> = {
   one: 1,
@@ -22,11 +13,7 @@ export const COUNT_WORDS: Record<string, number> = {
   ten: 10,
 };
 
-/**
- * How many results the question asks for ("top 5", "bottom 3", "the 3 worst"), read from the user's own words (a
- * rewrite drops the number). A star count ("top 5 star hospitals") is not a count, and "first" / "last" are left out
- * ("in the last 3 years").
- */
+/** How many results the question asks for ("top 5", "the 3 worst"). A star count ("5 star hospitals") isn't a count. */
 export function requestedCount(question: string): number | undefined {
   const text = question.toLowerCase().replace(/-/g, " ");
   const match =

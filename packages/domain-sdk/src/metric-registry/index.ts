@@ -1,3 +1,4 @@
+/** Public exports for the metric registry. */
 export * from "./metric-category";
 export * from "./metric-definition";
 export * from "./metric-registration";

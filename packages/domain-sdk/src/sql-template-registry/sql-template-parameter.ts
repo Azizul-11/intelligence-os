@@ -1,3 +1,4 @@
+/** One named, typed parameter an SQL template declares. */
 export interface SqlTemplateParameter {
   name: string;
 

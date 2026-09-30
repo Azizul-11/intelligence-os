@@ -1,3 +1,4 @@
+/** Public exports for the entity registry. */
 export * from "./entity-category";
 export * from "./entity-definition";
 export * from "./entity-registration";

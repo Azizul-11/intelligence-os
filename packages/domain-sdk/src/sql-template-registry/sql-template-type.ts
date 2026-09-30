@@ -1,3 +1,4 @@
+/** The shape of query an SQL template answers. */
 export type SqlTemplateType =
   | "lookup"
   | "aggregation"

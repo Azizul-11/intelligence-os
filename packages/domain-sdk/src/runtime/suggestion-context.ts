@@ -1,15 +1,7 @@
 import type { ExecutionPlan } from "@intelligence/contracts";
 import type { AnswerabilityResult } from "@intelligence/contracts";
 
-/**
- * Tier1 Task 6: generic, domain-agnostic context Universal Core already
- * has in hand once a request finishes (success or failure) - passed to a
- * Domain SDK's own optional `DomainExecutionStrategy.generateSuggestions`
- * hook so it can build follow-up/recovery suggestion candidates.
- * Universal Core assembles this generically and never inspects `rows`'
- * column names or interprets `executionPlan`'s metric/filter ids - only
- * a Domain SDK does.
- */
+/** Context passed to a Domain SDK's optional generateSuggestions hook after a request finishes. Universal Core never interprets its contents. */
 export interface SuggestionContext {
   /** The original question text this request answered or refused. */
   question: string;

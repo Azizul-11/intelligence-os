@@ -1,3 +1,4 @@
+/** Maps a semantic QueryPlan into a deterministic Universal ExecutionPlan (operation, filters, ordering, limit, benchmark). Domain-agnostic. */
 import type {
   ExecutionPlan,
   ExecutionOperation,
@@ -15,11 +16,7 @@ import type { EntityDefinition, ConceptDefinition, MetricDefinition } from "@int
 import type { SemanticCandidate } from "@intelligence/semantic";
 import { groupEntityValues } from "./group-entity-values";
 
-/**
- * Batch 3 (D1): generic English words that make a comparison a judgement of the RESULT ("performing above", "beat",
- * "better than", "worse than", "outperform") rather than a statement about the NUMBER ("above", "lower than").
- * Domain-agnostic, like PERFORMANCE_MODIFIERS in the semantic direction lexicon.
- */
+/** Batch 3 (D1): words that make a comparison judge the RESULT ("beat", "better than") rather than the NUMBER ("above", "lower than"). Domain-agnostic. */
 const PERFORMANCE_COMPARISON_WORDS = new Set([
   "performing",
   "outperform",
@@ -33,22 +30,7 @@ const PERFORMANCE_COMPARISON_WORDS = new Set([
   "worse",
 ]);
 
-/**
- * ExecutionPlanMapper
- *
- * Phase 5.2: Maps semantic QueryPlan to Universal ExecutionPlan.
- *
- * Converts Phase 4 semantic understanding into Phase 5 deterministic
- * execution structure.
- *
- * Universal mapping logic - no Healthcare-specific knowledge.
- */
 export class ExecutionPlanMapper {
-  /**
-   * Map QueryPlan to ExecutionPlan.
-   *
-   * Converts semantic collections and intent into execution structure.
-   */
   map(queryPlan: QueryPlan): ExecutionPlan {
     const primaryMetric = this.extractPrimaryMetric(queryPlan);
     const operation = this.mapIntent(queryPlan.intent);
@@ -56,12 +38,7 @@ export class ExecutionPlanMapper {
     const grouping = this.buildGrouping(queryPlan);
     const metrics = this.buildMetrics(queryPlan);
 
-    // Phase 6: a single global `ordering` field cannot correctly represent
-    // more than one metric's independent direction. When the plan carries
-    // more than one distinct metric, ordering is omitted here rather than
-    // populated with only the primary metric's direction, so a future
-    // consumer cannot mistake it for the whole compound ordering. Existing
-    // single-metric behavior (the common case today) is unchanged.
+    // Phase 6: a single `ordering` field can't represent more than one metric's direction, so it's omitted for multi-metric plans rather than populated with only the primary's.
     const isMultiMetric = metrics.length > 1;
     const ordering = isMultiMetric
       ? undefined
@@ -100,9 +77,6 @@ export class ExecutionPlanMapper {
     return plan;
   }
 
-  /**
-   * Extract primary metric from semantic collections.
-   */
   private extractPrimaryMetric(queryPlan: QueryPlan): string {
     if (queryPlan.semantic.metrics.length === 0) {
       throw new Error("ExecutionPlan requires at least one metric");
@@ -118,20 +92,7 @@ export class ExecutionPlanMapper {
     return primaryMetric.canonicalKey;
   }
 
-  /**
-   * Build the distinct set of metrics carried by this plan, in original
-   * semantic order, each paired with its independent ranking direction.
-   *
-   * Deduplicates by canonicalKey - exhaustive phrase extraction can
-   * surface the same canonical metric via more than one matched phrase
-   * (e.g. "hospital overall rating" and "overall rating" both matching
-   * the same metric), and each distinct metric must appear only once.
-   *
-   * Direction comes from the semantic layer's modifier-association
-   * signal (SemanticCandidate.direction, Phase 6.2). A distinct metric
-   * with no associable modifier defaults to "desc", consistent with the
-   * existing single-metric default in buildOrdering() below.
-   */
+  /** Distinct metrics carried by this plan, each with its own ranking direction. Deduplicates by canonicalKey - exhaustive phrase extraction can match the same metric via more than one phrase. */
   private buildMetrics(queryPlan: QueryPlan): ExecutionPlanMetric[] {
     const seen = new Set<string>();
     const metrics: ExecutionPlanMetric[] = [];
@@ -152,17 +113,7 @@ export class ExecutionPlanMapper {
     return metrics;
   }
 
-  /**
-   * Batch 3 (D1): the direction a ranking modifier asks for, normalized to ONE convention that every domain
-   * template can rely on: "desc" = best first, "asc" = worst first.
-   *
-   * The semantic layer reports the modifier's bucket (highest/best/top/largest -> "desc", lowest/worst/bottom/
-   * smallest -> "asc") and which kind of word it was. A performance word ("best", "worst") already says which end
-   * is good, so its bucket already is best-first / worst-first. A magnitude word ("highest", "lowest") names the
-   * number: for a metric where higher is better that is the same thing, but for a metric where LOWER is better
-   * (`MetricDefinition.lowerIsBetter`) "highest" means the worst hospitals first, so the bucket flips.
-   * A candidate with no modifier keeps the default of the caller.
-   */
+  /** Batch 3: normalizes ranking direction to "desc"=best first, "asc"=worst first - flips for a lower-is-better metric. */
   private performanceDirection(candidate: SemanticCandidate): "asc" | "desc" | undefined {
     const direction = candidate.direction;
 
@@ -179,9 +130,6 @@ export class ExecutionPlanMapper {
     return direction;
   }
 
-  /**
-   * Map QueryIntent to ExecutionOperation.
-   */
   private mapIntent(intent: QueryIntent): ExecutionOperation {
     const mapping: Record<QueryIntent, ExecutionOperation> = {
       lookup: "lookup",
@@ -194,20 +142,7 @@ export class ExecutionPlanMapper {
     return mapping[intent];
   }
 
-  /**
-   * Build execution filters from entity parameters.
-   *
-   * Converts resolved entities into filter constraints.
-   *
-   * Phase 7.5.3: multiple entities sharing the same execution parameter
-   * (e.g. two distinct canonical identities of the same entity type,
-   * such as "Memorial Hospital in Texas" and "Memorial Hospital in New
-   * York" both being "hospital" entities) are grouped into a single
-   * `"in"`-operator filter carrying every distinct value, instead of
-   * one `"="` filter per entity - which would silently only ever be
-   * usable as the last one added. A field with exactly one distinct
-   * value keeps the existing `"="` shape unchanged.
-   */
+  /** Phase 7.5.3: entities sharing the same execution parameter are grouped into one "in" filter, not one "=" filter each. */
   private buildFilters(queryPlan: QueryPlan): ExecutionFilter[] {
     const entries: { key: string; value: string | number | boolean }[] = [];
 
@@ -245,17 +180,8 @@ export class ExecutionPlanMapper {
       }
     }
 
-    // Tier0 Task 5 (F12 Sub-Task B): a resolved `concept` candidate
-    // (e.g. "AMI") whose own ConceptDefinition declares a
-    // `measureCodesByMetric` map, matched against the plan's own
-    // resolved metric(s), becomes an opaque `measureCode` filter -
-    // Universal Core never inspects what any concept or metric means,
-    // only that the Domain's own declared map connects the two. A
-    // concept with no such map (or no matching metric resolved
-    // alongside it) contributes no filter here at all - it remains
-    // "unaccounted for" and is caught by the existing Phase 8.8
-    // completeness gate (assessPlanCompleteness()) instead of silently
-    // executing an unscoped request.
+    // Tier0 Task 5: a concept's `measureCodesByMetric` match becomes a `measureCode` filter; no match stays
+    // "unaccounted for" and is caught by the Phase 8.8 completeness gate.
     for (const concept of queryPlan.semantic.concepts) {
       const definition = concept.definition as ConceptDefinition;
       const measureCodesByMetric = definition.measureCodesByMetric;
@@ -280,9 +206,6 @@ export class ExecutionPlanMapper {
     return filters;
   }
 
-  /**
-   * Build grouping from semantic dimensions.
-   */
   private buildGrouping(
     queryPlan: QueryPlan,
   ): ExecutionGrouping | undefined {
@@ -295,12 +218,7 @@ export class ExecutionPlanMapper {
     };
   }
 
-  /**
-   * Build ordering based on operation and metrics.
-   *
-   * Ranking operations order by primary metric descending.
-   * Other operations may not require ordering.
-   */
+  /** Ranking operations order by primary metric descending by default; other operations may not need ordering. */
   private buildOrdering(
     queryPlan: QueryPlan,
     operation: ExecutionOperation,
@@ -313,15 +231,7 @@ export class ExecutionPlanMapper {
         return undefined;
       }
 
-      // RCG-019: prefer the direction already resolved from a ranking
-      // modifier ("highest"/"lowest"/...) - the same generic signal
-      // buildMetrics() below already consumes for the multi-metric case
-      // (Phase 6.2, SemanticCandidate.direction). This was previously
-      // never read here at all, so a query's actually-requested
-      // direction never reached ExecutionPlan.ordering; only the
-      // relationship-based fallback below ran, which only ever flips
-      // direction when a "below"-style relationship candidate is also
-      // present (a separate, unrelated signal - see RCG-009).
+      // RCG-019: prefers the direction already resolved from a ranking modifier (same signal buildMetrics() uses) over the relationship-based fallback below.
       const requestedDirection = this.performanceDirection(primaryCandidate);
 
       if (requestedDirection) {
@@ -331,9 +241,7 @@ export class ExecutionPlanMapper {
         };
       }
 
-      // Determine direction from relationships if present: default to descending for rankings (highest/best
-      // first); a "below" comparison (already normalized to the performance convention, see
-      // performanceComparison()) means worst first, so ascending.
+      // Default descending (best first); a "below" comparison means worst first, so ascending.
       const direction: "asc" | "desc" = this.performanceComparison(queryPlan) === "below" ? "asc" : "desc";
 
       return {
@@ -346,11 +254,6 @@ export class ExecutionPlanMapper {
     return undefined;
   }
 
-  /**
-   * Build execution limit.
-   *
-   * Apply default limit for operations that typically need them.
-   */
   private buildLimit(queryPlan: QueryPlan): ExecutionLimit | undefined {
     // Ranking and lookup operations typically need limits
     if (queryPlan.intent === "ranking" || queryPlan.intent === "lookup") {
@@ -374,33 +277,7 @@ export class ExecutionPlanMapper {
     return undefined;
   }
 
-  /**
-   * RCG-009: build a benchmark comparison from semantic `relationship`
-   * and `benchmark` candidates.
-   *
-   * Requires BOTH a `relationship` candidate (e.g. "above"/"below" -
-   * the signal that this is a genuine comparison request, not merely a
-   * sentence that happens to mention a benchmark word - see RCG-009b)
-   * AND a `benchmark` candidate (the reference value itself, e.g.
-   * "national average"). Domain-agnostic: only ever reads the two
-   * Universal semantic-type categories `relationship`/`benchmark` -
-   * never a domain-specific canonical id.
-   *
-   * When more than one benchmark candidate is present (exhaustive
-   * phrase extraction can match both a qualified phrase, e.g. "national
-   * average", and the bare word "average" within it), the longer,
-   * more specific phrase match is preferred - a generic
-   * disambiguation rule, not one that inspects which canonical id is
-   * involved.
-   */
-  /**
-   * Batch 3 (D1): which side of a benchmark the request asks for, normalized to the same convention as the ranking
-   * direction: "above" = the better side, "below" = the worse side (a benchmark template compares PERFORMANCE).
-   * A comparison that judges the result ("performing below", "beat", "worse than", "better than") already says so.
-   * A bare "below" / "lower than" / "above" names the number: for a metric where LOWER is better
-   * (`MetricDefinition.lowerIsBetter`), "mortality rate lower than the national average" asks for the BETTER
-   * hospitals, so the side flips. Without a comparison word, or for a higher-is-better metric, nothing changes.
-   */
+  /** Batch 3: normalizes to "above"=better, "below"=worse - flips a bare number-comparison for a lower-is-better metric. */
   private performanceComparison(queryPlan: QueryPlan): "above" | "below" | undefined {
     const { relationships, metrics } = queryPlan.semantic;
     const below = relationships.find((r) => r.canonicalKey === "below-comparison");
@@ -421,6 +298,7 @@ export class ExecutionPlanMapper {
     return comparison;
   }
 
+  /** RCG-009: requires both a relationship and benchmark candidate; the longer, more specific benchmark match wins. */
   private buildBenchmark(
     queryPlan: QueryPlan,
   ): ExecutionBenchmark | undefined {

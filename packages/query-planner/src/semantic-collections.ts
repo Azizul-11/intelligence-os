@@ -1,3 +1,4 @@
+/** Resolved semantic candidates bucketed by type - the shape SemanticCollector.collect() returns. */
 import type { SemanticCandidate } from "@intelligence/semantic";
 
 export interface SemanticCollections {

@@ -1,3 +1,4 @@
+/** Builds follow-up suggestion chips: a deterministic pool from the resolved plan/rows, optionally selected + reworded by the LLM gateway, always dry-run validated by the caller. */
 import type { SuggestionContext } from "@intelligence/domain-sdk";
 import { llmGateway } from "@intelligence/llm-model-gateway";
 
@@ -10,14 +11,7 @@ import { clarificationChips, scopeGuidanceChips } from "./lay-vocabulary";
 import { HEALTHCARE_PROMPT_WORDING } from "./prompt-wording";
 import { HealthcareTemplateSelector } from "./template-selector";
 
-/**
- * PrePhase 9.5 Round 3 (suggestion diversity for concept queries): the
- * same concepts-with-a-real-measure-code filter `capability-catalog.ts`
- * already established, rebuilt here rather than imported from there to
- * avoid a runtime-package -> capability-catalog -> back dependency; the
- * underlying source data (`concepts/*.ts`, `aliases/*.ts`) is identical
- * either way, never a second, independently-maintained list.
- */
+/** Same filter capability-catalog.ts uses, rebuilt here to avoid a back-dependency. */
 const CONCEPTS_WITH_REAL_MEASURES = concepts.filter((concept) => concept.measureCodesByMetric);
 
 function conceptAliases(conceptId: string): string[] {
@@ -63,29 +57,14 @@ export function chipKeepsDirection(text: string): boolean {
   return LOWER_IS_BETTER_WORDS.test(text) ? !HIGH_WORDS.test(text) : !LOW_WORDS.test(text);
 }
 
-/**
- * Tier1 Task 6: three real, already-verified-working queries (confirmed
- * throughout Tier0/Tier1 dogfooding and this task's own audit) used as
- * the fully-generic last resort when nothing else in this file applies
- * (no `executionPlan`, or a genuinely off-topic question that matches no
- * `TOPIC_FALLBACKS` keyword below). Domain-owned literal strings (like
- * OWNERSHIP/STATES elsewhere in this file's siblings), never invented at
- * request time.
- */
+/** Three verified-working queries, the generic last resort when nothing else in this file applies. */
 export const SAFE_FALLBACK_SUGGESTIONS = [
   "Show me 5-star hospitals in Texas",
   "Best hospitals in Texas and California",
   "Tell me about Mayo Clinic",
 ] as const;
 
-/**
- * Tier1 T6 regression fix (bug 2 - repetitive fallback): when the "zero
- * semantic candidates" dead end fires (bare "ratings"/"safeties", etc.),
- * a keyword found in the user's own question routes to a topic-relevant
- * triple instead of always the same 3 generic strings. Genuinely
- * off-topic questions (no keyword match, e.g. "What is the weather like
- * today?") still fall through to SAFE_FALLBACK_SUGGESTIONS.
- */
+/** Bug 2 fix: a keyword in the question routes to a topic-relevant triple instead of always the same generic 3. */
 const TOPIC_FALLBACKS: readonly { keywords: readonly string[]; suggestions: readonly string[] }[] = [
   {
     keywords: ["safety", "safeties"],
@@ -129,29 +108,13 @@ const TOPIC_FALLBACKS: readonly { keywords: readonly string[]; suggestions: read
   },
 ];
 
-/**
- * A small, fixed set of major states already used throughout this
- * engagement's own verified examples - reused only as a mechanical
- * "pick a peer state different from the one(s) already in scope" pivot,
- * never as an exhaustive or authoritative state list (STATES in
- * entity-provider.ts remains the actual directory). Order matters here:
- * the peer rotation below picks the NEXT entry after the current
- * state(s), wrapping around, so which peer gets suggested varies with
- * which state the question is already about (Tier1 T6 regression fix,
- * bug 2 - Texas no longer always pivots to California).
- */
+/** A pivot-only peer-state list (not the state directory - see entity-provider.ts's STATES). Order matters: rotation picks the next entry after the current state. */
 const PEER_STATE_CODES = ["TX", "CA", "FL", "NY"] as const;
 
-/**
- * Phase 3.5: the ownership pivots cover the 5B-1 sub-labels too (church-owned, physician-owned), not only non-profit
- * and proprietary. Military is left out of ranking chips: it has no rating (D11), so a ranking chip for it is a list.
- */
+/** Covers 5B-1 sub-labels too. Military is left out - it has no rating (D11). */
 const OWNERSHIP_ROTATION = ["non-profit", "proprietary", "church-owned", "physician-owned", "government"] as const;
 
-/**
- * Phase 3.5: neighbours for the jurisdictions the fixed peer rotation above never offers (5B-5), and the reverse, so
- * a Maryland or Virginia answer can pivot to DC and a Florida or New York answer to Puerto Rico.
- */
+/** Neighbours for jurisdictions the fixed peer rotation above never offers (5B-5). */
 const PEER_JURISDICTIONS: Readonly<Record<string, readonly string[]>> = {
   DC: ["MD", "VA"],
   MD: ["DC", "VA"],
@@ -165,12 +128,7 @@ const PEER_JURISDICTIONS: Readonly<Record<string, readonly string[]>> = {
   MP: ["GU", "HI"],
 };
 
-/**
- * Phase 3.5: the 5B measures a question with no condition of its own is offered (an overall-rating answer, a list,
- * an ownership or type filter), rotated so successive answers show different ones. Ordered by family for the
- * metric the answer was about: survey dimensions after a patient-experience answer, safety indicators after a
- * safety answer, outcomes otherwise.
- */
+/** 5B measures offered for a condition-less question, rotated and ordered by the answer's own metric family. */
 const SHOWCASE_BY_FAMILY: Readonly<Record<string, readonly string[]>> = {
   outcomes: ["stroke", "hospital-wide-mortality", "acute-myocardial-infarction", "heart-failure", "pneumonia"],
   safety: ["sepsis", "in-hospital-fall-with-fracture", "perioperative-blood-clot", "pressure-ulcer", "patient-safety-composite"],
@@ -215,14 +173,11 @@ function conceptChip(conceptId: string, preferredMetricId: string, scopeSuffix: 
   if (!concept) return undefined;
   const metricId = concept.measureCodesByMetric?.[preferredMetricId] ? preferredMetricId : Object.keys(concept.measureCodesByMetric ?? {})[0];
   if (!metricId) return undefined;
-  // A safety indicator or a survey dimension is written in its canonical form ("... lowest Patient Safety Indicator
-  // for Pressure Ulcer"): the short "<alias> rate/score" form is not answerable for every one of them (measured:
-  // "best Recommend Hospital score", "lowest Patient Safety Composite rate" were not).
+  // A safety indicator or survey dimension is written in canonical form - the short "<alias> rate/score" form isn't answerable for all of them.
   if (metricId === "patient-safety-indicator" || metricId === "patient-experience") {
     return `Show me hospitals with ${rankedPhrase(metricId)} for ${concept.displayName}${scopeSuffix}`;
   }
-  // Hip/knee's measure under "mortality-rate" is its complication rate (COMP_HIP_KNEE), so a chip never calls it a
-  // mortality rate; the complication wording is an alias the pipeline answers.
+  // Hip/knee's "mortality-rate" measure is actually its complication rate (COMP_HIP_KNEE), so never call it that.
   if (concept.id === "elective-primary-tha-tka" && metricId === "mortality-rate") {
     return `Show me hospitals with lowest hip and knee replacement complication rate${scopeSuffix}`;
   }
@@ -238,18 +193,7 @@ function metricDisplayName(metricId: string): string | undefined {
   return healthcareMetrics.find((metric) => metric.id === metricId)?.displayName;
 }
 
-/**
- * LLM call-count audit (R1 companion, 2026-09-18): `rankable: true` on a
- * MetricDefinition is a declaration, not proof a ranking template exists -
- * "Emergency Department Visits" and "Length of Stay" both declare it but
- * ship no `<metric>-ranking` template, so every "Show me hospitals with
- * best <that metric>" suggestion built from them ALWAYS failed its own
- * dry-run validation (measured: exactly 2 such candidates in every
- * 11-19 entry pool, ~40% odds one is picked). Derived from the domain's
- * own registered templates via the same selector the runtime uses - never
- * a hardcoded metric-id list - so a metric that later gains a ranking
- * template is offered again automatically.
- */
+/** `rankable: true` is a declaration, not proof a ranking template exists - some metrics (e.g. "Length of Stay") declare it but have none, so every chip built from them always failed dry-run. */
 const ENABLED_TEMPLATE_IDS: ReadonlySet<string> = new Set(
   healthcareSqlTemplates.filter((template) => template.enabled !== false).map((template) => template.id),
 );
@@ -263,15 +207,7 @@ function filterValues(value: unknown): string[] {
   return (Array.isArray(value) ? value : [value]).map(String);
 }
 
-/**
- * Tier1 T6 regression fix (bug 2 - repetitive depth probe): picks the
- * NEXT comparable/rankable metric after the current one in
- * `healthcareMetrics`' own declared order, wrapping around - instead of
- * always the first alternate found (which was always "Mortality Rate"
- * whenever the current metric was "Hospital Overall Rating", since that
- * metric is declared first). Which metric gets suggested now varies with
- * which metric the question is already about.
- */
+/** Bug 2 fix: picks the NEXT comparable/rankable metric after the current one, wrapping around - not always the first alternate found. */
 function nextComparableMetric(currentMetricId: string, requireRankingTemplate = false) {
   const pool = healthcareMetrics.filter(
     (metric) =>
@@ -302,31 +238,14 @@ function nextPeerState(currentStates: readonly string[]): string | undefined {
   return undefined;
 }
 
-/**
- * PrePhase 9.5 (suggestion diversity fix): every comparable/rankable
- * metric OTHER than the current one - not just the single "next" pick
- * `nextComparableMetric` returns. Used to build a genuinely diverse POOL
- * for the LLM to select from (see `buildSuccessSuggestionPool` and
- * `generateHealthcareSuggestionsWithLLMRephrasing` below) - live
- * dogfooding (docs/Frontend test/PrePhase 9 LLM.md) showed that even
- * with rephrasing, always offering the SAME one alternate metric still
- * felt repetitive across turns.
- */
+/** Every comparable/rankable metric OTHER than the current one, for a genuinely diverse pool (not just the one "next" pick). */
 function allComparableMetricsExcept(currentMetricId: string) {
   return healthcareMetrics.filter(
     (metric) => (metric.rankable || metric.comparable) && metric.id !== currentMetricId,
   );
 }
 
-/**
- * Sub-Goal A (success path): depth probe, breadth/pivot, and entity-dive
- * candidates derived mechanically from the resolved ExecutionPlan/rows -
- * never a hardcoded second hospital name (see the design doc's own
- * rejection of that option). Deliberately generous (may return
- * candidates that don't pan out) - create-runtime-engine.ts's dry-run
- * validation is what actually guarantees correctness; this function only
- * proposes.
- */
+/** Success path: depth probe, breadth/pivot, and entity-dive candidates derived mechanically from the plan/rows - never invented. Deliberately generous; the caller's dry-run validates. */
 function successPathSuggestions(context: SuggestionContext): string[] {
   const candidates: string[] = [];
   const plan = context.executionPlan;
@@ -356,16 +275,14 @@ function successPathSuggestions(context: SuggestionContext): string[] {
       candidates.push(`What is ${hospitalName}'s ${diveMetric.displayName.toLowerCase()}?`);
     }
   } else {
-    // Depth probe: a different comparable/rankable metric, same scope -
-    // rotates with the current metric (see nextComparableMetric).
+    // Depth probe: a different comparable/rankable metric, same scope.
     const alternateMetric = nextComparableMetric(measureMetricId(plan.metric), true);
     if (alternateMetric) {
       const scope = stateNames.length > 0 ? ` in ${stateNames.join(" and ")}` : "";
       candidates.push(`Show me hospitals with ${rankedPhrase(alternateMetric.id)}${scope}`);
     }
 
-    // Breadth/pivot: mechanical ownership filter add/drop, same metric -
-    // rotates between ownership categories instead of always "non-profit".
+    // Breadth/pivot: ownership filter add/drop, rotating categories.
     const primaryMetricId = measureMetricId(plan.metric);
     if (ownershipFilter) {
       const scope = stateNames.length > 0 ? ` in ${stateNames.join(" and ")}` : "";
@@ -375,9 +292,7 @@ function successPathSuggestions(context: SuggestionContext): string[] {
       candidates.push(`Show me ${ownershipPivot} hospitals with ${rankedPhrase(primaryMetricId)}`);
     }
 
-    // Breadth/pivot: add or extend a state scope - the peer state
-    // rotates with which state(s) are already in scope (see
-    // nextPeerState), instead of always pivoting to California.
+    // Breadth/pivot: extend the state scope with a rotating peer state.
     if (stateValues.length >= 1) {
       const peer = nextPeerState(stateValues);
       if (peer) {
@@ -395,18 +310,7 @@ function successPathSuggestions(context: SuggestionContext): string[] {
   return candidates;
 }
 
-/**
- * PrePhase 9.5 (suggestion diversity fix): a genuinely larger pool of
- * mechanically-valid candidates for the LLM to pick 3 diverse ones from,
- * instead of `successPathSuggestions()`'s own single depth-probe/
- * breadth-pivot/state-pivot triple. Every entry here is built the exact
- * same mechanical way `successPathSuggestions()` already does (only the
- * domain's own declared metrics/states/ownership categories/resolved
- * entity - never invented) - this function only widens how many of each
- * kind get offered, it does not introduce a new construction mechanism.
- * `generateHealthcareSuggestionsWithLLMRephrasing()` is what actually
- * narrows this down to 3, via `llmGateway.selectAndRephraseSuggestions`.
- */
+/** A larger mechanically-valid pool for the LLM to pick 3 diverse ones from, built the same way successPathSuggestions() is, just wider. */
 export function buildSuccessSuggestionPool(context: SuggestionContext): string[] {
   const plan = context.executionPlan;
   if (!plan) {
@@ -419,12 +323,7 @@ export function buildSuccessSuggestionPool(context: SuggestionContext): string[]
   const hospitalFilter = plan.filters.find(
     (filter) => filter.field === "hospital" && filter.operator === "=",
   );
-  // PrePhase 9.5 Round 3: a concept-scoped query (AMI/CABG/COPD/etc)
-  // carries a `measureCode` filter alongside the generic top-level
-  // metric - used below to pivot the pool across OTHER concepts too,
-  // not just other top-level metrics, so "heart attack death rate"'s
-  // suggestions can offer "bypass surgery readmission" / "heart failure
-  // mortality" etc, not only "Safety Performance"/"Patient Experience".
+  // Round 3: a concept-scoped query carries a `measureCode` filter, used to pivot the pool across OTHER concepts too, not just top-level metrics.
   const measureCodeFilter = plan.filters.find((filter) => filter.field === "measureCode");
   const currentConcept = measureCodeFilter
     ? CONCEPTS_WITH_REAL_MEASURES.find(
@@ -441,8 +340,7 @@ export function buildSuccessSuggestionPool(context: SuggestionContext): string[]
       ? (firstRow["hospital_name"] as string)
       : undefined;
 
-  // Batch 5A-1: the pool is built one dimension at a time (metric, concept, ownership, peer state) and interleaved at
-  // the end, so any first three of it - what the caller falls back to when the model is slow - already differ in kind.
+  // Batch 5A-1: pool is built one dimension at a time and interleaved, so the first three (the slow-model fallback) already differ in kind.
   const conceptItems: string[] = [];
   const ownershipItems: string[] = [];
   const peerItems: string[] = [];
@@ -453,22 +351,18 @@ export function buildSuccessSuggestionPool(context: SuggestionContext): string[]
     }
     pool.push(`Tell me about ${hospitalName}`);
   } else {
-    // Phase 3.5: a listing, count or profile answer pivots on the overall rating (never "best Hospital List"), and
-    // every measure chip names its good end ("lowest Mortality Rate").
+    // Phase 3.5: a listing/count/profile answer pivots on the overall rating (never "best Hospital List").
     const primaryMetricId = measureMetricId(plan.metric);
     const seed = rotationSeed(context.question);
     const attributeItems: string[] = [];
 
-    // Depth probe: every OTHER comparable metric, not just the next one -
-    // only those with a registered ranking template (see hasRankingTemplate).
+    // Depth probe: every OTHER comparable metric with a registered ranking template.
     for (const metric of allComparableMetricsExcept(primaryMetricId)) {
       if (!hasRankingTemplate(metric.id)) continue;
       pool.push(`Show me hospitals with ${rankedPhrase(metric.id)}${scopeSuffix}`);
     }
 
-    // Depth probe, concept-scoped: the siblings in the answered measure's own family first ("stroke" -> heart attack,
-    // hospital-wide mortality), then two from the other families (a safety indicator, a survey dimension).
-    // Phase 3.5: an answer with no condition of its own gets the 5B showcase for its metric's family instead, rotated.
+    // Depth probe, concept-scoped: siblings in the same family first, then one from each other family (rotated).
     const conceptIds: string[] = [];
     if (currentConcept) {
       const sameFamily = CONCEPTS_WITH_REAL_MEASURES.filter((other) => other.id !== currentConcept.id && other.measureCodesByMetric?.[plan.metric]);
@@ -491,8 +385,7 @@ export function buildSuccessSuggestionPool(context: SuggestionContext): string[]
       if (chip) conceptItems.push(chip);
     }
 
-    // Breadth/pivot: ownership, over all the registered labels (rotated) - uses the current CONCEPT's own short name
-    // + metric word when concept-scoped (e.g. "AMI mortality rate"), not the generic top-level metric name.
+    // Breadth/pivot: ownership, rotated. Uses the concept's own short name when concept-scoped.
     const primaryDisplayName = currentConcept
       ? `${bestEndWord(plan.metric)} ${`${conceptAliases(currentConcept.id)[0] ?? currentConcept.displayName} ${METRIC_WORDS_BY_ID[plan.metric] ?? ""}`.trim()}`
       : rankedPhrase(primaryMetricId);
@@ -512,8 +405,7 @@ export function buildSuccessSuggestionPool(context: SuggestionContext): string[]
       attributeItems.push(chip(scopeSuffix));
     }
 
-    // Breadth/pivot: several peer states, not just the next rotation step. A jurisdiction with neighbours of its own
-    // (DC, Puerto Rico, the territories, and the states next to them) uses those first.
+    // Breadth/pivot: several peer states. A jurisdiction with declared neighbours (PEER_JURISDICTIONS) uses those first.
     if (stateValues.length >= 1) {
       const peers: string[] = [];
       for (const peer of PEER_JURISDICTIONS[stateValues[stateValues.length - 1]!] ?? []) {
@@ -539,8 +431,7 @@ export function buildSuccessSuggestionPool(context: SuggestionContext): string[]
       peerItems.push(...rotate(JURISDICTION_CHIPS, seed));
     }
 
-    // Take one of each kind in turn (the metric items are in `pool`). Phase 3.5: a sibling measure leads, so the first
-    // three - the fallback when the model is slow - always offer one.
+    // Take one of each kind in turn, so a sibling measure leads the fallback-when-slow first three.
     const groups = [conceptItems, pool.splice(0, pool.length), ownershipItems, attributeItems, peerItems];
     for (let index = 0; groups.some((group) => index < group.length); index++) {
       for (const group of groups) {
@@ -557,9 +448,7 @@ export function buildSuccessSuggestionPool(context: SuggestionContext): string[]
     }
   }
 
-  // Batch 5A-1: the static triple ("5-star Texas", "best Texas and California", "Tell me about Mayo Clinic") used to be
-  // appended to EVERY pool and was 6 of the 42 chips shown across 16 answers, whatever the question was about. It pads
-  // a pool that is too small to choose from and is otherwise left out.
+  // Batch 5A-1: the static triple used to be appended to EVERY pool. Now it only pads a too-small pool.
   if (pool.length < 3) {
     pool.push(...SAFE_FALLBACK_SUGGESTIONS);
   }
@@ -568,29 +457,10 @@ export function buildSuccessSuggestionPool(context: SuggestionContext): string[]
 }
 
 /**
- * Sub-Goal B (failure/recovery path).
- *
- * Identity-ambiguous candidates are CONTINUATION TOKENS, not standalone
- * questions - each one must be exactly what
- * `matchClarificationResponse()` (packages/runtime-engine/src/
- * continuation/match-clarification.ts) can uniquely match against this
- * same response's own `answerability.candidates` (a bare city name when
- * unique among the candidate set, matching that matcher's own
- * city-field-equality check; falling back to "city, state" only if two
- * candidates share a city). Tier1 T6 regression fix (bug 1): the
- * original design used the full original question + a location
- * qualifier, which matched neither the matcher's exact-field check nor
- * its partial-label check (the label includes a county segment the
- * suggestion text didn't), so every click failed with "I couldn't match
- * your response to one of the offered options."
- *
- * Capability-unavailable candidates reuse the same `alternatives[]` data
- * `buildGuidanceMessage()` already renders as prose.
- *
- * Everything else (the "nothing resolved at all" dead end, Group C/D)
- * routes through TOPIC_FALLBACKS by keyword, falling back to
- * SAFE_FALLBACK_SUGGESTIONS only when no keyword matches - see
- * TOPIC_FALLBACKS' own doc comment (Tier1 T6 regression fix, bug 2).
+ * Failure/recovery path. Identity-ambiguous candidates are CONTINUATION TOKENS (must exactly match what
+ * matchClarificationResponse() expects - bare city name, or "city, state" on a collision), not standalone
+ * questions (Bug 1 fix). Capability-unavailable reuses the same alternatives[] buildGuidanceMessage() renders.
+ * Everything else routes through TOPIC_FALLBACKS by keyword, falling back to SAFE_FALLBACK_SUGGESTIONS.
  */
 function failurePathSuggestions(context: SuggestionContext): string[] {
   const answerability = context.answerability;
@@ -626,11 +496,7 @@ function failurePathSuggestions(context: SuggestionContext): string[] {
       const isUniqueCity = (cityCounts.get(entry.city.toLowerCase()) ?? 0) === 1;
       tokens.push(isUniqueCity ? entry.city : `${entry.city}, ${entry.state}`);
     }
-    // Deliberately NOT combined with SAFE_FALLBACK_SUGGESTIONS - those
-    // are standalone questions, not valid continuation tokens, and
-    // create-runtime-engine.ts trusts every candidate here directly
-    // (skips dry-run) precisely because this list is continuation-token
-    // only.
+    // Deliberately NOT combined with SAFE_FALLBACK_SUGGESTIONS - those aren't valid continuation tokens, and the caller trusts this list directly (skips dry-run).
     return tokens;
   }
 
@@ -676,20 +542,7 @@ export function generateHealthcareSuggestions(context: SuggestionContext): strin
   return context.success ? successPathSuggestions(context) : failurePathSuggestions(context);
 }
 
-/**
- * How long Layer 2's optional LLM rephrasing is allowed to hold up a
- * response before falling back to the deterministic list untouched.
- *
- * Live-measured correction: the originally-approved value (800ms) was a
- * proposal, not a measurement - 3 live timed calls against the fastest
- * currently-configured free tier (Groq's `openai/gpt-oss-20b`) came back
- * in 823ms/893ms/1477ms, meaning 800ms would silently discard the LLM
- * response on nearly every real request, defeating Layer 2's entire
- * purpose while still paying for the call. Raised to a value that
- * comfortably covers the observed range while remaining a real, bounded
- * ceiling (never unbounded, always falls back to the instant
- * deterministic list past this point).
- */
+/** How long Layer 2's optional LLM rephrasing can hold up a response before falling back to the deterministic list. Raised from the original 800ms proposal after live timing showed 823-1477ms. */
 const LLM_REPHRASE_RACE_TIMEOUT_MS = 2500; // Batch 5A-1: was 1800; the paid chip tier measured p95 2.0 s, max 2.2 s over 100 calls
 
 function raceWithTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | undefined> {
@@ -721,25 +574,10 @@ function raceWithTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T |
 }
 
 /**
- * LLM Integration Layer 2 (Contextual Suggestion Co-Pilot), extended in
- * PrePhase 9.5 for diversity, not just wording. The deterministic pool
- * builder above always runs first and its own output IS the bounded
- * vocabulary contract - the LLM is only ever asked to SELECT + rephrase
- * from that already-decided pool, never to choose a metric/state/entity
- * that isn't already in it. Races the LLM call against
- * LLM_REPHRASE_RACE_TIMEOUT_MS so this can never make a response slower
- * than the pre-LLM (Batch 27) baseline - on timeout, failure, or any
- * malformed/wrong-length response, the ORIGINAL deterministic top-3
- * (`successPathSuggestions()`/`failurePathSuggestions()`'s own,
- * already-proven output) is returned unchanged (Universal Core's own
- * dry-run validation is what actually decides which candidates survive
- * to the user either way).
- *
- * Identity-ambiguous candidates are deliberately NEVER sent to the LLM -
- * see the bare-city-token doc comment above (failurePathSuggestions) for
- * why they are continuation tokens, not standalone questions, and must
- * reach create-runtime-engine.ts byte-for-byte as the generator produced
- * them.
+ * LLM Layer 2 (Contextual Suggestion Co-Pilot). The deterministic pool always runs first and IS the vocabulary
+ * contract - the LLM only SELECTs + rephrases from it, never invents. Races against LLM_REPHRASE_RACE_TIMEOUT_MS;
+ * on timeout/failure/malformed response, the deterministic top-3 is returned unchanged. Identity-ambiguous
+ * candidates are never sent to the LLM - they're continuation tokens, not standalone questions.
  */
 export async function generateHealthcareSuggestionsWithLLMRephrasing(
   context: SuggestionContext,
@@ -759,14 +597,10 @@ export async function generateHealthcareSuggestionsWithLLMRephrasing(
   const stateFilterValue = context.executionPlan?.filters.find((filter) => filter.field === "state")?.value;
   const resolvedState = stateFilterValue !== undefined ? String(stateFilterValue) : undefined;
 
-  // Success path: a genuinely larger, diverse pool - the LLM SELECTS 3
-  // (never invents), so different turns asking the same base question
-  // can surface different real facts, not just different wording of
-  // the same 3.
+  // Success path: a larger, diverse pool - the LLM SELECTS 3, never invents.
   if (context.success) {
     const pool = buildSuccessSuggestionPool(context);
-    // Phase 3.5: a military (DoD) answer is a list with no ratings (D11); its pool leads with the rated federal
-    // alternative (veterans hospitals), which a model's "diverse" pick tends to skip. It is used as built.
+    // Phase 3.5: a military (DoD) pool leads with its rated federal alternative, which a model's pick tends to skip - used as built.
     const military = context.executionPlan?.filters.some((filter) => filter.field === "ownership" && filter.value === "Department of Defense%");
     if (pool.length <= 3 || military) {
       return pool;
@@ -775,19 +609,14 @@ export async function generateHealthcareSuggestionsWithLLMRephrasing(
       llmGateway.selectAndRephraseSuggestions(pool, { resolvedMetric, resolvedState }, 3, LLM_REPHRASE_RACE_TIMEOUT_MS, HEALTHCARE_PROMPT_WORDING),
       LLM_REPHRASE_RACE_TIMEOUT_MS,
     );
-    // The fallback is the pool's first three, which the interleaving above makes differ in kind (metric / concept /
-    // ownership / peer state); before Batch 5A-1 it was the metric rotation, all in the same state.
+    // Fallback: the pool's first three, which interleaving makes differ in kind.
     if (!selected || selected.length !== 3) {
       return pool.slice(0, 3);
     }
-    // Phase 3.5: a pick the model reworded into the opposite direction is dropped; the pool backfills below.
+    // Phase 3.5: a pick reworded into the opposite direction is dropped; the pool backfills below.
     const kept = selected.filter(chipKeepsDirection);
 
-    // Batch 5A-1: a model picks freely (the paid tier, measured, tends to keep all three in the question's own scope,
-    // and phrases some so loosely that the runtime's dry run drops them). So the picks are followed by a chip that
-    // pivots the scope (another state, another ownership) if none of them does, and by the rest of the pool as
-    // backfill: the runtime validates in order and keeps the first three that answer, so 3 valid, varied chips
-    // come back whatever the model did.
+    // Batch 5A-1: the picks are followed by a scope-pivoting chip (if none of them pivots) and the rest of the pool as backfill.
     const ownScope = filterValues(context.executionPlan?.filters.find((filter) => filter.field === "state")?.value).map((code) => stateName(code).toLowerCase());
     const pivotsScope = (text: string): boolean => {
       const lower = text.toLowerCase();
@@ -802,9 +631,7 @@ export async function generateHealthcareSuggestionsWithLLMRephrasing(
     const pivot = pool.find(pivotsScope);
     const ordered = kept.some(pivotsScope) || !pivot ? kept : [...kept.slice(0, 2), pivot, ...kept.slice(2)];
 
-    // Phase 3.5: the backfill skips a plain measure chip whose measure a kept chip already names in other words
-    // ("Which hospitals rank highest for Nurse Communication ..." and "... Patient Experience for Nurse Communication"
-    // were both shown).
+    // Phase 3.5: backfill skips a chip whose measure a kept chip already names in other words.
     const measureOf = (chip: string): string | undefined =>
       /^Show me hospitals with (?:lowest|best) /.test(chip)
         ? (/ for (.+?)(?: in .+)?$/.exec(chip)?.[1] ?? /^Show me hospitals with (?:lowest|best) (.+?)(?: in .+)?$/.exec(chip)?.[1])
@@ -817,10 +644,7 @@ export async function generateHealthcareSuggestionsWithLLMRephrasing(
     return [...new Set([...ordered, ...backfill])];
   }
 
-  // Failure path: pool is already small/topic-specific
-  // (capability-unavailable's real alternatives, or one TOPIC_FALLBACKS
-  // triple) - plain rephrasing, not selection, since there usually isn't
-  // a larger pool to select a more diverse subset from.
+  // Failure path: pool is already small/topic-specific - plain rephrasing, not selection.
   const toRephrase = deterministic.slice(0, 3);
   if (toRephrase.length === 0) {
     return deterministic;

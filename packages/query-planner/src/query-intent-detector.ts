@@ -1,12 +1,6 @@
+/** Detects ranking/comparison/trend/aggregation intent from exact keyword tokens (never substring, so "county" doesn't match "count"). */
 import type { QueryIntent } from "./query-intent";
 import { Normalizer } from "@intelligence/semantic";
-
-/**
- * Exact-word keyword sets. Matched against normalized, whitespace-split
- * tokens (via the existing Universal Normalizer) rather than raw
- * substring search, so a word that merely CONTAINS a keyword - e.g.
- * "county" containing "count" - never spuriously matches.
- */
 const RANKING_KEYWORDS = new Set([
   "highest",
   "lowest",
@@ -22,19 +16,8 @@ const RANKING_KEYWORDS = new Set([
   "ranked",
   "rank",
   "order",
-  // Bug G (Phase 3.3, 2026-09-18): "strongest" is a plain English
-  // superlative, exactly like every other word already in this set -
-  // its absence meant a query also containing "compare"/"vs" (which
-  // succeeds deterministically via COMPARISON_KEYWORDS on the very
-  // first pass) never got a chance to fall through to Layer 1's LLM
-  // rewrite (which does normalize "strongest" -> "best"), silently
-  // returning an unranked result instead. The Round 6 audit's own fix
-  // plan also suggested "strong" - deliberately NOT added here: a
-  // direct grep of hospital-identity-directory.ts found a real,
-  // confirmed collision ("STRONG MEMORIAL HOSPITAL"), the exact same
-  // class of regression already documented for "good"/"great" and real
-  // hospital names - adding it would flip `operation` to "rank" for any
-  // query naming that hospital. "strongest" itself has zero matches.
+  // Bug G: "strongest" was missing, silently returning unranked results.
+  // "strong" deliberately NOT added - collides with "STRONG MEMORIAL HOSPITAL".
   "strongest",
 ]);
 
@@ -44,11 +27,7 @@ const TREND_KEYWORDS = new Set(["trend"]);
 
 const AGGREGATION_KEYWORDS = new Set(["average", "count", "total"]);
 
-/**
- * Every word this detector itself acts on. Exported so the planner's
- * "fully understood" check counts these as understood - the deterministic
- * layer already handles them - instead of keeping a second copy of the lists.
- */
+/** Every word this detector acts on, exported so isFullyUnderstood() counts them as understood instead of duplicating the lists. */
 export const INTENT_KEYWORDS: ReadonlySet<string> = new Set([
   ...RANKING_KEYWORDS,
   ...COMPARISON_KEYWORDS,

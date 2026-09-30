@@ -1,3 +1,4 @@
+/** The intermediate plan shape QueryPlanner produces, before ExecutionPlanMapper turns it into an ExecutionPlan. */
 import type { SemanticCollections } from "./semantic-collections";
 
 import type { QueryFilter } from "./query-filter";

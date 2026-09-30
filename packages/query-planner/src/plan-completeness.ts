@@ -1,44 +1,11 @@
+/**
+ * Detects a resolved semantic candidate that never made it into the ExecutionPlan (silent-wrong shape, F12/F13). Detection only, never corrects.
+ * `plannedSemantic` is QueryPlanner's own filtered collections; relationship-typed candidates aren't checked (scope limit).
+ */
 import type { SemanticCandidate } from "@intelligence/semantic";
 import type { EntityDefinition, ConceptDefinition } from "@intelligence/domain-sdk";
 import type { ExecutionPlan } from "@intelligence/contracts";
 import type { SemanticCollections } from "./semantic-collections";
-
-/**
- * Pre-Phase 8 semantic-completeness check.
- *
- * A single semantic candidate the semantic layer resolved with
- * reasonable confidence, but which never ends up represented anywhere
- * in the final ExecutionPlan, is exactly the shape behind several
- * confirmed DOGFOODING 2.0 silent-wrong findings (F12, F13): the
- * request looks fully answered (`success:true`) while a part of what
- * was understood silently never reached execution.
- *
- * This is a detection/observation boundary only. It never rewrites a
- * candidate, corrects a plan, guesses intent, or changes the answer -
- * it only reports which resolved candidates were not accounted for, so
- * a future Phase 8 answerability layer can decide what to do about it.
- *
- * Phase 8.2: `plannedSemantic` is `QueryPlan.semantic` - QueryPlanner's
- * own already-filtered collections (after `filterMetricsForIntent()`/
- * `filterFallbackMetrics()`), passed through unmodified by the caller.
- * A raw metric candidate absent from `plannedSemantic.metrics` was
- * legitimately removed by that existing, unmodified planner filtering
- * and is never a discrepancy; only a candidate that survived filtering
- * but is still absent from the built ExecutionPlan is genuinely
- * unaccounted for. No new filtering mechanism is introduced - this only
- * reads a value the planner already computes. Entity/dimension/category/
- * concept/benchmark checks below are unaffected: none of them undergo
- * any comparable planner-level filtering today (confirmed by direct
- * inspection of QueryPlanner.createPlan()), so their existing legitimate-
- * suppression handling (see each branch below) remains exactly as it was.
- *
- * Known, deliberate scope limit: relationship-typed candidates are not
- * checked. Their consumption paths (ExecutionPlanMapper.buildBenchmark()
- * and buildOrdering()'s below-comparison signal) are conditional on
- * operation/benchmark context in ways not yet proven safe to check
- * without live evidence risking false positives - see the Pre-Phase 8
- * documentation for the full investigation.
- */
 
 export interface PlanCompletenessDiscrepancy {
   semanticType: SemanticCandidate["semanticType"];
@@ -64,11 +31,7 @@ export function assessPlanCompleteness(
     ...(plan.metrics?.map((metric) => metric.metric) ?? []),
   ]);
 
-  // Phase 8.2 (Blocker 1): the set of metric canonicalKeys that survived
-  // QueryPlanner's own legitimate filtering (filterMetricsForIntent()/
-  // filterFallbackMetrics()) and were actually planned. A raw candidate
-  // missing from this set was intentionally removed by that existing
-  // logic, not silently lost.
+  // Phase 8.2: metric keys that survived QueryPlanner's own filtering - missing from this set means intentionally removed, not silently lost.
   const plannedMetricKeys = new Set(
     plannedSemantic.metrics.map((metric) => metric.canonicalKey),
   );
@@ -87,9 +50,7 @@ export function assessPlanCompleteness(
 
   const groupingDimensions = new Set(plan.grouping?.dimensions ?? []);
 
-  // RCG-009's own longest-span-wins rule already decides which single
-  // benchmark candidate is expected to survive - re-derive the same
-  // selection here rather than inventing a second policy.
+  // RCG-009's longest-span-wins rule already decides which benchmark candidate survives - re-derived here, not a second policy.
   const benchmarkCandidates = candidates.filter(
     (candidate) => candidate.semanticType === "benchmark",
   );
@@ -104,9 +65,7 @@ export function assessPlanCompleteness(
 
   for (const candidate of candidates) {
     if (candidate.semanticType === "metric") {
-      // Phase 8.2 (Blocker 1): a candidate legitimately removed by
-      // filterMetricsForIntent()/filterFallbackMetrics() never reached
-      // planning at all - it is not a discrepancy, it is intentional.
+      // Legitimately removed by planner filtering - not a discrepancy.
       if (!plannedMetricKeys.has(candidate.canonicalKey)) {
         continue;
       }
@@ -128,10 +87,7 @@ export function assessPlanCompleteness(
       const definition = candidate.definition as EntityDefinition;
 
       if (!definition.execution) {
-        // Legitimate: ExecutionPlanMapper.buildFilters() only ever
-        // builds a filter for an entity type the domain has declared
-        // execution metadata for. An entity type with none is not
-        // contractually expected to contribute a filter at all.
+        // No execution metadata - not expected to contribute a filter.
         continue;
       }
 
@@ -165,10 +121,7 @@ export function assessPlanCompleteness(
     }
 
     if (candidate.semanticType === "category") {
-      // SemanticCollector.collect() buckets category candidates, but
-      // no existing mechanism anywhere in ExecutionPlanMapper reads
-      // that bucket - there is no proven suppression policy here, only
-      // an architectural gap (F13).
+      // No mechanism reads category candidates - an architectural gap (F13).
       discrepancies.push({
         semanticType: candidate.semanticType,
         phrase: candidate.phrase,
@@ -181,15 +134,7 @@ export function assessPlanCompleteness(
     }
 
     if (candidate.semanticType === "concept") {
-      // Tier0 Task 5 (F12 Sub-Task B): a concept candidate whose own
-      // ConceptDefinition declares a `measureCodesByMetric` map, when
-      // that map's value for some resolved metric actually made it
-      // into `plan.filters` as a `measureCode` filter
-      // (ExecutionPlanMapper.buildFilters() above), is genuinely
-      // accounted for - not a discrepancy. A concept with no such map,
-      // or whose map's value never reached a filter (e.g. no matching
-      // metric resolved alongside it), remains unaccounted for exactly
-      // as before (F12's original finding).
+      // Accounted for when its measureCodesByMetric map produced a real measureCode filter (F12).
       const definition = candidate.definition as ConceptDefinition;
       const measureCodesByMetric = definition.measureCodesByMetric;
 
@@ -216,8 +161,7 @@ export function assessPlanCompleteness(
 
     if (candidate.semanticType === "benchmark") {
       if (!hasRelationship) {
-        // Legitimate: ExecutionPlanMapper.buildBenchmark() requires a
-        // relationship candidate before building any benchmark at all.
+        // buildBenchmark() requires a relationship candidate first.
         continue;
       }
 
@@ -233,13 +177,11 @@ export function assessPlanCompleteness(
         }
       }
 
-      // A non-primary benchmark candidate is legitimately superseded
-      // by buildBenchmark()'s own existing longest-span-wins rule.
+      // A non-primary benchmark is superseded by the longest-span-wins rule.
       continue;
     }
 
-    // candidate.semanticType === "relationship": not checked, by
-    // documented design (see the module comment above).
+    // "relationship" candidates: not checked, by documented design above.
   }
 
   return {

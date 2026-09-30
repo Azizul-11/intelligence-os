@@ -1,65 +1,20 @@
 import type { EntityResolutionStatus } from "./entity-resolution-status";
 
-/**
- * Result of entity value resolution.
- *
- * This is a universal contract used by domains to report
- * whether a phrase could be resolved to a concrete entity value.
- */
+/** Universal contract for whether a phrase resolved to a concrete entity value. */
 export interface EntityResolutionResult {
-  /**
-   * Whether the phrase was successfully resolved.
-   */
   found: boolean;
 
-  /**
-   * Canonical entity type identifier.
-   *
-   * Examples: "state", "hospital", "county"
-   */
+  /** Canonical entity type id, e.g. "state", "hospital", "county". */
   entityId: string | null;
 
-  /**
-   * Resolved entity value.
-   *
-   * Examples: "CA", "123456", { id: "...", name: "..." }
-   */
+  /** Resolved value, e.g. "CA", "123456", or a domain-shaped object. */
   value: unknown;
 
-  /**
-   * Original phrase from the query.
-   */
   phrase: string | null;
 
-  /**
-   * Phase 7.5.1A: optional resolution outcome, in addition to `found`.
-   *
-   * Optional so every existing EntityProvider implementation (which
-   * returns only the four fields above) remains valid without any
-   * change - this field only carries additional information for
-   * providers that choose to report it.
-   *
-   * When omitted, callers should continue to rely on `found`/`value`
-   * exactly as before (a resolved, unique value when `found` is true;
-   * nothing resolved when `found` is false).
-   */
+  /** Phase 7.5.1A: optional outcome beyond `found` - omitted means fall back to `found`/`value` as before. */
   status?: EntityResolutionStatus;
 
-  /**
-   * Phase 7.5.1A: candidate entity values when resolution is ambiguous
-   * (status === "ambiguous") - more than one value could plausibly
-   * match the mention, and none should be silently chosen.
-   *
-   * Domain-agnostic: Universal Core only ever checks how many
-   * candidates exist, never what they mean.
-   *
-   * Phase 8.3: each entry may optionally be shaped as an
-   * `AmbiguousCandidate` (`{value, label?}`) so Universal Core can build
-   * a targeted clarification message without needing to understand the
-   * candidate's meaning - it only ever displays `label` verbatim.
-   * Remains `unknown[]` (not narrowed to `AmbiguousCandidate[]`) so a
-   * Domain SDK that has not adopted this shape - returning bare opaque
-   * values, as before Phase 8.3 - remains valid without any change.
-   */
+  /** Phase 7.5.1A: candidates when ambiguous. Phase 8.3: may be shaped as AmbiguousCandidate for a targeted clarification. */
   candidates?: unknown[];
 }

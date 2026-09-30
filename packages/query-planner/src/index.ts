@@ -1,3 +1,4 @@
+/** Public exports for @intelligence/query-planner. */
 export * from "./query-planner";
 export * from "./query-plan";
 export * from "./query-plan-result";

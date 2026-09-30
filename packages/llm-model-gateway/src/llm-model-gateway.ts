@@ -1,27 +1,8 @@
 /**
- * LLM-ModelGateway — the ONE file in the repository allowed to name a
- * vendor, a model, an API base URL, or a vendor-specific env var. Every
- * other package/file that needs an LLM call imports `llmGateway` from
- * here and calls one of its 3 bounded role methods
- * (normalizeMessyLanguage / synthesizeSuggestions / summarizeResult) -
- * never a provider SDK, never a raw fetch to a vendor endpoint.
- *
- * Single-Point-of-Configuration invariant: reordering providers,
- * swapping the primary vendor, or adding a new one is an edit to the
- * `FALLBACK_CHAIN` array below and nowhere else.
- *
- * Deterministic warehouse data remains the sole source of analytical
- * truth (Master Vision Guardrails 7-9, Phase 12). This gateway never
- * writes or executes SQL, never becomes the analytical source of truth -
- * it only rewrites messy input (Layer 1), rephrases already-decided
- * suggestion facts (Layer 2), or restates already-fetched rows (Layer 3).
- * Every one of those outputs is re-validated by deterministic code
- * before it can ever be trusted - see the 3 role methods' own doc
- * comments and the callers in create-runtime-engine.ts,
- * suggestion-generator.ts, and chat.ts.
- *
- * See docs/LLM-ModelGateway/ for the full audit, research, and design
- * this implementation follows.
+ * The ONE file allowed to name a vendor/model/API URL. Every LLM call in the repo goes through `llmGateway`'s 3
+ * bounded role methods (normalizeMessyLanguage / synthesizeSuggestions / summarizeResult) - never a provider SDK
+ * directly. Provider order lives in `FALLBACK_CHAIN` only. Never writes SQL or becomes the source of analytical
+ * truth - every output is re-validated by deterministic code downstream. See docs/LLM-ModelGateway/.
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -31,17 +12,11 @@ import { AsyncLocalStorage } from "node:async_hooks";
 // ============================================================================
 
 /**
- * Master LLM Audit (2026-09-15): per-call sampling controls. Different
- * roles need different determinism/creativity tradeoffs (canonicalizing
- * messy input must be near-deterministic; suggesting varied follow-up
- * questions must not be) - a single fixed `temperature: 0.9` for every
- * role method was itself a root cause of Bug L's non-determinism (the
- * same "goverment hospital in CA" input producing a correct result on
- * one call and a silently-wrong one on the next). Per OpenAI's own
- * guidance, only one of temperature/topP should be tuned away from
- * "unset" at a time for a given call - callers here always set
- * `temperature` and leave `topP` unset unless they specifically need to
- * bound it, never both to a non-default value simultaneously.
+ * Master LLM Audit (2026-09-15): per-call sampling controls. Different roles need different determinism/creativity
+ * tradeoffs (canonicalizing messy input must be near-deterministic; suggestions must not be) - a single fixed
+ * `temperature: 0.9` for every role was itself a root cause of Bug L's non-determinism (the same "goverment
+ * hospital in CA" input producing a correct result on one call and silently-wrong on the next). Per OpenAI's own
+ * guidance, callers set only `temperature` and leave `topP` unset unless they specifically need to bound it.
  */
 export interface SamplingOptions {
   temperature: number;
@@ -135,38 +110,23 @@ export interface ProviderConfig {
 // ============================================================================
 
 export const FALLBACK_CHAIN: ProviderConfig[] = [
-  // --- Groq (primary). LIVE-VERIFIED 2026-09-13 via GET
-  // https://api.groq.com/openai/v1/models: "llama-3.3-70b-versatile" and
-  // "llama-3.1-8b-instant" (this design's original assumption) both now
-  // 404 "does not exist" - Groq's free catalog today is the open-weight
-  // GPT-OSS family it hosts directly, not Llama. Using the two
-  // confirmed-present, json_mode-capable models instead. ---
+  // --- Groq (primary). LIVE-VERIFIED 2026-09-13: the original "llama-3.3-70b-versatile"/"llama-3.1-8b-instant"
+  // assumption 404s - Groq's free catalog is the open-weight GPT-OSS family, not Llama. Using the two confirmed,
+  // json_mode-capable models below instead. ---
   { provider: "groq", model: "openai/gpt-oss-20b", apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", timeoutMs: 3000, maxRetries: 2, keyId: "groq-gpt-oss-20b", isFree: true },
   { provider: "groq", model: "openai/gpt-oss-120b", apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", timeoutMs: 4000, maxRetries: 1, keyId: "groq-gpt-oss-120b", isFree: true },
-  // --- Extra Groq quota tier, added after live dogfooding exhausted the
-  // 2 gpt-oss tiers' 1K-requests/day cap each (confirmed via this org's
-  // own Groq console limits). "allam-2-7b" is a real general-purpose
-  // chat-completion model (not a classifier) with a 7K-requests/day cap
-  // - nearly 7x the headroom of either gpt-oss tier. Placed after both
-  // gpt-oss tiers (they're still faster/more capable when available);
-  // Zero-Stall 429 Failover means this only ever gets tried once both
-  // are already exhausted or erroring, at no added latency cost when
-  // they're healthy. ---
+  // --- Extra Groq quota tier, added after dogfooding exhausted the 2 gpt-oss tiers' 1K-requests/day cap each.
+  // "allam-2-7b" has a 7K-requests/day cap (~7x the headroom); placed last so Zero-Stall 429 Failover only reaches
+  // it once both gpt-oss tiers are exhausted, at no added latency when they're healthy. ---
   { provider: "groq", model: "allam-2-7b", apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", timeoutMs: 4000, maxRetries: 1, keyId: "groq-allam-2-7b", isFree: true, unsafeForRewrite: true },
 
-  // --- Google Gemini. LIVE-VERIFIED 2026-09-13: "gemini-2.0-flash" and
-  // "gemini-1.5-flash" (this design's original assumption) both now 404
-  // - Google's own error response explicitly names the current
-  // replacement model, used here directly rather than guessed. ---
+  // --- Google Gemini. LIVE-VERIFIED 2026-09-13: the original "gemini-2.0-flash"/"gemini-1.5-flash" assumption both
+  // 404 - using Google's own error-response-named replacement model directly. ---
   { provider: "google", model: "gemini-3.6-flash", apiKey: process.env.GOOGLE_API_KEY, timeoutMs: 4000, maxRetries: 2, keyId: "google-3.6-flash", isFree: true },
 
-  // --- OpenRouter — ONE real key confirmed in .env today (not two -
-  // the design's original "meta-llama/...instruct:free" entries are
-  // confirmed gone from OpenRouter's free catalog as of 2026-09-13 (404
-  // "unavailable for free"); replaced with models LIVE-CONFIRMED present
-  // via GET https://openrouter.ai/api/v1/models - "laguna-s-2.1:free" is
-  // also confirmed WORKING end-to-end by this package's own live smoke
-  // test (scripts/verify-llm-gateway.ts). ---
+  // --- OpenRouter — ONE real key confirmed in .env (not two). The original "meta-llama/...instruct:free" entries
+  // are confirmed gone from OpenRouter's free catalog as of 2026-09-13; replaced with LIVE-CONFIRMED models -
+  // "laguna-s-2.1:free" also confirmed working end-to-end by scripts/verify-llm-gateway.ts. ---
   { provider: "openrouter", model: "poolside/laguna-s-2.1:free", apiKey: process.env.OPENROUTER_API_KEY, baseURL: "https://openrouter.ai/api/v1", timeoutMs: 6000, maxRetries: 2, keyId: "openrouter-key1-laguna-s", isFree: true, stripReasoningTokens: true },
   { provider: "openrouter", model: "poolside/laguna-xs-2.1:free", apiKey: process.env.OPENROUTER_API_KEY, baseURL: "https://openrouter.ai/api/v1", timeoutMs: 5000, maxRetries: 1, keyId: "openrouter-key1-laguna-xs", isFree: true, stripReasoningTokens: true },
   { provider: "openrouter", model: "nvidia/nemotron-3-super-120b-a12b:free", apiKey: process.env.OPENROUTER_API_KEY_2 || process.env.OPENROUTER_API_KEY, baseURL: "https://openrouter.ai/api/v1", timeoutMs: 8000, maxRetries: 1, keyId: "openrouter-key2-nemotron-super", isFree: true, stripReasoningTokens: true },
@@ -188,51 +148,24 @@ export const FALLBACK_CHAIN: ProviderConfig[] = [
   // --- Local, always available when running. ---
   { provider: "ollama", model: "llama3", endpoint: process.env.OLLAMA_ENDPOINT ?? "http://localhost:11434", timeoutMs: 8000, maxRetries: 1, keyId: "ollama-local", isFree: true },
 
-  // --- Zero-dependency deterministic tier. `callMock` always throws
-  // immediately (a mock provider cannot itself produce a role-correct
-  // answer, since it has no knowledge of which of the 3 bounded roles
-  // is calling) - reaching this tier means every real provider is
-  // unavailable, at which point runChain's own caller (one of the 3
-  // role methods in LLMModelGateway) applies ITS OWN documented
-  // deterministic fallback (see normalizeMessyLanguage/
-  // synthesizeSuggestions/summarizeResult's own doc comments) rather
-  // than this generic tier guessing a shape. This entry exists so the
-  // chain is provably total (every traversal terminates) and so it
-  // appears in fallback-event logs for observability parity with the
-  // approved design, even though its own adapter is a deliberate no-op.
+  // --- Zero-dependency deterministic tier. `callMock` always throws immediately - a mock provider can't produce a
+  // role-correct answer, since it doesn't know which of the 3 bounded roles is calling. Reaching it means every
+  // real provider is unavailable, at which point the caller applies its OWN documented deterministic fallback.
+  // Exists so the chain is provably total and appears in fallback-event logs for observability parity. ---
   { provider: "mock", model: "deterministic-fallback", timeoutMs: 0, maxRetries: 0, keyId: "mock-deterministic", isFree: true },
 ];
 
 /**
- * R7 (2026-09-18): the two PAID tiers - first in line for the question-rewrite
- * role (normalizeMessyLanguage / intent) ONLY. They are deliberately not in
- * FALLBACK_CHAIN: conversational replies use that chain, so they can never
- * spend them. (Batch 5A-1: suggestions and summaries now have their own
- * DECORATION_CHAIN below, paid-first by decision D2.)
- *
- * AICredits (https://api.aicredits.in/v1) is an OpenAI-compatible gateway;
- * the key is the existing ZAI_API_KEY. Unset key = Graceful Unset Bypass, the
- * rewrite chain is then exactly the free chain it was before. A key with no
- * credit answers 4xx: each tier is skipped (no retry) and the free chain takes
- * over.
- *
- * Choice made on the same 42-case rewrite battery (3 runs each, same prompt):
- *  1. qwen/qwen3.7-flash, reasoning OFF - 39-40/42, no wrong-answer rewrites,
- *     hospital names returned unchanged 10/10, ~INR 2.5 per 1K queries, p50
- *     ~1 s. It reasons by default (10-12 s), so `reasoning: {enabled: false}`
- *     is mandatory. Its one flaw is an upstream 429 on ~2-8% of calls (a call
- *     that fails takes ~9 s to return), hence the 3 s cutoff and no retry.
- *  2. qwen/qwen3-30b-a3b-instruct-2507 - 38-39/42, no HTTP error in ~175
- *     calls (open-weight, several hosts), p50 ~1 s, p95 2.7-3.8 s (hence 4 s),
- *     ~INR 16 per 1K queries, non-thinking only.
- * Rejected on the same evidence: gemini-2.5-flash-lite (fastest and steadiest,
- * but silently drops "best"/"Texas"/hospital names), mistral-nemo (excluded by
- * the owner), phi-4 (IFEval 63), amazon/nova-micro and gemma-3-4b (wrong
- * rewrites), z-ai/glm-5.3-flash (reasoning cannot be disabled, 3-8 s).
- *
- * Each tier has its OWN circuit breaker: two tiers of one gateway share a
- * provider kind, and a shared circuit would let a failing second tier take the
- * first one down with it.
+ * R7 (2026-09-18): the two PAID tiers - first in line for the question-rewrite role only. Deliberately not in
+ * FALLBACK_CHAIN (conversational replies use that chain and can never spend them). AICredits
+ * (https://api.aicredits.in/v1) is an OpenAI-compatible gateway keyed by ZAI_API_KEY; unset = Graceful Unset
+ * Bypass (free chain as before), no-credit 4xx skips the tier (no retry) and the free chain takes over.
+ * Chosen on a 42-case rewrite battery (3 runs each): qwen3.7-flash (reasoning off) scored 39-40/42, ~INR 2.5/1K
+ * queries, p50 ~1s, with `reasoning: {enabled: false}` mandatory (reasons by default otherwise, 10-12s) and a 3s/
+ * no-retry cutoff for its ~2-8% upstream-429 rate; qwen3-30b-a3b-instruct-2507 scored 38-39/42, ~INR 16/1K, p95
+ * 2.7-3.8s. Rejected on the same evidence: gemini-2.5-flash-lite (silently drops names/places), mistral-nemo
+ * (excluded by the owner), phi-4, nova-micro, gemma-3-4b (wrong rewrites), glm-5.3-flash (reasoning can't disable).
+ * Each tier has its OWN circuit breaker so a failing second tier can't take the first one down with it.
  */
 export const AICREDITS_QWEN_FLASH_TIER: ProviderConfig = {
   provider: "aicredits",
@@ -266,22 +199,15 @@ export const AICREDITS_NORMALIZER_TIERS: ProviderConfig[] = [AICREDITS_QWEN_FLAS
 export const NORMALIZER_CHAIN: ProviderConfig[] = [...AICREDITS_NORMALIZER_TIERS, ...FALLBACK_CHAIN];
 
 /**
- * Batch 5A-1 (D2, 2026-09-21): decoration (the summary and the suggestion chips) is paid-first too. Measured on the
- * 600 sweep the free chain answered only 47 of 378 summary calls and 158 of 510 chip calls (Groq 8,000 tokens/min and
- * 1K requests/day per gpt-oss tier), which left most table answers without a summary and with static chips.
- *
- * The same `qwen/qwen3.7-flash` (reasoning off) as the rewrite role, but its OWN keyId and circuit breaker: a run of
- * upstream 429s on decoration must not open the circuit the question rewrite depends on. No retry. An unset key or an
- * empty wallet (4xx) skips the tier and the free chain answers exactly as before.
- *
- * Timeouts come from 200 billed calls (100 summary + 100 chip, concurrent pairs, no cutoff): chips p50 1.4 s, p95 2.0 s,
- * max 2.2 s (100% within 2.5 s); summaries p50 1.8 s, p90 2.5 s, p95 2.7 s, max 3.3 s (91% within 2.5 s, 99% within
- * 3.0 s). A 2.5 s cutoff on the summary cut 9% of calls, and three timeouts open the circuit for 30 s, which then
- * skipped most of the following calls (first run: 28 of 100 answered). So the chip tier keeps the 2.5 s chip race and
- * the summary tier gets 3.3 s of the 3.5 s summary budget in chat.ts (a summary that misses is simply left out).
- *
- * Conversational replies stay on FALLBACK_CHAIN. The summary chain drops `allam-2-7b`: a 7B model that answered 33 of
- * the sweep's 47 summaries, most of which the number / name cross-check then rejected.
+ * Batch 5A-1 (D2, 2026-09-21): decoration (summary + suggestion chips) is paid-first too - the free chain answered
+ * only 47/378 summary calls and 158/510 chip calls on the 600 sweep (Groq's 8,000 tokens/min, 1K requests/day per
+ * gpt-oss tier), leaving most answers without a summary or with static chips.
+ * Same `qwen/qwen3.7-flash` (reasoning off) as the rewrite role, but its own keyId/circuit breaker so decoration
+ * 429s can't open the rewrite role's circuit. No retry; unset key or empty wallet (4xx) falls back to free.
+ * Timeouts from 200 billed calls: chips p95 2.0s/max 2.2s (2.5s budget); summaries p95 2.7s/max 3.3s (3.3s budget -
+ * a stricter 2.5s cutoff dropped 9% of calls and tripped the circuit, cutting a 100-call run to 28 answered).
+ * Conversational replies stay on FALLBACK_CHAIN. The summary chain drops `allam-2-7b`: it answered 33/47 sweep
+ * summaries, most of which the number/name cross-check then rejected.
  */
 export const AICREDITS_QWEN_FLASH_DECORATION_TIER: ProviderConfig = {
   ...AICREDITS_QWEN_FLASH_TIER,
@@ -697,18 +623,11 @@ async function runChain(
   userMessage: string,
   sampling: SamplingOptions,
   /**
-   * Phase 3.6 (LLM-First Front Door): optional content-shape check, used
-   * by completeJSON() below. A provider that responds with HTTP 200 but
-   * ignores the "return ONLY this JSON shape" instruction (a real,
-   * observed failure mode on weaker fallback-chain tiers, not
-   * hypothetical) used to be indistinguishable from "every provider is
-   * down" - the whole chain failed outright on the first successful-but-
-   * malformed response, never trying the tiers after it. This is a
-   * content-shape failure, not a network/availability one: it never
-   * calls recordFailure() (that provider answered fine, just not in the
-   * shape THIS caller needed) and never opens that provider's circuit
-   * breaker for other callers (e.g. complete(), which has no such shape
-   * requirement).
+   * Phase 3.6: optional content-shape check (used by completeJSON()). A provider responding HTTP 200 but ignoring
+   * the "return ONLY this JSON shape" instruction - a real observed failure mode on weaker tiers - used to be
+   * indistinguishable from "every provider is down," failing the whole chain on the first malformed response. This
+   * is a content-shape failure, not availability: never calls recordFailure() or opens that provider's circuit for
+   * other callers (e.g. complete(), which has no shape requirement).
    */
   isValid?: (content: string) => boolean,
   trace?: ChainTrace,
@@ -1061,21 +980,12 @@ export class LLMModelGateway implements LLMProvider {
    * (SAFE_FALLBACK_SUGGESTIONS) takes over, never a crash.
    */
   async normalizeMessyLanguage(question: string, capabilities?: CapabilityCatalog): Promise<MessyLanguageResult> {
-    // LLM call-count audit R2 (2026-09-18): rewritten from a 15,906-char /
-    // 3,730-token prompt (measured) to a compact, rule-ordered one. Goals:
-    // (1) fewer tokens per call - Groq's free tier caps at 8,000 TOKENS per
-    // minute, so prompt size, not call count, is what exhausts it;
-    // (2) fix the two frontend failures - a named city was dropped or
-    // widened (the old shape rule had no city slot) and "show me hospital
-    // Houson Texas", written without "in", was rejected by tiers that
-    // pattern-match on examples that all contained "in"; (3) stop restating
-    // what deterministic code already does - the 50-state abbreviation map
-    // (expandUppercaseStateAbbreviations already expands 36 codes in any
-    // case; the 13 that collide with English words are covered by the one
-    // state-code rule below). Behaviors the old prompt encoded for earlier
-    // fixes (ownership preservation, good -> best, typo handling, condition
-    // default, "needs a state" clarification, off-topic fallback) are kept
-    // as a rule or an example.
+    // LLM call-count audit R2 (2026-09-18): rewritten from a 15,906-char/3,730-token prompt (measured) to a compact,
+    // rule-ordered one, to (1) cut tokens per call - Groq's free tier caps at 8,000 TOKENS/minute, so prompt size,
+    // not call count, is what exhausts it; (2) fix two frontend failures (a named city dropped/widened; "Houson
+    // Texas" without "in" rejected by tiers pattern-matching on "in"-only examples); (3) stop restating what
+    // deterministic code (expandUppercaseStateAbbreviations) already handles. Earlier fixes (ownership
+    // preservation, good -> best, typos, condition default, clarification, off-topic fallback) are kept as rules/examples.
     const wording = capabilities?.prompts?.normalizer ?? NEUTRAL_WORDING.normalizer;
     const systemPrompt = [
       `You rewrite ONE user question about ${wording.subject} into ONE canonical question that a deterministic pipeline can resolve. You never answer questions, never write SQL, never invent facts.`,
@@ -1091,25 +1001,13 @@ export class LLMModelGateway implements LLMProvider {
     const startedAt = Date.now();
     const trace: ChainTrace = { attempts: 0, tiers: [] };
     try {
-      // Master LLM Audit: canonicalization is a factual/deterministic-shaped
-      // task (typo correction, alias expansion), not a creative one - a
-      // low temperature makes the same input produce the same rewrite
-      // far more reliably. Confirmed live (Bug L) that the previous
-      // shared temperature 0.9 caused the identical "goverment hospital
-      // in CA" input to sometimes drop the ownership filter and
-      // sometimes not, across separate calls with no code change.
-      //
-      // Phase 3.6 (LLM-First Front Door): lowered further, from 0.1 to
-      // 0.0. This method used to run only as an on-failure fallback (a
-      // small fraction of traffic); as Layer 0.5 it now runs on nearly
-      // every analytical query, so its output variance has a much
-      // larger blast radius - the lowest safe temperature for a
-      // factual-rewrite task is the right default now, not just a
-      // marginal improvement. Same multi-vendor-fallback caveat as
-      // before still applies: a low temperature makes one provider
-      // consistent, it does not make a weaker fallback-chain provider
-      // follow instructions as reliably once the primary is
-      // quota-exhausted.
+      // Master LLM Audit: canonicalization is factual/deterministic-shaped (typo correction, alias expansion), not
+      // creative - a low temperature makes the same input produce the same rewrite reliably (Bug L: shared
+      // temperature 0.9 let the identical "goverment hospital in CA" input sometimes drop the ownership filter).
+      // Phase 3.6: lowered further, 0.1 -> 0.0, since this method now runs on nearly every query as Layer 0.5 (not
+      // just an on-failure fallback), so output variance has a much larger blast radius. A low temperature makes
+      // one provider consistent; it does not make a weaker fallback-chain provider follow instructions as
+      // reliably once the primary is quota-exhausted.
       const result = await this.runJSON<MessyLanguageResult>(
         this.rewriteChain,
         systemPrompt,
@@ -1218,15 +1116,10 @@ export class LLMModelGateway implements LLMProvider {
   }
 
   /**
-   * Layer 0 (Conversational Front-Door Router). ONLY ever called for
-   * questions the caller has already classified as conversational
-   * (greeting/meta-capability/off-topic) - never a substitute for Gate 1
-   * semantic resolution. Never writes SQL, never invents a hospital,
-   * never claims a capability the catalog doesn't list - it only
-   * explains what the platform can do, in the caller-supplied
-   * capability catalog's own vocabulary. On any failure, returns a
-   * fixed, deterministic onboarding message plus the catalog's own
-   * example questions - the Every-Turn Invariant holds even if every
+   * Layer 0 (Conversational Front-Door Router). ONLY called for questions already classified conversational
+   * (greeting/meta-capability/off-topic) - never a substitute for Gate 1 semantic resolution. Never writes SQL,
+   * never invents a hospital, never claims a capability the catalog doesn't list. On any failure, returns a fixed
+   * onboarding message plus the catalog's own example questions - the Every-Turn Invariant holds even if every
    * provider is down.
    */
   async handleConversational(
@@ -1237,16 +1130,10 @@ export class LLMModelGateway implements LLMProvider {
     const systemPrompt = [
       ...conversational.intro,
       describeCapabilities(capabilities),
-      // PrePhase 9.5 Round 3: previously restricted to only the fixed
-      // 5-item example list, which made every conversational turn
-      // suggest a near-identical set - widened to draw from the FULL
-      // capability description just given (metrics, states, ownership
-      // categories, clinical concepts), so repeated greetings surface
-      // genuinely different, still-only-real questions instead of the
-      // same handful reworded. Every suggestion is still dry-run
-      // validated by the caller (chat.ts's validateConversationalSuggestions)
-      // before ever being shown, so a less-common combination here is
-      // exactly as safe as the fixed list was.
+      // PrePhase 9.5 Round 3: widened from a fixed 5-item example list (near-identical suggestions every turn) to
+      // draw from the FULL capability description just given, so repeated greetings surface genuinely different
+      // questions. Still dry-run validated by the caller (chat.ts's validateConversationalSuggestions) before
+      // being shown, so a less-common combination here is exactly as safe as the fixed list was.
       ...conversational.outro,
     ].join(" ");
 

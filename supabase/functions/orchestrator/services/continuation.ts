@@ -1,12 +1,7 @@
+/** Handles Turn-2 continuation: matches the user's reply against a pending clarification/guidance, reconstructs the request, and re-executes through the full RuntimeEngine pipeline. */
 import { supabase } from "../../shared/supabase.ts";
 import { describeResultNote, getRuntimeEngine, lookupHospitalOverallRating } from "./domain-registry.ts";
-// Tier1 Task 6: the 3 guaranteed-safe, already-verified-working starter
-// queries - used only for the narrow bypass paths below that call
-// lookupHospitalOverallRating() directly (raw SqlExecutor result, never
-// routed through create-runtime-engine.ts's own dry-run-validated
-// suggestion generation) or that terminate before any engine.execute()
-// call at all. Every other return here forwards real, dry-run-validated
-// suggestions from an actual engine.execute() result.
+// Used only for the narrow bypass paths below that call lookupHospitalOverallRating() directly or terminate before engine.execute().
 import { SAFE_FALLBACK_SUGGESTIONS } from "@intelligence/healthcare-domain";
 
 import { continuationQuestion } from "./continuation-question.ts";
@@ -27,17 +22,7 @@ import {
   reconstructHospitalChoice,
 } from "@intelligence/runtime-engine";
 
-/**
- * Tier0 Task 6: whether Turn 1 named a specific metric/condition at all
- * (e.g. "mortality-rate" + "acute-myocardial-infarction" for "...mortality
- * rate for heart attack specifically?" or "...best AMI mortality") - read
- * from `PendingInteraction.originalSemanticResult`, which (since the Task 6
- * fix) holds the real semantic matches Turn 1 resolved, not a placeholder.
- * Shared by both the geographic-clarification branch and the F8 "own"
- * branch below, since both need the same answer to the same question:
- * "is a generic overall_rating fallback safe here, or would it silently
- * substitute for a condition the user actually asked about?"
- */
+/** Whether Turn 1 named a specific metric/condition - shared by the geographic-clarification and F8 "own" branches to decide if a generic overall_rating fallback is safe. */
 function hadMetricOrConcept(originalSemanticResult: unknown): boolean {
   return (
     Array.isArray(originalSemanticResult) &&
@@ -47,11 +32,7 @@ function hadMetricOrConcept(originalSemanticResult: unknown): boolean {
   );
 }
 
-// Mirrors packages/query-planner/src/query-intent-detector.ts's own
-// COMPARISON_KEYWORDS exactly - a tiny, stable set, mirrored rather than
-// imported since this Deno edge function can't easily pull a Node
-// package's internal (non-exported) const across the runtime boundary
-// (the same pattern chat.ts's own CONVERSATIONAL_PATTERNS already uses).
+// Mirrors query-intent-detector.ts's COMPARISON_KEYWORDS - can't import a Node package's internal const across the Deno edge boundary.
 const COMPARISON_KEYWORDS = ["compare", "vs", "versus"];
 
 function hasComparisonKeyword(question: string): boolean {
@@ -60,35 +41,11 @@ function hasComparisonKeyword(question: string): boolean {
 }
 
 /**
- * Comparison continuation fix: whether Turn 1 was a multi-entity
- * comparison query (e.g. "compare memorial hospital vs ANIMAS").
- *
- * BUG FOUND live (2026-09-15): the original version of this check
- * counted `comparable` entities inside `originalSemanticResult` (i.e.
- * `RuntimeResult.semanticMatches`) and required 2+. But
- * `semanticMatches` is populated with the entities ALREADY resolved
- * alongside an ambiguity - by design, it deliberately EXCLUDES the
- * ambiguous entity mention itself (see chat.ts's own doc comment on
- * `originalSemanticResult`). So for "compare memorial hospital vs Mayo
- * Clinic" (memorial hospital ambiguous, Mayo Clinic resolved), only ONE
- * comparable entity (Mayo Clinic) could ever appear here - the count
- * could never reach 2 for exactly the shape this function exists to
- * detect, silently disabling the whole comparison-continuation fix.
- *
- * Fixed by checking the ORIGINAL QUESTION TEXT for a comparison
- * keyword instead (the same signal `QueryIntentDetector` itself uses
- * to classify comparison intent in the first place) - combined with
- * requiring at least one already-resolved ENTITY (any entity, not
- * "comparable" - `EntityDefinition` has no `comparable` field at all;
- * that flag only ever exists on `MetricDefinition`. The original
- * check's `.definition?.comparable === true` was checking a property
- * that can never be true for an entity, so it silently disabled this
- * function a SECOND, independent way even after the keyword fix -
- * confirmed live by reading the actual persisted
- * `pending_interactions.original_semantic_result` row: the entity's
- * serialized `definition` has no `comparable` key at all) - to avoid
- * misfiring on an unrelated "compare" mention with no pending
- * multi-entity identity at all.
+ * Whether Turn 1 was a multi-entity comparison query ("compare memorial hospital vs ANIMAS").
+ * Bug found live: the original check counted `comparable` entities in `originalSemanticResult`, requiring 2+ - but
+ * that array excludes the ambiguous entity itself, so a comparison with one ambiguous entity could never reach 2.
+ * It also checked `.definition?.comparable`, a field that only exists on MetricDefinition, never EntityDefinition.
+ * Fixed by checking the original question text for a comparison keyword plus one already-resolved entity instead.
  */
 function wasComparisonQuery(originalQuestion: string, originalSemanticResult: unknown): boolean {
   if (!hasComparisonKeyword(originalQuestion) || !Array.isArray(originalSemanticResult)) {
@@ -100,19 +57,7 @@ function wasComparisonQuery(originalQuestion: string, originalSemanticResult: un
   );
 }
 
-/**
- * Phase 8.10 Layer 2 Task 2: Complete continuation handling with full reconstruction.
- * 
- * Flow:
- * 1. Retrieve pending interaction (validates lifecycle)
- * 2. Match user response against offered options (deterministic)
- * 3. Reconstruct complete request with selected option
- * 4. Mark interaction as consumed
- * 5. Execute through full RuntimeEngine pipeline (revalidation)
- * 
- * @param request ChatRequest with pendingInteractionId and continuationResponse
- * @returns ChatResponse with execution result or error
- */
+/** Continuation handling: retrieve pending interaction, match the response, reconstruct the request, consume, then re-execute through the full RuntimeEngine pipeline. */
 export async function handleContinuation(
   request: ChatRequest,
 ): Promise<ChatResponse> {
@@ -166,22 +111,15 @@ export async function handleContinuation(
         };
       }
 
-      // Tier0 Task 2 (F8): the hospital-ranking clarification ("Mayo
-      // Clinic best hospitals" → lookup vs similar) doesn't share the
-      // geographic case's "append a location qualifier" shape - checked
-      // first, and handled entirely separately, before falling through
-      // to the unchanged geographic reconstruction below.
+      // Tier0 Task 2 (F8): the hospital-ranking clarification (lookup vs similar) doesn't share the geographic
+      // case's "append a qualifier" shape - handled separately before falling through to it.
       const hospitalChoice = reconstructHospitalChoice(selectedOption);
 
       if (hospitalChoice?.kind === "guidance") {
         await consumePendingInteraction(supabase, interaction.id);
 
-        // Frontend bug fix: this response has no pendingInteractionId (it's
-        // a terminal message, not a further continuation), so
-        // QueryConsole.tsx classifies it as a plain error and only ever
-        // renders `error`, never `answer`, for that case - populate both
-        // so the helpful guidance text actually reaches the user instead
-        // of the generic "no error message" fallback.
+        // Frontend bug fix: this is a terminal message (no pendingInteractionId), so QueryConsole.tsx only renders
+        // `error`, never `answer` - populate both so the guidance text reaches the user.
         return {
           success: false,
           answer: hospitalChoice.message,
@@ -193,20 +131,10 @@ export async function handleContinuation(
       if (hospitalChoice?.kind === "lookup") {
         await consumePendingInteraction(supabase, interaction.id);
 
-        // Tier0 Task 6 (F8 own-choice extension): Turn 1 named a specific
-        // metric/condition (e.g. "Mayo Clinic best AMI mortality") - the
-        // bare overall-rating lookup below would silently substitute a
-        // generic rating for the condition the user actually asked about,
-        // the same silent-wrong shape Task 6's own fix already closed for
-        // the geographic-clarification branch. Re-execute the ORIGINAL
-        // Turn 1 question (still names the resolved metric/concept in its
-        // own text) through the full RuntimeEngine pipeline, with the
-        // identity structurally forced (the hospital is already
-        // unambiguous here - `forcedIdentityCandidate` is a safe no-op if
-        // no matching ambiguity exists) and `forcedIntent: "lookup"` so
-        // the no-longer-meaningful ranking word ("best") doesn't route
-        // this to a population-wide ranking template that has no
-        // parameter for this one already-known facility.
+        // Tier0 Task 6 (F8 own-choice extension): Turn 1 named a specific metric/condition - the bare
+        // overall-rating lookup below would silently substitute a generic rating for it. Re-executes the ORIGINAL
+        // Turn 1 question with the identity forced and `forcedIntent: "lookup"` so "best" doesn't route to a
+        // population-wide ranking template with no parameter for this one known facility.
         if (hadMetricOrConcept(interaction.originalSemanticResult)) {
           const requestId = crypto.randomUUID();
           const engine = getRuntimeEngine();
@@ -233,18 +161,11 @@ export async function handleContinuation(
               suggestions: conditionResult.suggestions,
             };
           }
-          // Falls through to the bare overall-rating lookup below only if
-          // the condition-aware re-execution itself failed - the same
-          // last-resort-fallback shape the geographic branch already uses.
+          // Falls through to the bare overall-rating lookup only if the condition-aware re-execution itself failed.
         }
 
-        // Deliberately bypasses the NL pipeline entirely - see
-        // reconstruct-hospital-choice.ts for why re-typing the hospital's
-        // own name is not safe to re-resolve. Queries the existing
-        // hospital-overall-rating template directly by the already-known
-        // facility_id. Reached directly (no metric/condition was ever
-        // named) or as a last-resort fallback (condition-aware
-        // re-execution above failed for some other reason).
+        // Deliberately bypasses the NL pipeline - see reconstruct-hospital-choice.ts for why re-typing the
+        // hospital's own name isn't safe to re-resolve. Queries hospital-overall-rating directly by facility_id.
         const lookupResult = await lookupHospitalOverallRating(hospitalChoice.facilityId);
 
         if (!lookupResult.success) {
@@ -266,41 +187,29 @@ export async function handleContinuation(
         // Reconstruct clarification request
         const reconResult = reconstructClarificationRequest(interaction, selectedOption);
 
-        // Comparison continuation fix: if Turn 1 was a comparison query
-        // (2+ comparable entities), preserve comparison intent in Turn 2
-        // so metric injection doesn't overwrite it with bare lookup metric.
+        // Comparison continuation fix: preserve comparison intent in Turn 2 so metric injection doesn't overwrite it with bare lookup.
         const isComparisonTurn2 =
           Boolean(secondOption) || wasComparisonQuery(interaction.originalQuestion, interaction.originalSemanticResult);
         const forcedIntentForTurn2 = isComparisonTurn2 ? "comparison" : undefined;
 
-        // Bug fix: Multi-entity continuation (comparison with one ambiguous entity).
-        // When Turn 1 had 2+ entities (e.g., "compare memorial hospital vs ANIMAS"),
-        // Turn 2 must preserve ALL entities, not just the disambiguated one.
-        // Extract companion entities (non-ambiguous entities from Turn 1) and pass
-        // them through so ExecutionPlanMapper builds multi-entity IN filter.
+        // Bug fix: a Turn 1 comparison with 2+ entities must preserve ALL entities in Turn 2, not just the
+        // disambiguated one - extracted and passed through so ExecutionPlanMapper builds a multi-entity IN filter.
         let companionEntities: Array<{ value: unknown; canonicalKey: string }> = [];
-        
+
         if (wasComparisonQuery(interaction.originalQuestion, interaction.originalSemanticResult)) {
           const originalEntities = Array.isArray(interaction.originalSemanticResult)
             ? interaction.originalSemanticResult.filter(
                 (match: any) => match?.semanticType === "entity" && match?.resolvedValue
               )
             : [];
-          
-          // Companion entities are those NOT involved in the ambiguity being resolved.
-          // The disambiguated entity will be injected separately via forcedIdentityCandidate.
-          // We identify the ambiguous entity by checking if its resolvedValue matches any
-          // of the offered candidates' values (the ambiguity involves these candidates).
+
+          // Companions are entities NOT in the ambiguity being resolved (that one is injected via forcedIdentityCandidate).
           const ambiguousCandidateValues = new Set(
             (interaction.pendingTarget?.candidates ?? []).map((c: any) => c.value)
           );
           
           companionEntities = originalEntities
-            .filter((entity: any) => {
-              // Keep entities whose resolvedValue is NOT in the ambiguity candidates
-              // This means they were already unambiguously resolved in Turn 1
-              return !ambiguousCandidateValues.has(entity.resolvedValue);
-            })
+            .filter((entity: any) => !ambiguousCandidateValues.has(entity.resolvedValue)) // already unambiguously resolved in Turn 1
             .map((entity: any) => ({
               value: entity.resolvedValue,
               canonicalKey: entity.canonicalKey,
@@ -319,21 +228,10 @@ export async function handleContinuation(
             twoSlot: Boolean(secondOption),
           }),
           forcedCandidate: selectedOption,
-          // Tier0 Task 6: `reconResult.forcedIdentity` (until now computed
-          // and never used) IS `selectedOption` - Turn 1's own already-
-          // resolved candidate. Passed through as a structural identity
-          // injection (see RuntimeRequest.forcedIdentityCandidate) so a
-          // re-triggered ambiguity on this reconstructed text (e.g. the
-          // appended qualifier above isn't adjacent enough to narrow the
-          // mention under EntityProvider's contiguity rule) is resolved
-          // by the already-known value instead of silently falling
-          // through to the generic overall-rating fallback below.
+          // Tier0 Task 6: passes Turn 1's already-resolved candidate through as a structural identity injection, so
+          // a re-triggered ambiguity on the reconstructed text resolves by the known value instead of falling through.
           forcedIdentityCandidate: { value: (reconResult.forcedIdentity as any)?.facility_id },
-          // Frontend bug fix: this Turn 2 already resolved exactly which
-          // identity the user meant (that's what `selectedOption` IS) -
-          // it must terminate, not chain into a further plan-ambiguity
-          // clarification (e.g. Tier0 Task 2's own hospital-ranking
-          // check) about that same, already-resolved identity.
+          // Frontend bug fix: this Turn 2 already resolved the identity - must terminate, not chain into a further plan-ambiguity clarification about it.
           identityAlreadyResolved: true,
           forcedIntent: forcedIntentForTurn2,
           companionEntities: companionEntities.length > 0 ? companionEntities : undefined,
@@ -433,29 +331,11 @@ export async function handleContinuation(
     }
 
     if (!result.success) {
-      // Frontend bug fix: a resolved single-hospital identity (this
-      // Turn 2 pinned down exactly which facility) combined with a
-      // ranking-worded original question ("best hospital for X") can
-      // still hit Phase 8.8's pre-existing rank/single-entity
-      // incompatible-filter refusal - identityAlreadyResolved only
-      // prevents a SECOND ambiguity clarification, it doesn't change
-      // which template a "rank" operation selects. Rather than guess
-      // the originally-intended metric, fall back to a direct lookup of
-      // that exact facility's own overall rating - the same mechanism
-      // Tier0 Task 2's F8 "lookup" choice already uses - only when the
-      // natural reconstruction itself failed; an already-successful
-      // reconstruction (e.g. a plain, non-ranking metric question) is
-      // never second-guessed.
-      //
-      // Tier0 Task 6: this fallback can only ever return a facility's
-      // generic overall_rating (see lookupHospitalOverallRating's own
-      // doc comment) - never a condition-specific measure. Turn 1's
-      // preserved semantic context (originalSemanticResult, now the
-      // real matches Turn 1 resolved - see chat.ts) is checked so this
-      // never silently substitutes overall_rating for a Turn 1 that
-      // actually named a specific metric/condition; it remains
-      // available exactly as before for a genuinely bare identity
-      // clarification (no metric/concept named at all).
+      // Frontend bug fix: a resolved identity + ranking-worded question can still hit Phase 8.8's rank/single-entity
+      // refusal - identityAlreadyResolved only prevents a second clarification, not which template "rank" selects.
+      // Falls back to a direct overall-rating lookup only when the natural reconstruction itself failed.
+      // Tier0 Task 6: this fallback can only ever return a generic overall_rating, never a condition-specific
+      // measure - checked against Turn 1's semantic context so it never substitutes for a named metric/condition.
       const facilityId = reconstructed.forcedCandidate?.facility_id;
 
       if (
@@ -488,16 +368,12 @@ export async function handleContinuation(
       };
     }
 
-    // 2,000 sweep (Batch E): an empty Turn 2 answer ("Texas" for Houston County's heart-failure mortality, a hospital
-    // that reports no score) gets the same one-line explanation as an empty Turn 1 answer instead of a blank table.
+    // Batch E: an empty Turn 2 answer gets the same one-line explanation as an empty Turn 1 answer, not a blank table.
     const executedParameters = (result as { executedParameters?: Record<string, unknown> }).executedParameters;
     const note = result.rows.length === 0 ? await describeResultNote([], executedParameters) : undefined;
 
-    // Post-clarification summary fix (2026-09-27): a Turn 2 answer never called the summarizer at all - only the
-    // zero-row disclosure above ever populated `summary`. Mirrors chat.ts's own Turn 1 path exactly: the note (when
-    // present) is `alreadyShown` context for the model, and the two are combined with the same composeSummary() used
-    // there, so a clarified answer reads the same way a Turn 1 answer does. A rejected summary is recorded on the
-    // trace the same way, never silently patched or shown unverified.
+    // Post-clarification summary fix: a Turn 2 answer never called the summarizer - mirrors chat.ts's Turn 1 path
+    // exactly, so a clarified answer reads the same way. A rejected summary is recorded the same way too.
     const verified = await buildVerifiedSummary(reconstructed.question, result.rows as Record<string, unknown>[], executedParameters, note ? [note] : []).catch(
       () => ({}) as Awaited<ReturnType<typeof buildVerifiedSummary>>,
     );

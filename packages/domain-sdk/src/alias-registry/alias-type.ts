@@ -1,16 +1,4 @@
-// import type { SemanticType } from "../semantic";
-// export type AliasType =
-//   |SemanticType
-//   | "entity"
-//   | "metric"
-//   | "dimension"
-//   | "category"
-//   | "benchmark"
-//   | "relationship"
-//   | "sql-template"
-//   | "recommendation";
-
-
+/** The kinds of thing an alias can resolve to. */
 import type { SemanticType } from "../semantic";
 
 export type AliasType =

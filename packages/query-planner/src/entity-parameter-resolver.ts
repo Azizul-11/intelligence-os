@@ -1,3 +1,4 @@
+/** Resolves execution parameters from resolved entities, grouping same-parameter entities into an array when there are multiple. */
 import type { SemanticCollections } from "./semantic-collections";
 import type { EntityDefinition } from "@intelligence/domain-sdk";
 import { groupEntityValues } from "./group-entity-values";
@@ -26,13 +27,7 @@ export class EntityParameterResolver {
   });
 }
 
-    // Phase 7.5.3: multiple entities that resolve to different values
-    // under the same execution parameter (e.g. two distinct canonical
-    // identities of the same entity type) must all survive - not
-    // silently collapse to whichever was seen last. A parameter with
-    // exactly one distinct value keeps the original scalar shape
-    // (unchanged behavior); more than one distinct value becomes an
-    // array, preserving every canonical identity.
+    // Phase 7.5.3: two entities under the same parameter must both survive, not collapse to the last one seen.
     for (const [parameter, values] of groupEntityValues(entries)) {
       parameters[parameter] = values.length === 1 ? values[0] : values;
     }

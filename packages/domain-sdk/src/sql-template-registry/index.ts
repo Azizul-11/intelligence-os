@@ -1,3 +1,4 @@
+/** Public exports for the SQL template registry. */
 export * from "./sql-template-definition";
 export * from "./sql-template-parameter";
 export * from "./sql-template-registration";

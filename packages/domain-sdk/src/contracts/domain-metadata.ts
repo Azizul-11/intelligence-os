@@ -1,3 +1,4 @@
+/** Descriptive metadata for a Domain Pack (name, version, vendor, etc). */
 export interface DomainMetadata {
   id: string;
   name: string;

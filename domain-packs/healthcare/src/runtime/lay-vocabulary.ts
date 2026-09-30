@@ -1,24 +1,10 @@
 /**
- * Batch 5A-1 (2026-09-21): the healthcare domain's layperson vocabulary. DATA ONLY, owned by the domain pack: exact
- * lower-case phrases matched on whole words, never fuzzily (no edit distance anywhere). Nothing under `packages/*`
- * names a healthcare word; the orchestrator's generic mapper (services/lay-mapper.ts) reads this structure through
- * `DOMAIN_CAPABILITIES.layVocabulary`.
- *
- * Why it exists: measured on 50 messy queries (docs .../5A_AUDIT_BOUNCER_TO_TRANSLATOR.md) 19 answerable asks were
- * refused because the pre-check or the model treated a layperson phrase ("heart problem", "checkup", "trouble
- * breathing") as unsupported, and the same intent got opposite outcomes depending on the wording. A phrase here
- * is answered by the same deterministic pipeline as any other question: the mapper only rewrites it to a canonical
- * question the pipeline already answers (verified by scripts/verify-batch5a1-vocab.ts), keeps every place and
- * ownership word the user typed, and reports what it read the phrase as.
- *
- * The four parts:
- *  - SPELLINGS: a typed misspelling -> the correct phrase (exact literals, applied before the pre-check, so
- *    "chruch owned" is refused as the "church owned" it is).
- *  - GROUPS: a layperson phrase (or a bare condition name) -> the question the pipeline answers, the reading shown
- *    to the user and up to three one-tap alternatives.
- *  - SCAFFOLD / FILLER: words dropped from the question ("show me", "checkup", "problem"): never a reason to refuse.
- *  - BLOCKERS: a metric, direction or comparison word. When one is typed the user asked a formal question and no
- *    group is applied, so "pneumonia readmissions" is never rewritten to pneumonia mortality.
+ * The healthcare domain's layperson vocabulary (DATA ONLY, owned by the domain pack): maps informal phrases
+ * ("heart problem", "trouble breathing") to the canonical question the deterministic pipeline already answers,
+ * instead of refusing them as unsupported. Exact literals matched on whole words, never fuzzy.
+ * Four parts: SPELLINGS (typo -> correct phrase), GROUPS (phrase -> canonical question + reading + alternates),
+ * SCAFFOLD/FILLER (dropped words, never a refusal reason), BLOCKERS (a metric/direction word means a formal
+ * question - no group applies, so "pneumonia readmissions" is never rewritten to pneumonia mortality).
  */
 
 export interface LayAlternate {
@@ -66,14 +52,7 @@ export interface LayVocabulary {
 
 // ------------------------------------------------------------------------------------------------ canonical repairs
 
-/**
- * Batch 5A-2: a model can write a canonical question the pipeline cannot rank: "best Safety Performance for Pneumonia"
- * (seen live for "strong pneumonia outcomes", "hospital that treats pneumonia well", "which hospital is safest" after a heart
- * attack). Safety, patient experience and the overall rating are scored for a whole hospital, not for one condition, so the
- * pipeline refuses the question and the user gets a dead end. This is what such a phrase means in this domain: the
- * condition's own mortality. Applied ONLY to a model's rewrite (never to what the user typed), and always with the note.
- * Exact patterns, no fuzzy matching.
- */
+/** A model can write a canonical question the pipeline can't rank (e.g. "best Safety Performance for Pneumonia" - safety is whole-hospital, not per-condition). Repairs it to the condition's own mortality. Applied only to a model rewrite, never to what the user typed. */
 export interface CanonicalRepair {
   /** Regular expression source, matched against the whole canonical question. */
   pattern: string;
@@ -138,15 +117,9 @@ const RATED_NOTE = "Showing the CMS overall star rating, the rating that ranks w
 const BIRTHING_NOTE = "Showing hospitals with the CMS Birthing-Friendly designation.";
 
 export const CANONICAL_REPAIRS: readonly CanonicalRepair[] = [
-  // V4 fix plan (Batch 3): the four anchored PSI repairs below only match `^(Show me .*?hospitals with) <direction>
-  // <name>...$` - a multi-dimension rewrite that puts a place, type or ownership phrase before "with" ("hospitals in
-  // Louisiana with lowest ...") or after the name ("... Mortality Rate", "... scores") slips past all four and is
-  // never repaired. These three replace the indicator's own words IN PLACE (keeping whatever precedes "Show me
-  // ...best/worst" and whatever follows the name), so any surrounding qualifier survives. Tried first (repairCanonical
-  // stops at the first match): every canonical question the four anchored repairs below already fixed matches one of
-  // these three the same way (verified offline against the 2,000 sweep, the 823-row post-fix run and the V4 500-row
-  // sweep: 0 outputs those repairs already produced are changed by trying these first), so the four are kept only as
-  // an unreachable fallback rather than deleted in the same change.
+  // V4 Batch 3: the anchored PSI repairs further below miss multi-dimension rewrites (a place/type/ownership phrase
+  // before "with" or after the name). These three replace the indicator's words IN PLACE instead, and are tried
+  // first - verified to supersede the anchored ones with 0 output changes, which are kept only as an unreachable fallback.
   { pattern: `^(Show me .*?)${PSI_BETTER} (?:(?:${WHOLE_HOSPITAL_METRICS}|Mortality Rate) for )?(${PSI_NAMES})${PSI_TAIL}(?=[ .?!,]|$)(.*)$`, flags: "i", replacement: "$1lowest Patient Safety Indicator for $2$3", note: PSI_NOTE },
   { pattern: `^(Show me .*?)${PSI_WORSE} (?:(?:${WHOLE_HOSPITAL_METRICS}|Mortality Rate) for )?(${PSI_NAMES})${PSI_TAIL}(?=[ .?!,]|$)(.*)$`, flags: "i", replacement: "$1highest Patient Safety Indicator for $2$3", note: PSI_NOTE },
   {

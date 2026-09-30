@@ -1,6 +1,4 @@
-/**
- * Runtime configuration for a Domain Pack.
- */
+/** Runtime configuration for a Domain Pack. */
 export interface DomainConfiguration {
   enabled: boolean;
 

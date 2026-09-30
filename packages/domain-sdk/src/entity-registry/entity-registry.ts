@@ -2,9 +2,7 @@ import type { EntityDefinition } from "./entity-definition";
 import type { EntityRegistration } from "./entity-registration";
 import type { EntityRegistryResult } from "./entity-registry-result";
 
-/**
- * Public API implemented by every Domain Pack.
- */
+/** CRUD contract for registering and looking up entity definitions. */
 export interface EntityRegistry {
   register(
     registration: EntityRegistration,

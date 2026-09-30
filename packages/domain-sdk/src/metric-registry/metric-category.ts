@@ -1,6 +1,4 @@
-/**
- * Groups related metrics.
- */
+/** Groups related metrics. */
 export interface MetricCategory {
   id: string;
   name: string;

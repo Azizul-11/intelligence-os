@@ -1,3 +1,4 @@
+/** CRUD contract for registering and looking up metric definitions. */
 import type { MetricDefinition } from "./metric-definition";
 import type { MetricRegistration } from "./metric-registration";
 import type { MetricRegistryResult } from "./metric-registry-result";

@@ -1,3 +1,4 @@
+/** Everything a Domain Pack registers: entities, metrics, aliases, templates, and its execution strategy/entity provider. */
 import type { AliasDefinition } from "../alias-registry";
 import type { BenchmarkDefinition } from "../benchmark-registry";
 import type { CapabilityDefinition } from "../capability-registry";
@@ -42,22 +43,10 @@ export interface DomainPack {
 
   recommendations: readonly RecommendationDefinition[];
 
-  /**
-   * Optional, domain-declared text-rewrite rules for a generic ranking
-   * idiom (e.g. "best <entities>") that implies a fallback/default
-   * metric before phrase extraction runs. Universal Core executes these
-   * generically; it never inspects their content. A domain with no such
-   * idiom may omit this entirely.
-   */
+  /** Optional text-rewrite rules for a generic ranking idiom (e.g. "best <entities>") implying a default metric. */
   lexicalRewrites?: readonly LexicalRewriteRule[];
 
-  /**
-   * V4 fix plan (Batch 4): the execution parameter names (entity `execution.parameter` values) of resolved-entity
-   * qualifiers that must survive an LLM rewrite unchanged - a stacked qualifier the model drops (a hospital type, an
-   * ownership sub-label, a flag) is restored from the user's own words rather than silently answered as a broader
-   * question. Universal Core never inspects what a parameter name means, only whether the raw question resolved one
-   * that the rewritten question's resolution does not. A domain with no such qualifiers may omit this entirely.
-   */
+  /** V4 Batch 4: entity parameter names that must survive an LLM rewrite unchanged - restored from the user's own words if dropped. */
   preservedEntityParameters?: readonly string[];
 
   executionStrategy: DomainExecutionStrategy;

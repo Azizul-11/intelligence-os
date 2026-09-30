@@ -1,13 +1,8 @@
+/** Outcome of an AliasRegistry.register() call. */
 import type { AliasDefinition } from "./alias-definition";
 
 export interface AliasRegistryResult {
-  /**
-   * Successfully registered aliases.
-   */
   aliases: AliasDefinition[];
 
-  /**
-   * Registration warnings.
-   */
   warnings?: string[];
 }

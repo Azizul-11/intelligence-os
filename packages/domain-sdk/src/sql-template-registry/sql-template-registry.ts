@@ -1,3 +1,4 @@
+/** CRUD contract for registering and looking up SQL templates. */
 import type { SqlTemplateDefinition } from "./sql-template-definition";
 import type { SqlTemplateRegistration } from "./sql-template-registration";
 import type { SqlTemplateRegistryContext } from "./sql-template-registry-context";

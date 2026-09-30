@@ -1,6 +1,4 @@
-/**
- * Capabilities supported by a Domain Pack.
- */
+/** A capability a Domain Pack declares support for. */
 export interface DomainCapability {
   id: string;
   name: string;

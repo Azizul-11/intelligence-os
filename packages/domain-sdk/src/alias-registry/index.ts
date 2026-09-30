@@ -1,3 +1,4 @@
+/** Public exports for the alias registry. */
 export * from "./alias-definition";
 export * from "./alias-registration";
 export * from "./alias-registry";

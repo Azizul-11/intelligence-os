@@ -1,6 +1,4 @@
-/**
- * Runtime configuration for the Entity Registry.
- */
+/** Options for constructing an EntityRegistry. */
 export interface EntityRegistryContext {
   strictMode?: boolean;
 }

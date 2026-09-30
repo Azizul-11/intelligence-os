@@ -1,8 +1,4 @@
-/**
- * Every first-class semantic object supported by IntelligenceOS.
- *
- * This type is intentionally domain-agnostic.
- */
+/** Every first-class semantic object type, domain-agnostic. */
 export type SemanticType =
   | "entity"
   | "concept"

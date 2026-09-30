@@ -1,3 +1,4 @@
+/** Buckets resolved semantic candidates by type (metric, entity, dimension, category, concept, benchmark, relationship). */
 import type { SemanticCandidate } from "@intelligence/semantic";
 
 import type { SemanticCollections } from "./semantic-collections";
