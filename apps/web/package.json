@@ -22,6 +22,7 @@
     "react-router-dom": "^7.18.1",
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4.3.2",
+    "thinking-orbs": "^0.3.2",
     "zustand": "^5.0.14"
   },
   "devDependencies": {

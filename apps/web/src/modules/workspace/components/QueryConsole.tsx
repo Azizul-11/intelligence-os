@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
+import { ArrowUp } from "lucide-react";
+import { ThinkingOrb } from "thinking-orbs";
 
 import { Button } from "@/shared/components/ui/button";
 import { cn } from "@/shared/lib/utils";
@@ -43,22 +45,54 @@ const LLM_PHASE = "llm-normalization";
 const LLM_PHASE_LABEL = "LLM Normalization";
 const LLM_PHASE_SUCCESS_STATUSES = new Set(["rewritten", "unchanged"]);
 
-/**
- * Example prompts covering already-verified capabilities only, per the
- * DOGFOODING 3.0 Fix / Defer Decision Report. These are plain examples that
- * populate the input - clicking one sends the identical text through the
- * same askOrchestrator() call as manual typing. No special-casing anywhere.
- */
-const EXAMPLE_PROMPTS = [
-  "highest rated hospitals",
-  "best hospitals in Texas",
-  "best hospitals for mortality",
-  "best hospitals for patient experience",
-  "how many hospitals are in California",
-  "hospitals in Texas",
-  "best hospitals for safety",
-  "which hospitals have the best overall rating and lowest mortality",
+// Clean, professional phrasings exercising the same capability breadth verified PASS in the
+// Grand 2,500 sweep's showcase doc (PSI, HCAHPS, ownership, hospital type, geography, dossiers,
+// comparisons, star ratings, condition-specific rankings) - rewritten from the sweep's slang/typo
+// test phrasings, which prove robustness but aren't the right first impression. Random 8 per load.
+const EXAMPLE_PROMPT_POOL = [
+  "Stroke mortality rate in Ohio",
+  "Hospitals with the best patient safety scores",
+  "Lowest pneumonia readmission rates nationwide",
+  "Hospital room and bathroom cleanliness ranking",
+  "Nurse communication scores in Florida",
+  "Hospitals in Texas",
+  "Hospitals in Puerto Rico",
+  "Hospitals in Oregon and Washington",
+  "Military hospitals",
+  "Show me government-owned hospitals that treat heart attacks.",
+  "Non-profit hospitals in Florida ranked by pneumonia mortality",
+  "Dossier on Cleveland Clinic",
+  "Complete profile of Cedars-Sinai Medical Center",
+  "Compare Memorial Medical Center in Illinois and Memorial Medical Center in Texas",
+  "Best hospitals in Wisconsin",
+  "Hospitals in New York City",
+  "Best hospitals in Minnesota, Wisconsin, and Iowa",
+  "Hospitals in Wayne County, Michigan",
+  "Hospitals in Cook County, Illinois, ranked by mortality",
+  "Hospitals in Miami, Florida",
+  "Hospitals in Chicago ranked by mortality",
+  "Does Mayo Clinic offer emergency services?",
+  "Hip replacement best hospital in Ohio",
+  "Critical access hospitals in Minnesota with the lowest heart failure mortality",
+  "Hospitals with the lowest stroke mortality",
+  "Which hospitals have the best PSI 90 score in Kentucky?",
+  "Hospitals in Pennsylvania with the best doctor communication scores",
+  "Hospitals with the best quietness scores in Oklahoma City",
+  "Faith-based hospitals in New York",
+  "Hospitals with emergency services in San Juan, Puerto Rico",
+  "Hospitals with emergency services in Washington, DC",
+  "For-profit acute hospitals best rated",
+  "Top public hospitals in Illinois by star rating and patient experience",
 ];
+
+function pickRandomPrompts(count: number): string[] {
+  const shuffled = [...EXAMPLE_PROMPT_POOL];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j]!, shuffled[i]!];
+  }
+  return shuffled.slice(0, count);
+}
 
 interface HistoryEntry {
   id: string;
@@ -74,16 +108,26 @@ interface HistoryEntry {
 export function QueryConsole() {
   const [question, setQuestion] = useState("");
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  // A fresh random 8 each time this component mounts (i.e. each page load/refresh).
+  const [examplePrompts] = useState(() => pickRandomPrompts(8));
   // Phase 8.10 Layer 2: Track pending interaction for next turn
   const [activePendingInteraction, setActivePendingInteraction] = useState<{
     id: string;
     kind: "clarification" | "guidance";
   } | null>(null);
 
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
   const mutation = useMutation({
-    mutationFn: ({ q, pendingId, contResp }: { q: string; pendingId?: string; contResp?: string }) => 
+    mutationFn: ({ q, pendingId, contResp }: { q: string; pendingId?: string; contResp?: string }) =>
       askOrchestrator(q, "healthcare", pendingId, contResp),
   });
+
+  // Modern chat convention: newest message stays in view, scrolled to automatically.
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [history, mutation.isPending]);
 
   function submit(q: string) {
     const trimmed = q.trim();
@@ -95,25 +139,25 @@ export function QueryConsole() {
     const startedAt = performance.now();
 
     mutation.mutate(
-      { 
-        q: trimmed, 
+      {
+        q: trimmed,
         pendingId: currentPendingId,
         contResp: isContinuation ? trimmed : undefined,
       },
       {
         onSuccess: (result) => {
           setHistory((prev) => [
-            { 
-              id: crypto.randomUUID(), 
+            ...prev,
+            {
+              id: crypto.randomUUID(),
               question: trimmed,
               result,
               clientMs: Math.round(performance.now() - startedAt),
               pendingInteractionId: result.pendingInteractionId,
               interactionKind: result.interactionKind,
             },
-            ...prev,
           ]);
-          
+
           // Phase 8.10 Layer 2: Preserve pending interaction for Turn 2
           if (result.pendingInteractionId && result.interactionKind) {
             setActivePendingInteraction({
@@ -127,6 +171,7 @@ export function QueryConsole() {
         },
         onError: (error) => {
           setHistory((prev) => [
+            ...prev,
             {
               id: crypto.randomUUID(),
               question: trimmed,
@@ -140,7 +185,6 @@ export function QueryConsole() {
               },
               clientMs: Math.round(performance.now() - startedAt),
             },
-            ...prev,
           ]);
           // Clear pending interaction on error
           setActivePendingInteraction(null);
@@ -148,20 +192,42 @@ export function QueryConsole() {
       });
 
     setQuestion("");
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
   }
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6">
-      <div className="flex flex-col gap-2">
-        <h2 className="text-lg font-semibold">
-          IntelligenceOS Dogfooding Console
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          Sends your question directly to the real orchestrator backend -
-          real semantic resolution, real planning, real deterministic
-          execution against the real warehouse. Nothing is simulated,
-          summarized, or corrected client-side.
-        </p>
+    <div className="flex h-full flex-col">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+        <div className="mx-auto flex max-w-3xl flex-col gap-4 px-6 py-6">
+          {history.length === 0 && !mutation.isPending && (
+            <div className="flex min-h-[60vh] flex-col items-center justify-center gap-6 text-center">
+              <p className="text-sm text-muted-foreground">Ask a question to get started.</p>
+              <div className="flex flex-wrap justify-center gap-2">
+                {examplePrompts.map((prompt) => (
+                  <button
+                    key={prompt}
+                    type="button"
+                    onClick={() => submit(prompt)}
+                    className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    {prompt}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {history.map((entry) => (
+            <ResultCard key={entry.id} entry={entry} onSuggestionClick={submit} />
+          ))}
+
+          {mutation.isPending && (
+            <div className="flex items-center gap-3 rounded-lg border border-border p-4">
+              <ThinkingOrb state="solving" size={20} aria-label="Running your query…" />
+              <span className="text-sm text-muted-foreground">Running your query…</span>
+            </div>
+          )}
+        </div>
       </div>
 
       <form
@@ -169,80 +235,56 @@ export function QueryConsole() {
           e.preventDefault();
           submit(question);
         }}
-        className="flex flex-col gap-3"
+        className="shrink-0 border-t border-border bg-background"
       >
-        {/* Phase 8.10 Layer 2: Show continuation context */}
-        {activePendingInteraction && (
-          <div className="rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950 p-3 text-sm">
-            <p className="font-semibold text-blue-900 dark:text-blue-100 flex items-center gap-2">
-              <span className="text-base">↪</span>
-              <span>
-                {activePendingInteraction.kind === "clarification"
-                  ? "Please clarify your previous question"
-                  : "Please select an alternative capability"}
-              </span>
-            </p>
-          </div>
-        )}
-        
-        <textarea
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          placeholder={
-            activePendingInteraction
-              ? activePendingInteraction.kind === "clarification"
-                ? "Enter the location or identifier..."
-                : "Enter your capability choice..."
-              : "Ask a question, e.g. &quot;highest rated hospitals&quot;"
-          }
-          rows={3}
-          className="w-full resize-none rounded-lg border border-border bg-background p-3 text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              submit(question);
-            }
-          }}
-        />
-
-        <div className="flex items-center justify-between gap-3">
-          {/* Phase 8.10 Layer 2: Hide examples during continuation */}
-          {!activePendingInteraction && (
-            <div className="flex flex-wrap gap-2">
-              {EXAMPLE_PROMPTS.map((prompt) => (
-                <button
-                  key={prompt}
-                  type="button"
-                  onClick={() => setQuestion(prompt)}
-                  className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-                >
-                  {prompt}
-                </button>
-              ))}
+        <div className="mx-auto flex max-w-3xl flex-col gap-2 px-6 py-4">
+          {/* Phase 8.10 Layer 2: Show continuation context */}
+          {activePendingInteraction && (
+            <div className="rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950 p-3 text-sm">
+              <p className="font-semibold text-blue-900 dark:text-blue-100 flex items-center gap-2">
+                <span className="text-base">↪</span>
+                <span>
+                  {activePendingInteraction.kind === "clarification"
+                    ? "Please clarify your previous question"
+                    : "Please select an alternative capability"}
+                </span>
+              </p>
             </div>
           )}
 
-          <Button
-            type="submit"
-            disabled={mutation.isPending || !question.trim()}
-            className={activePendingInteraction ? "ml-auto" : ""}
-          >
-            {mutation.isPending ? "Sending…" : "Send"}
-          </Button>
+          <div className="flex items-end gap-2">
+            <textarea
+              ref={textareaRef}
+              value={question}
+              onChange={(e) => {
+                setQuestion(e.target.value);
+                const el = e.target;
+                el.style.height = "auto";
+                el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+              }}
+              placeholder={
+                activePendingInteraction
+                  ? activePendingInteraction.kind === "clarification"
+                    ? "Enter the location or identifier..."
+                    : "Enter your capability choice..."
+                  : "Ask a question, e.g. highest rated hospitals"
+              }
+              rows={1}
+              className="max-h-40 w-full resize-none rounded-lg border border-border bg-background p-3 text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  submit(question);
+                }
+              }}
+            />
+
+            <Button type="submit" size="icon" disabled={mutation.isPending || !question.trim()} aria-label="Send">
+              <ArrowUp className="size-4" aria-hidden="true" />
+            </Button>
+          </div>
         </div>
       </form>
-
-      <div className="flex flex-col gap-4">
-        {history.length === 0 && (
-          <p className="text-sm text-muted-foreground">
-            No queries sent yet.
-          </p>
-        )}
-
-        {history.map((entry) => (
-          <ResultCard key={entry.id} entry={entry} onSuggestionClick={submit} />
-        ))}
-      </div>
     </div>
   );
 }
@@ -381,11 +423,7 @@ function ResultCard({
         </pre>
       )}
 
-      {/* Tier1 Task 6: every response (success, clarification, guidance,
-          or plain failure) can carry 2-3 already-verified-answerable
-          follow-up chips - reuses the exact same submit() path a manual
-          question or an EXAMPLE_PROMPTS click already uses, so clicking
-          one sends it immediately, no special-casing. */}
+      {/* Tier1 Task 6: every response can carry 2-3 follow-up chips, same submit() path as a manual question. */}
       {"suggestions" in result && result.suggestions && result.suggestions.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-2 border-t border-border/50 pt-3">
           {result.suggestions.map((suggestion) => (

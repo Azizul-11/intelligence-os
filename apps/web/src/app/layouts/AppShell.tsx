@@ -13,7 +13,8 @@ type AppShellProps = {
 export function AppShell({
   children,
 }: AppShellProps) {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // Mobile-first: closed by default below the 768px breakpoint so the chat column isn't squeezed; the header toggle still opens it on demand.
+  const [sidebarOpen, setSidebarOpen] = useState(() => typeof window === "undefined" || window.innerWidth >= 768);
 
   return (
     <div className="flex h-screen flex-col">
