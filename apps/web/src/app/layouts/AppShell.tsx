@@ -1,7 +1,6 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import {
-  Footer,
   Header,
   MainContent,
   Sidebar,
@@ -14,19 +13,19 @@ type AppShellProps = {
 export function AppShell({
   children,
 }: AppShellProps) {
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+
   return (
     <div className="flex h-screen flex-col">
-      <Header />
+      <Header sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen((open) => !open)} />
 
       <div className="flex flex-1 overflow-hidden">
-        <Sidebar />
+        <Sidebar open={sidebarOpen} />
 
         <MainContent>
           {children}
         </MainContent>
       </div>
-
-      <Footer />
     </div>
   );
 }

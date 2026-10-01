@@ -109,3 +109,5 @@ docs
 .agents
 .kiro
 .claude
+apps/web/.impeccable
+apps/web/PRODUCT.md
