@@ -28,7 +28,7 @@ export const router = createBrowserRouter([
     errorElement: <RouteErrorBoundary />,
     children: [
       {
-        path: "chat",
+        path: "chat/:conversationId?",
         element: withSuspense(<WorkspacePage />),
       },
       {

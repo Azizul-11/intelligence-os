@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { ArrowUp } from "lucide-react";
+import { useNavigate, useParams } from "react-router-dom";
 import { ThinkingOrb } from "thinking-orbs";
 
 import { Button } from "@/shared/components/ui/button";
@@ -12,6 +13,7 @@ import {
   type LlmCall,
   type PhaseGateTraceEntry,
 } from "../api/orchestrator";
+import { type ChatEntry, useChatHistory } from "../stores/chat-history.store";
 
 /**
  * Tier0 Task 2 (F8) Phase 2: the same 7 gates
@@ -94,102 +96,97 @@ function pickRandomPrompts(count: number): string[] {
   return shuffled.slice(0, count);
 }
 
-interface HistoryEntry {
-  id: string;
-  question: string;
-  result: ChatResponse | { success: false; error: string; answer: "" };
-  // Browser-measured round trip (network + cold start + server) for this request
-  clientMs?: number;
-  // Phase 8.10 Layer 2: Track continuation state
-  pendingInteractionId?: string;
-  interactionKind?: "clarification" | "guidance";
-}
+type SubmitVariables = {
+  conversationId: string;
+  q: string;
+  pendingId?: string;
+  contResp?: string;
+  startedAt: number;
+};
 
 export function QueryConsole() {
+  const { conversationId } = useParams();
+  const navigate = useNavigate();
+  const conversation = useChatHistory((state) => (conversationId ? state.conversations[conversationId] : undefined));
+  const startConversation = useChatHistory((state) => state.startConversation);
+  const appendEntry = useChatHistory((state) => state.appendEntry);
+
   const [question, setQuestion] = useState("");
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
-  // A fresh random 8 each time this component mounts (i.e. each page load/refresh).
-  const [examplePrompts] = useState(() => pickRandomPrompts(8));
-  // Phase 8.10 Layer 2: Track pending interaction for next turn
-  const [activePendingInteraction, setActivePendingInteraction] = useState<{
-    id: string;
-    kind: "clarification" | "guidance";
-  } | null>(null);
+  // A fresh random 8 for each new chat, so starting over never shows the same prompts.
+  const examplePrompts = useMemo(() => pickRandomPrompts(8), [conversationId]);
+
+  const history = conversation?.entries ?? [];
+  const activePendingInteraction = conversation?.pendingInteraction ?? null;
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Saved from the mutation's own options, not per-call callbacks, so a reply still lands in its chat if the user navigates away first.
   const mutation = useMutation({
-    mutationFn: ({ q, pendingId, contResp }: { q: string; pendingId?: string; contResp?: string }) =>
-      askOrchestrator(q, "healthcare", pendingId, contResp),
+    mutationFn: ({ q, pendingId, contResp }: SubmitVariables) => askOrchestrator(q, "healthcare", pendingId, contResp),
+    onSuccess: (result, vars) => {
+      appendEntry(
+        vars.conversationId,
+        {
+          id: crypto.randomUUID(),
+          question: vars.q,
+          result,
+          clientMs: Math.round(performance.now() - vars.startedAt),
+          pendingInteractionId: result.pendingInteractionId,
+          interactionKind: result.interactionKind,
+        },
+        // Phase 8.10 Layer 2: Preserve pending interaction for Turn 2; a normal answer clears it.
+        result.pendingInteractionId && result.interactionKind
+          ? { id: result.pendingInteractionId, kind: result.interactionKind }
+          : null,
+      );
+    },
+    onError: (error, vars) => {
+      appendEntry(
+        vars.conversationId,
+        {
+          id: crypto.randomUUID(),
+          question: vars.q,
+          result: {
+            success: false,
+            answer: "",
+            error: error instanceof Error ? error.message : "Request failed.",
+          },
+          clientMs: Math.round(performance.now() - vars.startedAt),
+        },
+        null,
+      );
+    },
   });
+
+  const isPendingHere = mutation.isPending && mutation.variables?.conversationId === conversationId;
 
   // Modern chat convention: newest message stays in view, scrolled to automatically.
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [history, mutation.isPending]);
+  }, [history, isPendingHere]);
 
   function submit(q: string) {
     const trimmed = q.trim();
     if (!trimmed || mutation.isPending) return;
 
+    const targetId = conversation?.id ?? crypto.randomUUID();
+    if (!conversation) {
+      startConversation(targetId, trimmed);
+      navigate(`/chat/${targetId}`);
+    }
+
     // Phase 8.10 Layer 2: Capture current pending state before mutation
     const currentPendingId = activePendingInteraction?.id;
     const isContinuation = activePendingInteraction !== null;
-    const startedAt = performance.now();
 
-    mutation.mutate(
-      {
-        q: trimmed,
-        pendingId: currentPendingId,
-        contResp: isContinuation ? trimmed : undefined,
-      },
-      {
-        onSuccess: (result) => {
-          setHistory((prev) => [
-            ...prev,
-            {
-              id: crypto.randomUUID(),
-              question: trimmed,
-              result,
-              clientMs: Math.round(performance.now() - startedAt),
-              pendingInteractionId: result.pendingInteractionId,
-              interactionKind: result.interactionKind,
-            },
-          ]);
-
-          // Phase 8.10 Layer 2: Preserve pending interaction for Turn 2
-          if (result.pendingInteractionId && result.interactionKind) {
-            setActivePendingInteraction({
-              id: result.pendingInteractionId,
-              kind: result.interactionKind,
-            });
-          } else {
-            // Clear after Turn 2 or normal query
-            setActivePendingInteraction(null);
-          }
-        },
-        onError: (error) => {
-          setHistory((prev) => [
-            ...prev,
-            {
-              id: crypto.randomUUID(),
-              question: trimmed,
-              result: {
-                success: false,
-                answer: "",
-                error:
-                  error instanceof Error
-                    ? error.message
-                    : "Request failed.",
-              },
-              clientMs: Math.round(performance.now() - startedAt),
-            },
-          ]);
-          // Clear pending interaction on error
-          setActivePendingInteraction(null);
-        },
-      });
+    mutation.mutate({
+      conversationId: targetId,
+      q: trimmed,
+      pendingId: currentPendingId,
+      contResp: isContinuation ? trimmed : undefined,
+      startedAt: performance.now(),
+    });
 
     setQuestion("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
@@ -199,7 +196,7 @@ export function QueryConsole() {
     <div className="flex h-full flex-col">
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-3xl flex-col gap-4 px-6 py-6">
-          {history.length === 0 && !mutation.isPending && (
+          {history.length === 0 && !isPendingHere && (
             <div className="flex min-h-[60vh] flex-col items-center justify-center gap-6 text-center">
               <p className="text-sm text-muted-foreground">Ask a question to get started.</p>
               <div className="flex flex-wrap justify-center gap-2">
@@ -221,7 +218,7 @@ export function QueryConsole() {
             <ResultCard key={entry.id} entry={entry} onSuggestionClick={submit} />
           ))}
 
-          {mutation.isPending && (
+          {isPendingHere && (
             <div className="flex items-center gap-3 rounded-lg border border-border p-4">
               <ThinkingOrb state="solving" size={20} aria-label="Running your query…" />
               <span className="text-sm text-muted-foreground">Running your query…</span>
@@ -293,7 +290,7 @@ function ResultCard({
   entry,
   onSuggestionClick,
 }: {
-  entry: HistoryEntry;
+  entry: ChatEntry;
   onSuggestionClick: (question: string) => void;
 }) {
   const { question, result } = entry;
