@@ -130,7 +130,8 @@ export function QueryConsole() {
   return (
     <div className="flex h-full">
       <div className="flex min-w-0 flex-1 flex-col">
-      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+      {/* contain-paint keeps content that scrolls inside this box (an open process panel, a long table) from adding height to the page. */}
+      <div ref={scrollRef} className="contain-paint flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 py-6 sm:px-6">
           {history.length === 0 && !isPendingHere && (
             <div className="flex min-h-[60vh] flex-col items-center justify-center gap-6 text-center">

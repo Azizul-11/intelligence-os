@@ -30,7 +30,7 @@ export interface PhaseGateTraceEntry {
 
 /** One LLM gateway call the backend made for a response. `provider: "none"` = every tier failed or the deadline ran out. */
 export interface LlmCall {
-  role: "normalizer" | "summary" | "suggestions" | "conversational";
+  role: "normalizer" | "summary" | "suggestions" | "conversational" | "intent";
   provider: string;
   model: string;
   keyId: string;

@@ -88,6 +88,13 @@ var PhaseGateTracker = class {
 };
 
 // src/create-runtime-engine.ts
+var TRACE_TEXT_MAX = 200;
+function traceText(text) {
+  return text.length > TRACE_TEXT_MAX ? `${text.slice(0, TRACE_TEXT_MAX - 3)}...` : text;
+}
+function describeParameters(parameters) {
+  return traceText(Object.entries(parameters).map(([key, value]) => `${key}=${String(value)}`).join("; "));
+}
 function valuesMatch(a, b) {
   if (Array.isArray(a) && Array.isArray(b)) {
     return a.length === b.length && a.every((value, index) => value === b[index]);
@@ -204,7 +211,14 @@ function createRuntimeEngine({
         tracker.exit(
           "semantic-candidate-resolution",
           semanticResult.resolved ? "ok" : "unresolved",
-          0
+          0,
+          void 0,
+          {
+            phrases: traceText(semanticResult.matches.map((match) => match.phrase).join("; ")),
+            canonicalKeys: traceText(semanticResult.matches.map((match) => match.canonicalKey).join("; ")),
+            candidateCount: semanticResult.matches.length,
+            semanticType: String(semanticResult.semanticType ?? "none")
+          }
         );
         console.log("========== SEMANTIC RESULT ==========");
         console.log(
@@ -268,6 +282,10 @@ function createRuntimeEngine({
         const identitiesPinnedByContinuation = request.identityAlreadyResolved === true || request.forcedIdentityCandidate !== void 0 || (request.companionEntities?.length ?? 0) > 0;
         if (!identitiesPinnedByContinuation && semanticResult.identityNotFound && semanticResult.identityNotFound.length > 0) {
           const missing = semanticResult.identityNotFound[0];
+          tracker.exit("entity-identity-ambiguity", "not-found", 0, "not_directly_answerable", {
+            missingPhrase: traceText(missing.phrase),
+            missingEntityId: missing.entityId
+          });
           return {
             success: false,
             rows: [],
@@ -277,6 +295,13 @@ function createRuntimeEngine({
           };
         }
         if (semanticResult.identityAmbiguities && semanticResult.identityAmbiguities.length > 0) {
+          tracker.exit("entity-identity-ambiguity", "ambiguous", 0, "ambiguous", {
+            ambiguousPhrases: traceText(semanticResult.identityAmbiguities.map((ambiguity) => ambiguity.phrase ?? "").join("; ")),
+            candidateCount: semanticResult.identityAmbiguities.reduce(
+              (sum, ambiguity) => sum + (ambiguity.candidates?.length ?? 0),
+              0
+            )
+          });
           return {
             success: false,
             rows: [],
@@ -297,6 +322,10 @@ function createRuntimeEngine({
             semanticMatches: semanticResult.matches
           };
         }
+        tracker.exit("entity-identity-ambiguity", "ok", 0, void 0, {
+          ambiguityCount: 0,
+          pinnedByContinuation: identitiesPinnedByContinuation
+        });
         if (!semanticResult.resolved) {
           return {
             success: false,
@@ -428,6 +457,16 @@ function createRuntimeEngine({
         tracker.enter("execution-plan-building");
         const executionPlan = executionPlanMapper.map(plan.plan);
         capturedExecutionPlan = executionPlan;
+        tracker.exit("execution-plan-building", "ok", 0, void 0, {
+          operation: executionPlan.operation,
+          metric: executionPlan.metric,
+          metricCount: executionPlan.metrics?.length ?? 1,
+          filterCount: executionPlan.filters.length,
+          filters: traceText(
+            executionPlan.filters.map((filter) => `${filter.field} ${filter.operator} ${String(filter.value)}`).join("; ")
+          ),
+          limit: executionPlan.limit?.value ?? "none"
+        });
         console.log("========== EXECUTION PLAN ==========");
         console.log(JSON.stringify(executionPlan, null, 2));
         console.log("====================================");
@@ -435,6 +474,7 @@ function createRuntimeEngine({
         if (!request.identityAlreadyResolved && runtime.domain.executionStrategy.checkPlanAmbiguity) {
           const planAmbiguities = runtime.domain.executionStrategy.checkPlanAmbiguity(executionPlan);
           if (planAmbiguities && planAmbiguities.length > 0) {
+            tracker.exit("plan-ambiguity-check", "ambiguous", 0, "ambiguous", { ambiguityCount: planAmbiguities.length });
             return {
               success: false,
               rows: [],
@@ -455,6 +495,7 @@ function createRuntimeEngine({
             };
           }
         }
+        tracker.exit("plan-ambiguity-check", "ok", 0, void 0, { ambiguityCount: 0 });
         const completeness = assessPlanCompleteness(
           semanticResult.matches,
           executionPlan,
@@ -509,6 +550,10 @@ function createRuntimeEngine({
             },
             runtime.domain.metrics
           );
+          tracker.exit("capability-template-availability", "unavailable", 0, "not_directly_answerable", {
+            templateId: String(templateId),
+            reason: "not-registered"
+          });
           return {
             success: false,
             rows: [],
@@ -531,6 +576,10 @@ function createRuntimeEngine({
             },
             runtime.domain.metrics
           );
+          tracker.exit("capability-template-availability", "unavailable", 0, "not_directly_answerable", {
+            templateId: String(templateId),
+            reason: "disabled"
+          });
           return {
             success: false,
             rows: [],
@@ -543,6 +592,10 @@ function createRuntimeEngine({
             }
           };
         }
+        tracker.exit("capability-template-availability", "ok", 0, void 0, {
+          templateId: String(templateId),
+          templateName: template.template.name
+        });
         const parameters = runtime.domain.executionStrategy.resolveParametersFromPlan ? runtime.domain.executionStrategy.resolveParametersFromPlan(executionPlan) : runtime.domain.executionStrategy.resolveParameters(
           plan.plan.parameters
         );
@@ -551,10 +604,15 @@ function createRuntimeEngine({
         console.log("================================");
         const templateParameters = template.template.parameters ?? [];
         tracker.enter("parameter-filter-compatibility");
-        const hasIncompatibleFilter = executionPlan.filters.some(
+        const incompatibleFilterCount = executionPlan.filters.filter(
           (filter) => !isFilterCompatibleWithTemplate(filter, parameters, templateParameters)
-        );
+        ).length;
+        const hasIncompatibleFilter = incompatibleFilterCount > 0;
         if (hasIncompatibleFilter) {
+          tracker.exit("parameter-filter-compatibility", "incompatible", 0, "not_directly_answerable", {
+            incompatibleFilterCount,
+            boundParameters: describeParameters(parameters)
+          });
           return {
             success: false,
             rows: [],
@@ -565,6 +623,10 @@ function createRuntimeEngine({
             }
           };
         }
+        tracker.exit("parameter-filter-compatibility", "ok", 0, void 0, {
+          incompatibleFilterCount: 0,
+          boundParameters: describeParameters(parameters)
+        });
         const missingRequiredParameter = templateParameters.some(
           (parameter) => parameter.required && (parameters[parameter.name] === void 0 || parameters[parameter.name] === null)
         );
@@ -581,6 +643,9 @@ function createRuntimeEngine({
         }
         tracker.enter("deterministic-warehouse-execution");
         if (request.dryRun) {
+          tracker.exit("deterministic-warehouse-execution", "dry-run", 0, void 0, {
+            templateId: String(templateId)
+          });
           return {
             success: true,
             rows: [],
@@ -591,6 +656,17 @@ function createRuntimeEngine({
         const primaryResult = await executor.execute(
           template.template,
           parameters
+        );
+        tracker.exit(
+          "deterministic-warehouse-execution",
+          primaryResult.success ? "ok" : "failed",
+          1,
+          void 0,
+          {
+            templateId: String(templateId),
+            rowCount: primaryResult.rowCount,
+            boundParameters: describeParameters(parameters)
+          }
         );
         if (!primaryResult.success) {
           return {
@@ -897,8 +973,9 @@ function createRuntimeEngine({
       tracker.exit(
         "response",
         result.success ? "ok" : "refused",
-        result.rowCount ?? 0,
-        result.answerability?.status
+        0,
+        result.answerability?.status,
+        { rowCount: result.rowCount ?? 0 }
       );
       const finalResult = { ...result, trace: tracker.gates };
       request.onResult?.(finalResult);

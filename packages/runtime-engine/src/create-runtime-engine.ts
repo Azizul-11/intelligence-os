@@ -15,6 +15,15 @@ import { buildClarificationMessage } from "./build-clarification-message";
 import { buildGuidanceMessage } from "./build-guidance-message";
 import { PhaseGateTracker, type PhaseGateDetail } from "./phase-gate-tracker";
 
+// Diagnostic detail for trace entries: flat strings, capped so one large result cannot inflate every response.
+const TRACE_TEXT_MAX = 200;
+function traceText(text: string): string {
+  return text.length > TRACE_TEXT_MAX ? `${text.slice(0, TRACE_TEXT_MAX - 3)}...` : text;
+}
+function describeParameters(parameters: object): string {
+  return traceText(Object.entries(parameters).map(([key, value]) => `${key}=${String(value)}`).join("; "));
+}
+
 /** Phase 8.8: compares by VALUE, not parameter NAME, so a Domain's own renaming (e.g. "hospital" -> "hospitalId") never breaks this check - keeps it Domain-agnostic. */
 function valuesMatch(a: unknown, b: unknown): boolean {
   if (Array.isArray(a) && Array.isArray(b)) {
@@ -278,6 +287,13 @@ export function createRuntimeEngine({
         "semantic-candidate-resolution",
         semanticResult.resolved ? "ok" : "unresolved",
         0,
+        undefined,
+        {
+          phrases: traceText(semanticResult.matches.map((match) => match.phrase).join("; ")),
+          canonicalKeys: traceText(semanticResult.matches.map((match) => match.canonicalKey).join("; ")),
+          candidateCount: semanticResult.matches.length,
+          semanticType: String(semanticResult.semanticType ?? "none"),
+        },
       );
 
 console.log("========== SEMANTIC RESULT ==========");
@@ -399,6 +415,10 @@ console.log("=====================================");
         semanticResult.identityNotFound.length > 0
       ) {
         const missing = semanticResult.identityNotFound[0]!;
+        tracker.exit("entity-identity-ambiguity", "not-found", 0, "not_directly_answerable", {
+          missingPhrase: traceText(missing.phrase),
+          missingEntityId: missing.entityId,
+        });
 
         return {
           success: false,
@@ -410,6 +430,13 @@ console.log("=====================================");
       }
 
       if (semanticResult.identityAmbiguities && semanticResult.identityAmbiguities.length > 0) {
+        tracker.exit("entity-identity-ambiguity", "ambiguous", 0, "ambiguous", {
+          ambiguousPhrases: traceText(semanticResult.identityAmbiguities.map((ambiguity) => ambiguity.phrase ?? "").join("; ")),
+          candidateCount: semanticResult.identityAmbiguities.reduce(
+            (sum, ambiguity) => sum + (ambiguity.candidates?.length ?? 0),
+            0,
+          ),
+        });
         return {
           success: false,
           rows: [],
@@ -430,6 +457,11 @@ console.log("=====================================");
           semanticMatches: semanticResult.matches,
         };
       }
+
+      tracker.exit("entity-identity-ambiguity", "ok", 0, undefined, {
+        ambiguityCount: 0,
+        pinnedByContinuation: identitiesPinnedByContinuation,
+      });
 
       if (!semanticResult.resolved) {
         return {
@@ -634,6 +666,18 @@ console.log("=====================================");
 tracker.enter("execution-plan-building");
 const executionPlan = executionPlanMapper.map(plan.plan);
 capturedExecutionPlan = executionPlan;
+tracker.exit("execution-plan-building", "ok", 0, undefined, {
+  operation: executionPlan.operation,
+  metric: executionPlan.metric,
+  metricCount: executionPlan.metrics?.length ?? 1,
+  filterCount: executionPlan.filters.length,
+  filters: traceText(
+    executionPlan.filters
+      .map((filter) => `${filter.field} ${filter.operator} ${String(filter.value)}`)
+      .join("; "),
+  ),
+  limit: executionPlan.limit?.value ?? "none",
+});
 
 console.log("========== EXECUTION PLAN ==========");
 console.log(JSON.stringify(executionPlan, null, 2));
@@ -660,6 +704,7 @@ if (!request.identityAlreadyResolved && runtime.domain.executionStrategy.checkPl
   const planAmbiguities = runtime.domain.executionStrategy.checkPlanAmbiguity(executionPlan);
 
   if (planAmbiguities && planAmbiguities.length > 0) {
+    tracker.exit("plan-ambiguity-check", "ambiguous", 0, "ambiguous", { ambiguityCount: planAmbiguities.length });
     return {
       success: false,
       rows: [],
@@ -680,6 +725,7 @@ if (!request.identityAlreadyResolved && runtime.domain.executionStrategy.checkPl
     };
   }
 }
+tracker.exit("plan-ambiguity-check", "ok", 0, undefined, { ambiguityCount: 0 });
 
 // Pre-Phase 8: observe (never correct) whether every semantically resolved candidate ended up represented in the
 // plan just built. Uses the raw, pre-collection candidate list (semanticResult.matches) rather than
@@ -769,6 +815,10 @@ if (template.template) {
           runtime.domain.metrics,
         );
 
+        tracker.exit("capability-template-availability", "unavailable", 0, "not_directly_answerable", {
+          templateId: String(templateId),
+          reason: "not-registered",
+        });
         return {
           success: false,
           rows: [],
@@ -803,6 +853,10 @@ if (template.template) {
           runtime.domain.metrics,
         );
 
+        tracker.exit("capability-template-availability", "unavailable", 0, "not_directly_answerable", {
+          templateId: String(templateId),
+          reason: "disabled",
+        });
         return {
           success: false,
           rows: [],
@@ -817,6 +871,11 @@ if (template.template) {
       }
 
 // Phase 5.3: Use ExecutionPlan if domain strategy supports it
+tracker.exit("capability-template-availability", "ok", 0, undefined, {
+  templateId: String(templateId),
+  templateName: template.template.name,
+});
+
 const parameters = runtime.domain.executionStrategy.resolveParametersFromPlan
   ? runtime.domain.executionStrategy.resolveParametersFromPlan(executionPlan)
   : runtime.domain.executionStrategy.resolveParameters(
@@ -841,11 +900,16 @@ console.log("================================");
 const templateParameters = template.template.parameters ?? [];
 
 tracker.enter("parameter-filter-compatibility");
-const hasIncompatibleFilter = executionPlan.filters.some(
+const incompatibleFilterCount = executionPlan.filters.filter(
   (filter) => !isFilterCompatibleWithTemplate(filter, parameters, templateParameters),
-);
+).length;
+const hasIncompatibleFilter = incompatibleFilterCount > 0;
 
 if (hasIncompatibleFilter) {
+  tracker.exit("parameter-filter-compatibility", "incompatible", 0, "not_directly_answerable", {
+    incompatibleFilterCount,
+    boundParameters: describeParameters(parameters),
+  });
   return {
     success: false,
     rows: [],
@@ -856,6 +920,11 @@ if (hasIncompatibleFilter) {
     },
   };
 }
+
+tracker.exit("parameter-filter-compatibility", "ok", 0, undefined, {
+  incompatibleFilterCount: 0,
+  boundParameters: describeParameters(parameters),
+});
 
 // Tier0 Task 3 Full Fix ("Gate 6"): a required template parameter with
 // no resolved value (e.g. an entity that never resolved at all, or
@@ -895,6 +964,9 @@ tracker.enter("deterministic-warehouse-execution");
 // synthetic successful result instead of calling the executor - see
 // RuntimeRequest.dryRun's own doc comment for the accepted trade-off.
 if (request.dryRun) {
+  tracker.exit("deterministic-warehouse-execution", "dry-run", 0, undefined, {
+    templateId: String(templateId),
+  });
   return {
     success: true,
     rows: [],
@@ -906,6 +978,17 @@ if (request.dryRun) {
 const primaryResult = await executor.execute(
   template.template,
   parameters,
+);
+tracker.exit(
+  "deterministic-warehouse-execution",
+  primaryResult.success ? "ok" : "failed",
+  1,
+  undefined,
+  {
+    templateId: String(templateId),
+    rowCount: primaryResult.rowCount,
+    boundParameters: describeParameters(parameters),
+  },
 );
 
 // Phase 8.7: every prior gate above already attaches its own specific
@@ -1471,11 +1554,14 @@ return {
         }
       }
 
+      // sqlCalls is 0 here on purpose: the warehouse gate already records the real SQL count, so summing the trace
+      // counts each query once. The row count travels in detail instead of the SQL-call slot.
       tracker.exit(
         "response",
         result.success ? "ok" : "refused",
-        result.rowCount ?? 0,
+        0,
         result.answerability?.status,
+        { rowCount: result.rowCount ?? 0 },
       );
 
       const finalResult: RuntimeResult = { ...result, trace: tracker.gates };

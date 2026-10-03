@@ -1,4 +1,5 @@
-import { ChevronDown, Lightbulb, MapPin, PanelRight } from "lucide-react";
+import { useId, useState } from "react";
+import { Lightbulb, MapPin, PanelRight, Workflow } from "lucide-react";
 
 import { Button } from "@/shared/components/ui/button";
 
@@ -6,8 +7,8 @@ import { useFacilityNames } from "../lib/facility-names";
 import { withFacilityNames, type Row } from "../lib/result-format";
 import type { ChatEntry } from "../stores/chat-history.store";
 import { useCanvas } from "../stores/canvas.store";
-import { CallTrace, PhasePipeline } from "./CallTrace";
 import { CARD_LIST_LIMIT, RankedList } from "./RankedList";
+import { ProcessPanel } from "./ProcessPanel";
 
 export function ResultCard({
   entry,
@@ -18,6 +19,8 @@ export function ResultCard({
 }) {
   const { question, result } = entry;
   const openCanvas = useCanvas((state) => state.open);
+  const [processOpen, setProcessOpen] = useState(false);
+  const processId = useId();
   const success = result.success;
 
   // LLM Integration Layer 0: a conversational turn (greeting/meta-
@@ -45,8 +48,6 @@ export function ResultCard({
 
   const names = useFacilityNames();
   const namedRows = Array.isArray(rows) ? withFacilityNames(rows as Row[], names) : [];
-
-  const hasTrace = ("trace" in result && !!result.trace && result.trace.length > 0) || "llmCalls" in result;
 
   return (
     <div className="flex flex-col gap-4">
@@ -104,25 +105,46 @@ export function ResultCard({
 
       {success && !parseError && Array.isArray(rows) && rows.length > 0 && <RankedList rows={namedRows} />}
 
-      {success && !parseError && Array.isArray(rows) && rows.length > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      {/* Actions for every answer: the result count and canvas when there are rows, and the process view always. */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        {success && !parseError && Array.isArray(rows) && rows.length > 0 ? (
           <p className="text-sm text-muted-foreground">
             {rows.length > CARD_LIST_LIMIT
               ? `Showing ${CARD_LIST_LIMIT} of ${rows.length} results`
               : `${rows.length} results returned`}
           </p>
+        ) : (
+          <span />
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {success && !parseError && Array.isArray(rows) && rows.length > 0 && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => openCanvas(entry.id)}
+              className="min-h-11 gap-2 px-3"
+            >
+              <PanelRight className="size-4" aria-hidden="true" />
+              {rows.length > CARD_LIST_LIMIT ? `See all ${rows.length} in canvas` : "Open in canvas"}
+            </Button>
+          )}
           <Button
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => openCanvas(entry.id)}
+            aria-expanded={processOpen}
+            aria-controls={processOpen ? processId : undefined}
+            onClick={() => setProcessOpen((open) => !open)}
             className="min-h-11 gap-2 px-3"
           >
-            <PanelRight className="size-4" aria-hidden="true" />
-            {rows.length > CARD_LIST_LIMIT ? `See all ${rows.length} in canvas` : "Open in canvas"}
+            <Workflow className="size-4" aria-hidden="true" />
+            {processOpen ? "Hide process" : "View process"}
           </Button>
         </div>
-      )}
+      </div>
+
+      {processOpen && <ProcessPanel id={processId} result={result} clientMs={entry.clientMs} />}
 
       {success && !parseError && Array.isArray(rows) && rows.length === 0 && (
         <p className="text-sm text-muted-foreground">
@@ -152,19 +174,6 @@ export function ResultCard({
         </div>
       )}
 
-      {/* The gate trace and LLM calls are for debugging; they stay one click away, below the answer. */}
-      {hasTrace && (
-        <details className="group text-sm text-muted-foreground">
-          <summary className="inline-flex min-h-11 cursor-pointer select-none items-center gap-1.5 rounded-md transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-            How this was answered
-            <ChevronDown className="size-4 transition-transform group-open:rotate-180" aria-hidden="true" />
-          </summary>
-          <div className="mt-2">
-            {"trace" in result && result.trace && result.trace.length > 0 && <PhasePipeline trace={result.trace} />}
-            {"llmCalls" in result && <CallTrace result={result} clientMs={entry.clientMs} />}
-          </div>
-        </details>
-      )}
       </div>
     </div>
   );

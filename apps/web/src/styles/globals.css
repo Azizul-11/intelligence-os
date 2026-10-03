@@ -31,22 +31,22 @@
   --radius-md: 5px;
   --radius-lg: 6px;
 
-  --color-background: oklch(11% 0.002 90);
+  --color-background: oklch(17% 0.002 90);
   --color-foreground: oklch(96% 0.002 90);
 
-  --color-surface: oklch(14% 0.003 90);
+  --color-surface: oklch(21% 0.003 90);
   --color-surface-foreground: oklch(96% 0.002 90);
 
   --color-primary: oklch(74% 0.15 68);
   --color-primary-foreground: oklch(16% 0.02 68);
 
-  --color-secondary: oklch(18% 0.004 90);
+  --color-secondary: oklch(25% 0.004 90);
   --color-secondary-foreground: oklch(94% 0.002 90);
 
-  --color-muted: oklch(16% 0.003 90);
+  --color-muted: oklch(23% 0.003 90);
   --color-muted-foreground: oklch(66% 0.006 90);
 
-  --color-accent: oklch(18% 0.004 90);
+  --color-accent: oklch(25% 0.004 90);
   --color-accent-foreground: oklch(96% 0.002 90);
 
   --color-success: oklch(68% 0.15 155);
@@ -55,8 +55,8 @@
   --color-destructive: oklch(62% 0.19 25);
   --color-destructive-foreground: oklch(98% 0.005 25);
 
-  --color-border: oklch(24% 0.005 90);
-  --color-input: oklch(24% 0.005 90);
+  --color-border: oklch(33% 0.005 90);
+  --color-input: oklch(33% 0.005 90);
   --color-ring: oklch(74% 0.15 68 / 0.5);
 }
 
@@ -198,6 +198,23 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .canvas-enter {
+    animation: none;
+  }
+}
+
+.process-enter {
+  animation: process-enter 200ms ease-out;
+}
+
+@keyframes process-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .process-enter {
     animation: none;
   }
 }
