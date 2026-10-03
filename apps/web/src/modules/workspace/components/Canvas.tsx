@@ -93,7 +93,7 @@ export function Canvas({ entry, onClose }: { entry: ChatEntry; onClose: () => vo
       ref={asideRef}
       aria-label="Result canvas"
       style={{ "--canvas-width": width ? `${width}px` : "46%" } as CSSProperties}
-      className="canvas-enter fixed inset-0 z-40 flex min-h-0 flex-col bg-surface lg:relative lg:z-auto lg:my-3 lg:mr-3 lg:w-(--canvas-width) lg:shrink-0 lg:rounded-2xl lg:border lg:border-border"
+      className="canvas-enter fixed inset-0 z-40 flex min-h-0 flex-col bg-surface lg:relative lg:z-auto lg:my-3 lg:mr-3 lg:w-(--canvas-width) lg:shrink-0 lg:rounded-xl lg:border lg:border-border"
     >
       <div
         role="separator"
@@ -118,7 +118,7 @@ export function Canvas({ entry, onClose }: { entry: ChatEntry; onClose: () => vo
           type="button"
           onClick={() => downloadCsv(entry.question, rows)}
           disabled={rows.length === 0}
-          className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+          className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
         >
           <Download className="size-3.5" aria-hidden="true" />
           Export CSV
