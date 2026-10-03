@@ -58,7 +58,7 @@ export function RouteErrorBoundary() {
       <button
         type="button"
         onClick={() => window.location.reload()}
-        className="mt-2 inline-flex h-10 items-center justify-center rounded-lg bg-[linear-gradient(180deg,var(--color-primary),color-mix(in_oklch,var(--color-primary),black_14%))] px-5 text-sm font-medium text-primary-foreground transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="mt-2 inline-flex h-10 items-center justify-center rounded-lg ember-cta px-5 text-sm font-medium text-primary-foreground transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         Try again
       </button>

@@ -8,7 +8,7 @@ const FOOTER_COLUMNS = [
   {
     heading: "Product",
     links: [
-      { label: "Live Workspace", to: "/chat", external: false },
+      { label: "Open the chat", to: "/chat", external: false },
       { label: "Settings", to: "/settings", external: false },
     ],
   },
@@ -33,14 +33,14 @@ export function LandingFooter() {
           <div>
             <span className="text-sm font-semibold tracking-tight text-foreground">IntelligenceOS</span>
             <p className="mt-2 max-w-xs text-sm leading-relaxed text-muted-foreground">
-              A domain-agnostic analytical intelligence platform. Deterministic execution, verified
-              summaries, zero hallucinated facts.
+              A domain-agnostic analytical intelligence platform. Deterministic execution, and no figure is ever
+              produced by a model.
             </p>
             <a
               href={REPO_URL}
               target="_blank"
               rel="noreferrer"
-              className="mt-4 inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+              className="mt-4 inline-flex min-h-6 items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
               <GithubMark className="size-4" />
               GitHub
@@ -60,7 +60,7 @@ export function LandingFooter() {
                         href={link.to}
                         target="_blank"
                         rel="noreferrer"
-                        className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                        className="inline-flex min-h-6 items-center text-sm text-muted-foreground transition-colors hover:text-foreground"
                       >
                         {link.label}
                       </a>
@@ -69,7 +69,7 @@ export function LandingFooter() {
                     <li key={link.label}>
                       <a
                         href={link.to}
-                        className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                        className="inline-flex min-h-6 items-center text-sm text-muted-foreground transition-colors hover:text-foreground"
                       >
                         {link.label}
                       </a>
@@ -78,7 +78,7 @@ export function LandingFooter() {
                     <li key={link.label}>
                       <Link
                         to={link.to}
-                        className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                        className="inline-flex min-h-6 items-center text-sm text-muted-foreground transition-colors hover:text-foreground"
                       >
                         {link.label}
                       </Link>
@@ -91,7 +91,7 @@ export function LandingFooter() {
         </div>
 
         <div className="mt-10 border-t border-border pt-6 text-xs text-muted-foreground">
-          <span>Copyright {new Date().getFullYear()} IntelligenceOS. Domain SDK #1: Healthcare.</span>
+          <span>Copyright {new Date().getFullYear()} IntelligenceOS. Healthcare is the live domain.</span>
         </div>
       </div>
     </footer>

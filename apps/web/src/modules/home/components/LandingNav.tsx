@@ -18,11 +18,11 @@ export function LandingNav() {
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
-    <header className="sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur-sm">
+    <header className="sticky top-0 z-40 border-b border-border bg-background">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
         <Link
           to="/"
-          className="flex items-center gap-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex min-h-11 items-center gap-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <span
             aria-hidden="true"
@@ -36,11 +36,11 @@ export function LandingNav() {
         <nav aria-label="Primary" className="hidden items-center gap-6 md:flex">
           {NAV_LINKS.map((link) =>
             link.href.startsWith("#") ? (
-              <a key={link.href} href={link.href} className="text-sm text-muted-foreground transition-colors hover:text-foreground">
+              <a key={link.href} href={link.href} className="inline-flex min-h-11 items-center text-sm text-muted-foreground transition-colors hover:text-foreground">
                 {link.label}
               </a>
             ) : (
-              <Link key={link.href} to={link.href} className="text-sm text-muted-foreground transition-colors hover:text-foreground">
+              <Link key={link.href} to={link.href} className="inline-flex min-h-11 items-center text-sm text-muted-foreground transition-colors hover:text-foreground">
                 {link.label}
               </Link>
             ),
@@ -50,7 +50,7 @@ export function LandingNav() {
             target="_blank"
             rel="noreferrer"
             aria-label="IntelligenceOS on GitHub"
-            className="text-muted-foreground transition-colors hover:text-foreground"
+            className="inline-flex size-11 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
           >
             <GithubMark className="size-[18px]" />
           </a>
@@ -63,9 +63,9 @@ export function LandingNav() {
             <Button
               asChild
               size="sm"
-              className="bg-[linear-gradient(180deg,var(--color-primary),color-mix(in_oklch,var(--color-primary),black_14%))] hover:brightness-95"
+              className="h-11 ember-cta hover:brightness-95"
             >
-              <Link to="/chat">Launch workspace</Link>
+              <Link to="/chat">Open the query console</Link>
             </Button>
           </div>
 
@@ -88,18 +88,18 @@ export function LandingNav() {
             {NAV_LINKS.map((link) => (
               <li key={link.href}>
                 {link.href.startsWith("#") ? (
-                  <a href={link.href} className="block py-1 text-sm text-muted-foreground hover:text-foreground" onClick={() => setMenuOpen(false)}>
+                  <a href={link.href} className="flex min-h-11 items-center py-1 text-sm text-muted-foreground hover:text-foreground" onClick={() => setMenuOpen(false)}>
                     {link.label}
                   </a>
                 ) : (
-                  <Link to={link.href} className="block py-1 text-sm text-muted-foreground hover:text-foreground" onClick={() => setMenuOpen(false)}>
+                  <Link to={link.href} className="flex min-h-11 items-center py-1 text-sm text-muted-foreground hover:text-foreground" onClick={() => setMenuOpen(false)}>
                     {link.label}
                   </Link>
                 )}
               </li>
             ))}
             <li>
-              <a href={REPO_URL} target="_blank" rel="noreferrer" className="flex items-center gap-2 py-1 text-sm text-muted-foreground hover:text-foreground">
+              <a href={REPO_URL} target="_blank" rel="noreferrer" className="flex min-h-6 items-center gap-2 py-1 text-sm text-muted-foreground hover:text-foreground">
                 <GithubMark className="size-4" />
                 GitHub
               </a>
@@ -108,9 +108,9 @@ export function LandingNav() {
               <Button
                 asChild
                 size="sm"
-                className="w-full bg-[linear-gradient(180deg,var(--color-primary),color-mix(in_oklch,var(--color-primary),black_14%))] hover:brightness-95"
+                className="w-full ember-cta hover:brightness-95"
               >
-                <Link to="/chat">Launch workspace</Link>
+                <Link to="/chat">Open the query console</Link>
               </Button>
             </li>
           </ul>

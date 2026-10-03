@@ -3,7 +3,7 @@ import { ArrowRight } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 
 import { Button } from "@/shared/components/ui/button";
-import { LedgerTrace } from "./LedgerTrace";
+import { RunTimeline } from "./RunTimeline";
 
 const rise = {
   hidden: { opacity: 0, y: 18 },
@@ -14,27 +14,20 @@ export function HeroSection() {
   const reduceMotion = useReducedMotion();
 
   return (
-    <section className="relative isolate mx-auto max-w-6xl px-4 pt-16 pb-16 sm:px-6 sm:pt-24 sm:pb-24">
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute -top-24 right-0 -z-10 h-[420px] w-[560px] rounded-full opacity-60 blur-3xl"
-        style={{
-          background:
-            "radial-gradient(closest-side, color-mix(in oklch, var(--color-primary), transparent 78%), transparent)",
-        }}
-      />
+    <section className="relative isolate mx-auto max-w-6xl px-4 pt-16 pb-24 sm:px-6 sm:pt-28 sm:pb-24">
+      <div aria-hidden="true" className="ember-wash pointer-events-none absolute -top-24 -bottom-24 left-1/2 -z-10 w-screen -translate-x-1/2" />
 
       <motion.div
         initial={reduceMotion ? undefined : "hidden"}
         animate={reduceMotion ? undefined : "shown"}
         transition={{ staggerChildren: 0.12 }}
-        className="grid grid-cols-1 items-start gap-12 lg:grid-cols-[1fr_1fr] lg:gap-16"
+        className="grid grid-cols-1 items-center gap-14 lg:grid-cols-[1.1fr_1fr] lg:gap-20"
       >
         <div>
           <motion.h1
             variants={rise}
             transition={{ duration: 0.5, ease: "easeOut" }}
-            className="text-4xl leading-[1.1] font-semibold tracking-tight text-foreground sm:text-5xl"
+            className="text-4xl leading-[1.05] font-semibold tracking-tight text-foreground sm:text-5xl lg:text-6xl"
           >
             Every answer is computed. None of them are guessed.
           </motion.h1>
@@ -42,40 +35,31 @@ export function HeroSection() {
           <motion.p
             variants={rise}
             transition={{ duration: 0.5, ease: "easeOut" }}
-            className="mt-5 max-w-lg text-base leading-relaxed text-muted-foreground sm:text-lg"
+            className="mt-6 max-w-lg text-base leading-relaxed text-muted-foreground sm:text-lg"
           >
-            IntelligenceOS answers every question through a deterministic warehouse engine, and asks a
-            sharper question back rather than guess.
+            Ask plain-English questions of CMS hospital data. A deterministic engine computes every figure, and when a
+            question is ambiguous it asks one precise question instead of guessing.
           </motion.p>
 
           <motion.div
             variants={rise}
             transition={{ duration: 0.5, ease: "easeOut" }}
-            className="mt-8 flex flex-wrap items-center gap-3"
+            className="mt-9 flex flex-wrap items-center gap-3"
           >
-            <Button
-              asChild
-              size="lg"
-              className="bg-[linear-gradient(180deg,var(--color-primary),color-mix(in_oklch,var(--color-primary),black_14%))] shadow-panel transition-transform duration-200 hover:-translate-y-0.5 hover:brightness-95"
-            >
+            <Button asChild size="lg" className="h-11 ember-cta">
               <Link to="/chat">
-                Launch workspace
+                Open the query console
                 <ArrowRight className="size-4" aria-hidden="true" />
               </Link>
             </Button>
-            <Button
-              asChild
-              size="lg"
-              variant="outline"
-              className="transition-transform duration-200 hover:-translate-y-0.5"
-            >
+            <Button asChild size="lg" variant="outline" className="h-11 border-foreground/35">
               <a href="#ledger">See how it works</a>
             </Button>
           </motion.div>
         </div>
 
         <motion.div variants={rise} transition={{ duration: 0.5, ease: "easeOut" }}>
-          <LedgerTrace />
+          <RunTimeline />
         </motion.div>
       </motion.div>
     </section>

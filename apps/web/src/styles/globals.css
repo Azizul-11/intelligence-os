@@ -137,6 +137,56 @@ body {
   background-image: linear-gradient(180deg, color-mix(in oklch, var(--color-surface), white 4%), var(--color-surface));
 }
 
+:root {
+  --gradient-ember: linear-gradient(90deg, transparent, oklch(66% 0.2 42) 18%, oklch(82% 0.16 78));
+  --gradient-cta: linear-gradient(180deg, oklch(82% 0.15 78), oklch(66% 0.2 42));
+  --glow-a: oklch(78% 0.17 70 / 0.22);
+  --glow-b: oklch(68% 0.2 42 / 0.16);
+  --band: oklch(68% 0.2 42 / 0.2);
+}
+
+:root[data-theme="light"] {
+  --gradient-ember: linear-gradient(90deg, transparent, oklch(54% 0.18 58) 18%, oklch(66% 0.17 75));
+  --gradient-cta: linear-gradient(180deg, oklch(54% 0.18 58), oklch(46% 0.18 38));
+  --glow-a: oklch(70% 0.18 60 / 0.16);
+  --glow-b: oklch(58% 0.19 40 / 0.12);
+  --band: oklch(58% 0.19 40 / 0.16);
+}
+
+.ember-line {
+  background-image: var(--gradient-ember);
+}
+
+.ember-cta {
+  background-image: var(--gradient-cta);
+}
+
+.ember-cta:hover {
+  filter: brightness(1.06);
+}
+
+.ember-wash {
+  background-image:
+    radial-gradient(40% 45% at 16% 20%, var(--glow-a), transparent 70%),
+    radial-gradient(34% 40% at 86% 84%, var(--glow-b), transparent 70%);
+  mask-image:
+    linear-gradient(to bottom, transparent, #000 12%, #000 88%, transparent),
+    linear-gradient(to right, transparent, #000 8%, #000 92%, transparent);
+  mask-composite: intersect;
+  -webkit-mask-image:
+    linear-gradient(to bottom, transparent, #000 12%, #000 88%, transparent),
+    linear-gradient(to right, transparent, #000 8%, #000 92%, transparent);
+  -webkit-mask-composite: source-in;
+}
+
+.ember-band {
+  background-image: linear-gradient(100deg, transparent 28%, var(--band) 100%);
+}
+
+html {
+  scroll-padding-top: 5rem;
+}
+
 /* Browser surfaces theming: selection, caret, scrollbar, tabular numerals for anything measured. */
 ::selection {
   background-color: color-mix(in oklch, var(--color-primary), transparent 70%);
