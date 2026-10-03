@@ -2,6 +2,7 @@ import { lazy, Suspense, type ReactNode } from "react";
 import { createBrowserRouter } from "react-router-dom";
 
 import RootLayout from "./RootLayout";
+import { RouteErrorBoundary } from "./RouteErrorBoundary";
 
 // Route-level code splitting: a visitor landing on "/" never downloads the
 // workspace's chat/query-console bundle, and vice versa.
@@ -20,9 +21,11 @@ export const router = createBrowserRouter([
     // app's internal AppShell (sidebar + workspace header).
     path: "/",
     element: withSuspense(<HomePage />),
+    errorElement: <RouteErrorBoundary />,
   },
   {
     element: <RootLayout />,
+    errorElement: <RouteErrorBoundary />,
     children: [
       {
         path: "chat",
