@@ -185,6 +185,23 @@ body {
   -webkit-mask-composite: source-in;
 }
 
+.canvas-enter {
+  animation: canvas-enter 220ms ease-out;
+}
+
+@keyframes canvas-enter {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .canvas-enter {
+    animation: none;
+  }
+}
+
 .ember-band {
   background-image: linear-gradient(100deg, transparent 28%, var(--band) 100%);
 }

@@ -1,6 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { ArrowUp, Check, CornerDownRight, Lightbulb, MapPin, Minus, Pause, Timer } from "lucide-react";
+import {
+  ArrowUp,
+  Check,
+  CornerDownRight,
+  Lightbulb,
+  MapPin,
+  Minus,
+  PanelRight,
+  Pause,
+  Timer,
+} from "lucide-react";
+import { useCanvas } from "../stores/canvas.store";
+import { withFacilityNames, type Row } from "../lib/result-format";
+import { useFacilityNames } from "../lib/facility-names";
+import { Canvas } from "./Canvas";
+import { CARD_LIST_LIMIT, RankedList } from "./RankedList";
 import { useNavigate, useParams } from "react-router-dom";
 import { ThinkingOrb } from "thinking-orbs";
 
@@ -69,13 +84,15 @@ type SubmitVariables = {
 export function QueryConsole() {
   const { conversationId } = useParams();
   const navigate = useNavigate();
+  // Starts the name-map load as soon as the chat page mounts, so names are ready before the first answer.
+  useFacilityNames();
   const conversation = useChatHistory((state) => (conversationId ? state.conversations[conversationId] : undefined));
   const startConversation = useChatHistory((state) => state.startConversation);
   const appendEntry = useChatHistory((state) => state.appendEntry);
 
   const [question, setQuestion] = useState("");
   // A fresh random 8 for each new chat, so starting over never shows the same prompts.
-  const examplePrompts = useMemo(() => pickRandomPrompts(activeDomain.chat.examplePrompts, 8), [conversationId]);
+  const examplePrompts = useMemo(() => pickRandomPrompts(activeDomain.chat.examplePrompts, 6), [conversationId]);
 
   const history = conversation?.entries ?? [];
   const activePendingInteraction = conversation?.pendingInteraction ?? null;
@@ -87,10 +104,11 @@ export function QueryConsole() {
   const mutation = useMutation({
     mutationFn: ({ q, pendingId, contResp }: SubmitVariables) => askOrchestrator(q, activeDomain.id, pendingId, contResp),
     onSuccess: (result, vars) => {
+      const entryId = crypto.randomUUID();
       appendEntry(
         vars.conversationId,
         {
-          id: crypto.randomUUID(),
+          id: entryId,
           question: vars.q,
           result,
           clientMs: Math.round(performance.now() - vars.startedAt),
@@ -122,6 +140,10 @@ export function QueryConsole() {
   });
 
   const isPendingHere = mutation.isPending && mutation.variables?.conversationId === conversationId;
+
+  const canvasEntryId = useCanvas((state) => state.entryId);
+  const closeCanvas = useCanvas((state) => state.close);
+  const canvasEntry = history.find((entry) => entry.id === canvasEntryId && entry.result.success) ?? null;
 
   // Modern chat convention: newest message stays in view, scrolled to automatically.
   useEffect(() => {
@@ -155,7 +177,8 @@ export function QueryConsole() {
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full">
+      <div className="flex min-w-0 flex-1 flex-col">
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-3xl flex-col gap-4 px-6 py-6">
           {history.length === 0 && !isPendingHere && (
@@ -253,6 +276,8 @@ export function QueryConsole() {
           </div>
         </div>
       </form>
+      </div>
+      {canvasEntry && <Canvas entry={canvasEntry} onClose={closeCanvas} />}
     </div>
   );
 }
@@ -265,6 +290,7 @@ function ResultCard({
   onSuggestionClick: (question: string) => void;
 }) {
   const { question, result } = entry;
+  const openCanvas = useCanvas((state) => state.open);
   const success = result.success;
 
   // LLM Integration Layer 0: a conversational turn (greeting/meta-
@@ -289,6 +315,9 @@ function ResultCard({
       parseError = "Response was not valid JSON - shown as raw text below.";
     }
   }
+
+  const names = useFacilityNames();
+  const namedRows = Array.isArray(rows) ? withFacilityNames(rows as Row[], names) : [];
 
   return (
     <div
@@ -325,12 +354,6 @@ function ResultCard({
 
       {"llmCalls" in result && <CallTrace result={result} clientMs={entry.clientMs} />}
 
-      {"metadata" in result && result.metadata?.rowCount !== undefined && (
-        <p className="mb-2 text-xs text-muted-foreground">
-          rowCount: {result.metadata.rowCount}
-        </p>
-      )}
-      
       {/* Phase 8.10 Layer 2: Show continuation prompt */}
       {isContinuation && result.answer && (
         <div className="mb-2 rounded-md border border-primary/40 bg-primary/10 p-3 text-sm">
@@ -375,13 +398,31 @@ function ResultCard({
         </>
       )}
 
+      {success && !parseError && Array.isArray(rows) && rows.length > 0 && <RankedList rows={namedRows} />}
+
       {success && !parseError && Array.isArray(rows) && rows.length > 0 && (
-        <RowsTable rows={rows as Record<string, unknown>[]} />
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground">
+            {rows.length > CARD_LIST_LIMIT
+              ? `Showing ${CARD_LIST_LIMIT} of ${rows.length} results`
+              : `${rows.length} results returned`}
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => openCanvas(entry.id)}
+            className="h-9 gap-2 px-3"
+          >
+            <PanelRight className="size-4" aria-hidden="true" />
+            {rows.length > CARD_LIST_LIMIT ? `See all ${rows.length} in canvas` : "Open in canvas"}
+          </Button>
+        </div>
       )}
 
       {success && !parseError && Array.isArray(rows) && rows.length === 0 && (
         <p className="text-sm text-muted-foreground">
-          Zero rows returned (execution succeeded, no matching data).
+          No results returned (the query ran, but nothing matched).
         </p>
       )}
 
@@ -541,33 +582,3 @@ function CallTrace({ result, clientMs }: { result: ChatResponse; clientMs?: numb
   );
 }
 
-function RowsTable({ rows }: { rows: Record<string, unknown>[] }) {
-  const columns = Object.keys(rows[0] ?? {});
-
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-xs">
-        <thead>
-          <tr className="border-b border-border text-left">
-            {columns.map((col) => (
-              <th key={col} className="px-2 py-1 font-medium">
-                {col}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, i) => (
-            <tr key={i} className="border-b border-border/50">
-              {columns.map((col) => (
-                <td key={col} className="px-2 py-1">
-                  {String(row[col] ?? "")}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}

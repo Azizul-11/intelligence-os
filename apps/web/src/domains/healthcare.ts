@@ -13,6 +13,12 @@ export const healthcare: DomainConfig = {
     "CMS benchmark badges (better, no different, or worse than the national rate)",
     "Aligned side-by-side facility comparisons",
   ],
+  // Read straight from the healthcare identity directory (no copy). Loaded as its own chunk, so it stays off the main bundle
+  // until the chat page asks for it.
+  facilityNames: () =>
+    import("../../../../domain-packs/healthcare/src/runtime/hospital-identity-directory").then(({ hospitalIdentityDirectory }) =>
+      Object.fromEntries(hospitalIdentityDirectory.map((record) => [record.facilityId, record.hospitalName])),
+    ),
   chat: {
     placeholder: "Ask about a hospital, a state, or a condition",
     examplePrompts: [
