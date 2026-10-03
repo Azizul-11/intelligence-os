@@ -220,6 +220,15 @@ export const AICREDITS_QWEN_FLASH_SUMMARY_TIER: ProviderConfig = { ...AICREDITS_
 
 export const DECORATION_CHAIN: ProviderConfig[] = [AICREDITS_QWEN_FLASH_DECORATION_TIER, ...FALLBACK_CHAIN];
 
+// Paid qwen flash first for conversational replies; own circuit so it can't trip the normalizer's.
+export const AICREDITS_QWEN_FLASH_CONVERSATIONAL_TIER: ProviderConfig = {
+  ...AICREDITS_QWEN_FLASH_TIER,
+  keyId: "aicredits-qwen3.7-flash-conversational",
+  circuitKey: "aicredits-qwen3.7-flash-conversational",
+};
+
+export const CONVERSATIONAL_CHAIN: ProviderConfig[] = [AICREDITS_QWEN_FLASH_CONVERSATIONAL_TIER, ...FALLBACK_CHAIN];
+
 export const SUMMARY_CHAIN: ProviderConfig[] = [
   AICREDITS_QWEN_FLASH_SUMMARY_TIER,
   ...FALLBACK_CHAIN.filter((tier) => tier.keyId !== "groq-allam-2-7b"),
@@ -932,6 +941,7 @@ export class LLMModelGateway implements LLMProvider {
     private readonly rewriteChain: ProviderConfig[] = chain,
     private readonly decorationChain: ProviderConfig[] = chain,
     private readonly summaryChain: ProviderConfig[] = decorationChain,
+    private readonly conversationalChain: ProviderConfig[] = chain,
   ) {}
 
   async complete(
@@ -1149,7 +1159,7 @@ export class LLMModelGateway implements LLMProvider {
       // varied, non-repetitive onboarding tone across turns - a "normal
       // chatbot" task per the research this audit is based on, not a
       // factual/canonicalization one).
-      const result = await this.runJSON<{ answer?: string; suggestions?: string[] }>(this.chain, systemPrompt, question, { temperature: 0.8 }, trace);
+      const result = await this.runJSON<{ answer?: string; suggestions?: string[] }>(this.conversationalChain, systemPrompt, question, { temperature: 0.8 }, trace);
       if (
         typeof result?.answer === "string" &&
         result.answer.length > 0 &&
@@ -1170,7 +1180,7 @@ export class LLMModelGateway implements LLMProvider {
   /**
    * ConversationalFix (2026-09-27): a cheap, domain-agnostic triage call - see
    * docs/Post Capability Expansion Work/ConversationalFIx/AUDIT_CONVERSATIONAL_INTENT_ROUTING.md. Runs on the free
-   * `chain` (the same one handleConversational already uses) with a short deadline: a wrong or timed-out call must
+   * free `chain` (not the paid conversational chain) with a short deadline: a wrong or timed-out call must
    * never delay, let alone intercept, a real analytical question, so any uncertainty returns undefined and the
    * caller proceeds exactly as it already does without this method existing. Takes only the domain's own one-line
    * `coverageSummary` (never a term list), so this stays a sibling of Universal Core, never a consumer of a
@@ -1272,4 +1282,4 @@ export class LLMModelGateway implements LLMProvider {
   }
 }
 
-export const llmGateway = new LLMModelGateway(FALLBACK_CHAIN, NORMALIZER_CHAIN, DECORATION_CHAIN, SUMMARY_CHAIN);
+export const llmGateway = new LLMModelGateway(FALLBACK_CHAIN, NORMALIZER_CHAIN, DECORATION_CHAIN, SUMMARY_CHAIN, CONVERSATIONAL_CHAIN);

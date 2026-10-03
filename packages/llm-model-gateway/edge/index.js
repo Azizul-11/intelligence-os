@@ -1,36 +1,21 @@
 // src/llm-model-gateway.ts
 import { AsyncLocalStorage } from "node:async_hooks";
 var FALLBACK_CHAIN = [
-  // --- Groq (primary). LIVE-VERIFIED 2026-09-13 via GET
-  // https://api.groq.com/openai/v1/models: "llama-3.3-70b-versatile" and
-  // "llama-3.1-8b-instant" (this design's original assumption) both now
-  // 404 "does not exist" - Groq's free catalog today is the open-weight
-  // GPT-OSS family it hosts directly, not Llama. Using the two
-  // confirmed-present, json_mode-capable models instead. ---
+  // --- Groq (primary). LIVE-VERIFIED 2026-09-13: the original "llama-3.3-70b-versatile"/"llama-3.1-8b-instant"
+  // assumption 404s - Groq's free catalog is the open-weight GPT-OSS family, not Llama. Using the two confirmed,
+  // json_mode-capable models below instead. ---
   { provider: "groq", model: "openai/gpt-oss-20b", apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", timeoutMs: 3e3, maxRetries: 2, keyId: "groq-gpt-oss-20b", isFree: true },
   { provider: "groq", model: "openai/gpt-oss-120b", apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", timeoutMs: 4e3, maxRetries: 1, keyId: "groq-gpt-oss-120b", isFree: true },
-  // --- Extra Groq quota tier, added after live dogfooding exhausted the
-  // 2 gpt-oss tiers' 1K-requests/day cap each (confirmed via this org's
-  // own Groq console limits). "allam-2-7b" is a real general-purpose
-  // chat-completion model (not a classifier) with a 7K-requests/day cap
-  // - nearly 7x the headroom of either gpt-oss tier. Placed after both
-  // gpt-oss tiers (they're still faster/more capable when available);
-  // Zero-Stall 429 Failover means this only ever gets tried once both
-  // are already exhausted or erroring, at no added latency cost when
-  // they're healthy. ---
+  // --- Extra Groq quota tier, added after dogfooding exhausted the 2 gpt-oss tiers' 1K-requests/day cap each.
+  // "allam-2-7b" has a 7K-requests/day cap (~7x the headroom); placed last so Zero-Stall 429 Failover only reaches
+  // it once both gpt-oss tiers are exhausted, at no added latency when they're healthy. ---
   { provider: "groq", model: "allam-2-7b", apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", timeoutMs: 4e3, maxRetries: 1, keyId: "groq-allam-2-7b", isFree: true, unsafeForRewrite: true },
-  // --- Google Gemini. LIVE-VERIFIED 2026-09-13: "gemini-2.0-flash" and
-  // "gemini-1.5-flash" (this design's original assumption) both now 404
-  // - Google's own error response explicitly names the current
-  // replacement model, used here directly rather than guessed. ---
+  // --- Google Gemini. LIVE-VERIFIED 2026-09-13: the original "gemini-2.0-flash"/"gemini-1.5-flash" assumption both
+  // 404 - using Google's own error-response-named replacement model directly. ---
   { provider: "google", model: "gemini-3.6-flash", apiKey: process.env.GOOGLE_API_KEY, timeoutMs: 4e3, maxRetries: 2, keyId: "google-3.6-flash", isFree: true },
-  // --- OpenRouter — ONE real key confirmed in .env today (not two -
-  // the design's original "meta-llama/...instruct:free" entries are
-  // confirmed gone from OpenRouter's free catalog as of 2026-09-13 (404
-  // "unavailable for free"); replaced with models LIVE-CONFIRMED present
-  // via GET https://openrouter.ai/api/v1/models - "laguna-s-2.1:free" is
-  // also confirmed WORKING end-to-end by this package's own live smoke
-  // test (scripts/verify-llm-gateway.ts). ---
+  // --- OpenRouter — ONE real key confirmed in .env (not two). The original "meta-llama/...instruct:free" entries
+  // are confirmed gone from OpenRouter's free catalog as of 2026-09-13; replaced with LIVE-CONFIRMED models -
+  // "laguna-s-2.1:free" also confirmed working end-to-end by scripts/verify-llm-gateway.ts. ---
   { provider: "openrouter", model: "poolside/laguna-s-2.1:free", apiKey: process.env.OPENROUTER_API_KEY, baseURL: "https://openrouter.ai/api/v1", timeoutMs: 6e3, maxRetries: 2, keyId: "openrouter-key1-laguna-s", isFree: true, stripReasoningTokens: true },
   { provider: "openrouter", model: "poolside/laguna-xs-2.1:free", apiKey: process.env.OPENROUTER_API_KEY, baseURL: "https://openrouter.ai/api/v1", timeoutMs: 5e3, maxRetries: 1, keyId: "openrouter-key1-laguna-xs", isFree: true, stripReasoningTokens: true },
   { provider: "openrouter", model: "nvidia/nemotron-3-super-120b-a12b:free", apiKey: process.env.OPENROUTER_API_KEY_2 || process.env.OPENROUTER_API_KEY, baseURL: "https://openrouter.ai/api/v1", timeoutMs: 8e3, maxRetries: 1, keyId: "openrouter-key2-nemotron-super", isFree: true, stripReasoningTokens: true },
@@ -48,18 +33,10 @@ var FALLBACK_CHAIN = [
   { provider: "mistral", model: "mistral-large-latest", apiKey: process.env.MISTRAL_API_KEY, baseURL: "https://api.mistral.ai/v1", timeoutMs: 5e3, maxRetries: 1, keyId: "mistral-large", isFree: false },
   // --- Local, always available when running. ---
   { provider: "ollama", model: "llama3", endpoint: process.env.OLLAMA_ENDPOINT ?? "http://localhost:11434", timeoutMs: 8e3, maxRetries: 1, keyId: "ollama-local", isFree: true },
-  // --- Zero-dependency deterministic tier. `callMock` always throws
-  // immediately (a mock provider cannot itself produce a role-correct
-  // answer, since it has no knowledge of which of the 3 bounded roles
-  // is calling) - reaching this tier means every real provider is
-  // unavailable, at which point runChain's own caller (one of the 3
-  // role methods in LLMModelGateway) applies ITS OWN documented
-  // deterministic fallback (see normalizeMessyLanguage/
-  // synthesizeSuggestions/summarizeResult's own doc comments) rather
-  // than this generic tier guessing a shape. This entry exists so the
-  // chain is provably total (every traversal terminates) and so it
-  // appears in fallback-event logs for observability parity with the
-  // approved design, even though its own adapter is a deliberate no-op.
+  // --- Zero-dependency deterministic tier. `callMock` always throws immediately - a mock provider can't produce a
+  // role-correct answer, since it doesn't know which of the 3 bounded roles is calling. Reaching it means every
+  // real provider is unavailable, at which point the caller applies its OWN documented deterministic fallback.
+  // Exists so the chain is provably total and appears in fallback-event logs for observability parity. ---
   { provider: "mock", model: "deterministic-fallback", timeoutMs: 0, maxRetries: 0, keyId: "mock-deterministic", isFree: true }
 ];
 var AICREDITS_QWEN_FLASH_TIER = {
@@ -97,6 +74,12 @@ var AICREDITS_QWEN_FLASH_DECORATION_TIER = {
 };
 var AICREDITS_QWEN_FLASH_SUMMARY_TIER = { ...AICREDITS_QWEN_FLASH_DECORATION_TIER, timeoutMs: 3300 };
 var DECORATION_CHAIN = [AICREDITS_QWEN_FLASH_DECORATION_TIER, ...FALLBACK_CHAIN];
+var AICREDITS_QWEN_FLASH_CONVERSATIONAL_TIER = {
+  ...AICREDITS_QWEN_FLASH_TIER,
+  keyId: "aicredits-qwen3.7-flash-conversational",
+  circuitKey: "aicredits-qwen3.7-flash-conversational"
+};
+var CONVERSATIONAL_CHAIN = [AICREDITS_QWEN_FLASH_CONVERSATIONAL_TIER, ...FALLBACK_CHAIN];
 var SUMMARY_CHAIN = [
   AICREDITS_QWEN_FLASH_SUMMARY_TIER,
   ...FALLBACK_CHAIN.filter((tier) => tier.keyId !== "groq-allam-2-7b")
@@ -505,16 +488,18 @@ var LLMModelGateway = class {
    * so a gateway built with one chain - every existing caller and test - behaves
    * exactly as before.
    */
-  constructor(chain = FALLBACK_CHAIN, rewriteChain = chain, decorationChain = chain, summaryChain = decorationChain) {
+  constructor(chain = FALLBACK_CHAIN, rewriteChain = chain, decorationChain = chain, summaryChain = decorationChain, conversationalChain = chain) {
     this.chain = chain;
     this.rewriteChain = rewriteChain;
     this.decorationChain = decorationChain;
     this.summaryChain = summaryChain;
+    this.conversationalChain = conversationalChain;
   }
   chain;
   rewriteChain;
   decorationChain;
   summaryChain;
+  conversationalChain;
   async complete(systemPrompt, userMessage, options = { temperature: 0.9 }) {
     return runChain(this.chain, systemPrompt, userMessage, options);
   }
@@ -637,15 +622,10 @@ var LLMModelGateway = class {
     }
   }
   /**
-   * Layer 0 (Conversational Front-Door Router). ONLY ever called for
-   * questions the caller has already classified as conversational
-   * (greeting/meta-capability/off-topic) - never a substitute for Gate 1
-   * semantic resolution. Never writes SQL, never invents a hospital,
-   * never claims a capability the catalog doesn't list - it only
-   * explains what the platform can do, in the caller-supplied
-   * capability catalog's own vocabulary. On any failure, returns a
-   * fixed, deterministic onboarding message plus the catalog's own
-   * example questions - the Every-Turn Invariant holds even if every
+   * Layer 0 (Conversational Front-Door Router). ONLY called for questions already classified conversational
+   * (greeting/meta-capability/off-topic) - never a substitute for Gate 1 semantic resolution. Never writes SQL,
+   * never invents a hospital, never claims a capability the catalog doesn't list. On any failure, returns a fixed
+   * onboarding message plus the catalog's own example questions - the Every-Turn Invariant holds even if every
    * provider is down.
    */
   async handleConversational(question, capabilities) {
@@ -653,16 +633,10 @@ var LLMModelGateway = class {
     const systemPrompt = [
       ...conversational.intro,
       describeCapabilities(capabilities),
-      // PrePhase 9.5 Round 3: previously restricted to only the fixed
-      // 5-item example list, which made every conversational turn
-      // suggest a near-identical set - widened to draw from the FULL
-      // capability description just given (metrics, states, ownership
-      // categories, clinical concepts), so repeated greetings surface
-      // genuinely different, still-only-real questions instead of the
-      // same handful reworded. Every suggestion is still dry-run
-      // validated by the caller (chat.ts's validateConversationalSuggestions)
-      // before ever being shown, so a less-common combination here is
-      // exactly as safe as the fixed list was.
+      // PrePhase 9.5 Round 3: widened from a fixed 5-item example list (near-identical suggestions every turn) to
+      // draw from the FULL capability description just given, so repeated greetings surface genuinely different
+      // questions. Still dry-run validated by the caller (chat.ts's validateConversationalSuggestions) before
+      // being shown, so a less-common combination here is exactly as safe as the fixed list was.
       ...conversational.outro
     ].join(" ");
     const fallback = {
@@ -672,7 +646,7 @@ var LLMModelGateway = class {
     const startedAt = Date.now();
     const trace = { attempts: 0, tiers: [] };
     try {
-      const result = await this.runJSON(this.chain, systemPrompt, question, { temperature: 0.8 }, trace);
+      const result = await this.runJSON(this.conversationalChain, systemPrompt, question, { temperature: 0.8 }, trace);
       if (typeof result?.answer === "string" && result.answer.length > 0 && Array.isArray(result.suggestions) && result.suggestions.every((s) => typeof s === "string" && s.length > 0)) {
         return { answer: result.answer, suggestions: result.suggestions.slice(0, 4) };
       }
@@ -687,7 +661,7 @@ var LLMModelGateway = class {
   /**
    * ConversationalFix (2026-09-27): a cheap, domain-agnostic triage call - see
    * docs/Post Capability Expansion Work/ConversationalFIx/AUDIT_CONVERSATIONAL_INTENT_ROUTING.md. Runs on the free
-   * `chain` (the same one handleConversational already uses) with a short deadline: a wrong or timed-out call must
+   * free `chain` (not the paid conversational chain) with a short deadline: a wrong or timed-out call must
    * never delay, let alone intercept, a real analytical question, so any uncertainty returns undefined and the
    * caller proceeds exactly as it already does without this method existing. Takes only the domain's own one-line
    * `coverageSummary` (never a term list), so this stays a sibling of Universal Core, never a consumer of a
@@ -771,13 +745,15 @@ var LLMModelGateway = class {
     }
   }
 };
-var llmGateway = new LLMModelGateway(FALLBACK_CHAIN, NORMALIZER_CHAIN, DECORATION_CHAIN, SUMMARY_CHAIN);
+var llmGateway = new LLMModelGateway(FALLBACK_CHAIN, NORMALIZER_CHAIN, DECORATION_CHAIN, SUMMARY_CHAIN, CONVERSATIONAL_CHAIN);
 export {
   AICREDITS_NORMALIZER_TIERS,
   AICREDITS_QWEN_30B_TIER,
+  AICREDITS_QWEN_FLASH_CONVERSATIONAL_TIER,
   AICREDITS_QWEN_FLASH_DECORATION_TIER,
   AICREDITS_QWEN_FLASH_SUMMARY_TIER,
   AICREDITS_QWEN_FLASH_TIER,
+  CONVERSATIONAL_CHAIN,
   DECORATION_CHAIN,
   FALLBACK_CHAIN,
   LLMModelGateway,
