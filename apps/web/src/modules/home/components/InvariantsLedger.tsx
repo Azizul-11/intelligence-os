@@ -11,7 +11,7 @@ const ENTRIES = [
   },
   {
     heading: "One engine. Every domain.",
-    body: "Semantic resolution, query planning, execution, and answerability operate identically regardless of subject. Healthcare runs on this engine live today. Education and Finance plug into the same core next, unchanged.",
+    body: "Semantic resolution, query planning, execution, and answerability operate identically regardless of subject. The live domain runs on this engine today, and each new domain plugs into the same core unchanged.",
   },
 ];
 

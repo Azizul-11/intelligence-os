@@ -1,3 +1,5 @@
+import { activeDomain } from "@/domains";
+
 import { Link } from "react-router-dom";
 
 import { GithubMark } from "@/shared/components/icons/GithubMark";
@@ -91,7 +93,7 @@ export function LandingFooter() {
         </div>
 
         <div className="mt-10 border-t border-border pt-6 text-xs text-muted-foreground">
-          <span>Copyright {new Date().getFullYear()} IntelligenceOS. Healthcare is the live domain.</span>
+          <span>Copyright {new Date().getFullYear()} IntelligenceOS. Live domain: {activeDomain.label}.</span>
         </div>
       </div>
     </footer>

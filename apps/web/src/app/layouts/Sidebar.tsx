@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { NavLink, useMatch, useNavigate } from "react-router-dom";
-import { Plus, Trash2 } from "lucide-react";
+import { Link, NavLink, useMatch, useNavigate } from "react-router-dom";
+import { MessageSquare, PanelLeft, PanelLeftClose, Plus, Trash2 } from "lucide-react";
 
+import { BrandMark } from "@/shared/components/ui/brand-mark";
 import { Button } from "@/shared/components/ui/button";
 import { cn } from "@/shared/lib/utils";
 import { type ChatConversation, useChatHistory } from "@/modules/workspace/stores/chat-history.store";
 
 type SidebarProps = {
   open: boolean;
+  onToggle: () => void;
 };
 
 const GROUP_LABELS = ["Today", "Yesterday", "Previous 7 days", "Older"] as const;
@@ -41,7 +43,10 @@ function groupByRecency(conversations: ChatConversation[]): { label: GroupLabel;
   return GROUP_LABELS.filter((label) => buckets[label].length > 0).map((label) => ({ label, items: buckets[label] }));
 }
 
-export function Sidebar({ open }: SidebarProps) {
+const ICON_BUTTON =
+  "inline-flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+
+export function Sidebar({ open, onToggle }: SidebarProps) {
   const navigate = useNavigate();
   const match = useMatch("/chat/:conversationId");
   const activeId = match?.params.conversationId;
@@ -64,61 +69,101 @@ export function Sidebar({ open }: SidebarProps) {
     dialogRef.current?.close();
   }
 
+  const toggle = (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-label={open ? "Collapse sidebar" : "Expand sidebar"}
+      className={ICON_BUTTON}
+    >
+      {open ? (
+        <PanelLeftClose className="size-[18px]" aria-hidden="true" />
+      ) : (
+        <PanelLeft className="size-[18px]" aria-hidden="true" />
+      )}
+    </button>
+  );
+
   return (
     <>
       <aside
         aria-label="Chat history"
-        inert={!open}
-        className={cn("overflow-hidden transition-all duration-200", open ? "w-64 border-r p-4" : "w-0 p-0")}
+        className={cn(
+          "flex shrink-0 flex-col overflow-hidden bg-muted/60 transition-[width] duration-300 ease-out motion-reduce:transition-none",
+          open ? "w-64" : "w-14",
+        )}
       >
-        <div className="flex h-full w-56 flex-col gap-4">
-          <button
-            type="button"
-            onClick={() => navigate("/chat")}
-            className="inline-flex h-11 w-full shrink-0 items-center gap-2 rounded-md border border-border px-3 text-sm font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <Plus className="size-4" aria-hidden="true" />
-            New chat
-          </button>
+        {open ? (
+          <div className="flex h-full w-64 flex-col gap-4 p-4">
+            <div className="flex items-center justify-between gap-2">
+              <Link
+                to="/"
+                className="flex min-w-0 items-center gap-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <BrandMark className="size-7 shrink-0" />
+                <span className="truncate text-sm font-semibold tracking-tight">IntelligenceOS</span>
+              </Link>
+              {toggle}
+            </div>
 
-          <nav aria-label="Saved chats" className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
-            {groups.length === 0 && (
-              <p className="px-3 text-sm text-muted-foreground">No chats yet. Chats are saved in this browser only.</p>
-            )}
+            <button
+              type="button"
+              onClick={() => navigate("/chat")}
+              className="inline-flex h-11 w-full shrink-0 items-center gap-2 rounded-md border border-border px-3 text-sm font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <Plus className="size-4" aria-hidden="true" />
+              New chat
+            </button>
 
-            {groups.map((group) => (
-              <div key={group.label} className="flex flex-col gap-1">
-                <p className="px-3 text-xs font-medium text-muted-foreground">{group.label}</p>
-                <ul className="flex flex-col gap-1">
-                  {group.items.map((conversation) => (
-                    <li key={conversation.id} className="flex items-center gap-1">
-                      <NavLink
-                        to={`/chat/${conversation.id}`}
-                        title={conversation.title}
-                        className={({ isActive }) =>
-                          cn(
-                            "flex min-h-11 min-w-0 flex-1 items-center rounded-md px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                            isActive ? "bg-muted font-medium text-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                          )
-                        }
-                      >
-                        <span className="truncate">{conversation.title}</span>
-                      </NavLink>
-                      <button
-                        type="button"
-                        aria-label={`Delete ${conversation.title}`}
-                        onClick={() => setPendingDelete(conversation)}
-                        className="inline-flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      >
-                        <Trash2 className="size-4" aria-hidden="true" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </nav>
-        </div>
+            <nav aria-label="Saved chats" className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
+              {groups.length === 0 && (
+                <p className="px-3 text-sm text-muted-foreground">No chats yet. Chats are saved in this browser only.</p>
+              )}
+
+              {groups.map((group) => (
+                <div key={group.label} className="flex flex-col gap-1">
+                  <p className="px-3 text-xs font-medium text-muted-foreground">{group.label}</p>
+                  <ul className="flex flex-col gap-1">
+                    {group.items.map((conversation) => (
+                      <li key={conversation.id} className="flex items-center gap-1">
+                        <NavLink
+                          to={`/chat/${conversation.id}`}
+                          title={conversation.title}
+                          className={({ isActive }) =>
+                            cn(
+                              "flex min-h-11 min-w-0 flex-1 items-center rounded-md px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                              isActive ? "bg-muted font-medium text-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                            )
+                          }
+                        >
+                          <span className="truncate">{conversation.title}</span>
+                        </NavLink>
+                        <button
+                          type="button"
+                          aria-label={`Delete ${conversation.title}`}
+                          onClick={() => setPendingDelete(conversation)}
+                          className={cn(ICON_BUTTON, "hover:text-destructive")}
+                        >
+                          <Trash2 className="size-4" aria-hidden="true" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </nav>
+          </div>
+        ) : (
+          <div className="flex h-full w-14 flex-col items-center gap-2 py-3">
+            {toggle}
+            <button type="button" onClick={() => navigate("/chat")} aria-label="New chat" title="New chat" className={ICON_BUTTON}>
+              <Plus className="size-[18px]" aria-hidden="true" />
+            </button>
+            <button type="button" onClick={onToggle} aria-label="Show chat history" title="Chat history" className={ICON_BUTTON}>
+              <MessageSquare className="size-[18px]" aria-hidden="true" />
+            </button>
+          </div>
+        )}
       </aside>
 
       <dialog

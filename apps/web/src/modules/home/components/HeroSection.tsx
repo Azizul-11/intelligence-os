@@ -37,8 +37,8 @@ export function HeroSection() {
             transition={{ duration: 0.5, ease: "easeOut" }}
             className="mt-6 max-w-lg text-base leading-relaxed text-muted-foreground sm:text-lg"
           >
-            Ask plain-English questions of CMS hospital data. A deterministic engine computes every figure, and when a
-            question is ambiguous it asks one precise question instead of guessing.
+            Ask plain-English questions of your data. A deterministic engine computes every figure, and when a question
+            is ambiguous it asks one precise question instead of guessing.
           </motion.p>
 
           <motion.div

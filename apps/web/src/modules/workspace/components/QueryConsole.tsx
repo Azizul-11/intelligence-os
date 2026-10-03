@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { ArrowUp } from "lucide-react";
+import { ArrowUp, Check, CornerDownRight, Lightbulb, MapPin, Minus, Pause, Timer } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ThinkingOrb } from "thinking-orbs";
 
@@ -14,6 +14,7 @@ import {
   type PhaseGateTraceEntry,
 } from "../api/orchestrator";
 import { type ChatEntry, useChatHistory } from "../stores/chat-history.store";
+import { activeDomain } from "@/domains";
 
 /**
  * Tier0 Task 2 (F8) Phase 2: the same 7 gates
@@ -47,48 +48,9 @@ const LLM_PHASE = "llm-normalization";
 const LLM_PHASE_LABEL = "LLM Normalization";
 const LLM_PHASE_SUCCESS_STATUSES = new Set(["rewritten", "unchanged"]);
 
-// Clean, professional phrasings exercising the same capability breadth verified PASS in the
-// Grand 2,500 sweep's showcase doc (PSI, HCAHPS, ownership, hospital type, geography, dossiers,
-// comparisons, star ratings, condition-specific rankings) - rewritten from the sweep's slang/typo
-// test phrasings, which prove robustness but aren't the right first impression. Random 8 per load.
-const EXAMPLE_PROMPT_POOL = [
-  "Stroke mortality rate in Ohio",
-  "Hospitals with the best patient safety scores",
-  "Lowest pneumonia readmission rates nationwide",
-  "Hospital room and bathroom cleanliness ranking",
-  "Nurse communication scores in Florida",
-  "Hospitals in Texas",
-  "Hospitals in Puerto Rico",
-  "Hospitals in Oregon and Washington",
-  "Military hospitals",
-  "Show me government-owned hospitals that treat heart attacks.",
-  "Non-profit hospitals in Florida ranked by pneumonia mortality",
-  "Dossier on Cleveland Clinic",
-  "Complete profile of Cedars-Sinai Medical Center",
-  "Compare Memorial Medical Center in Illinois and Memorial Medical Center in Texas",
-  "Best hospitals in Wisconsin",
-  "Hospitals in New York City",
-  "Best hospitals in Minnesota, Wisconsin, and Iowa",
-  "Hospitals in Wayne County, Michigan",
-  "Hospitals in Cook County, Illinois, ranked by mortality",
-  "Hospitals in Miami, Florida",
-  "Hospitals in Chicago ranked by mortality",
-  "Does Mayo Clinic offer emergency services?",
-  "Hip replacement best hospital in Ohio",
-  "Critical access hospitals in Minnesota with the lowest heart failure mortality",
-  "Hospitals with the lowest stroke mortality",
-  "Which hospitals have the best PSI 90 score in Kentucky?",
-  "Hospitals in Pennsylvania with the best doctor communication scores",
-  "Hospitals with the best quietness scores in Oklahoma City",
-  "Faith-based hospitals in New York",
-  "Hospitals with emergency services in San Juan, Puerto Rico",
-  "Hospitals with emergency services in Washington, DC",
-  "For-profit acute hospitals best rated",
-  "Top public hospitals in Illinois by star rating and patient experience",
-];
 
-function pickRandomPrompts(count: number): string[] {
-  const shuffled = [...EXAMPLE_PROMPT_POOL];
+function pickRandomPrompts(pool: readonly string[], count: number): string[] {
+  const shuffled = [...pool];
   for (let i = shuffled.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [shuffled[i], shuffled[j]] = [shuffled[j]!, shuffled[i]!];
@@ -113,7 +75,7 @@ export function QueryConsole() {
 
   const [question, setQuestion] = useState("");
   // A fresh random 8 for each new chat, so starting over never shows the same prompts.
-  const examplePrompts = useMemo(() => pickRandomPrompts(8), [conversationId]);
+  const examplePrompts = useMemo(() => pickRandomPrompts(activeDomain.chat.examplePrompts, 8), [conversationId]);
 
   const history = conversation?.entries ?? [];
   const activePendingInteraction = conversation?.pendingInteraction ?? null;
@@ -123,7 +85,7 @@ export function QueryConsole() {
 
   // Saved from the mutation's own options, not per-call callbacks, so a reply still lands in its chat if the user navigates away first.
   const mutation = useMutation({
-    mutationFn: ({ q, pendingId, contResp }: SubmitVariables) => askOrchestrator(q, "healthcare", pendingId, contResp),
+    mutationFn: ({ q, pendingId, contResp }: SubmitVariables) => askOrchestrator(q, activeDomain.id, pendingId, contResp),
     onSuccess: (result, vars) => {
       appendEntry(
         vars.conversationId,
@@ -198,14 +160,14 @@ export function QueryConsole() {
         <div className="mx-auto flex max-w-3xl flex-col gap-4 px-6 py-6">
           {history.length === 0 && !isPendingHere && (
             <div className="flex min-h-[60vh] flex-col items-center justify-center gap-6 text-center">
-              <p className="text-sm text-muted-foreground">Ask a question to get started.</p>
+              <p className="text-base text-foreground/75">Ask a question to get started.</p>
               <div className="flex flex-wrap justify-center gap-2">
                 {examplePrompts.map((prompt) => (
                   <button
                     key={prompt}
                     type="button"
                     onClick={() => submit(prompt)}
-                    className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+                    className="rounded-full border border-foreground/20 px-3.5 py-2 text-[13px] text-foreground/85 transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     {prompt}
                   </button>
@@ -232,14 +194,14 @@ export function QueryConsole() {
           e.preventDefault();
           submit(question);
         }}
-        className="shrink-0 border-t border-border bg-background"
+        className="shrink-0 px-4 pt-2 pb-4 sm:px-6"
       >
-        <div className="mx-auto flex max-w-3xl flex-col gap-2 px-6 py-4">
+        <div className="mx-auto flex max-w-3xl flex-col gap-2">
           {/* Phase 8.10 Layer 2: Show continuation context */}
           {activePendingInteraction && (
-            <div className="rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950 p-3 text-sm">
-              <p className="font-semibold text-blue-900 dark:text-blue-100 flex items-center gap-2">
-                <span className="text-base">↪</span>
+            <div className="rounded-md border border-primary/40 bg-primary/10 p-3 text-sm">
+              <p className="flex items-center gap-2 font-semibold text-foreground">
+                <CornerDownRight className="size-4 text-primary" aria-hidden="true" />
                 <span>
                   {activePendingInteraction.kind === "clarification"
                     ? "Please clarify your previous question"
@@ -249,8 +211,12 @@ export function QueryConsole() {
             </div>
           )}
 
-          <div className="flex items-end gap-2">
+          <div className="flex items-end gap-2 rounded-2xl border border-border bg-surface p-2 shadow-panel transition-colors focus-within:border-foreground/30 focus-within:ring-2 focus-within:ring-ring/40">
+            <label htmlFor="query-input" className="sr-only">
+              Ask a question
+            </label>
             <textarea
+              id="query-input"
               ref={textareaRef}
               value={question}
               onChange={(e) => {
@@ -264,10 +230,10 @@ export function QueryConsole() {
                   ? activePendingInteraction.kind === "clarification"
                     ? "Enter the location or identifier..."
                     : "Enter your capability choice..."
-                  : "Ask a question, e.g. highest rated hospitals"
+                  : activeDomain.chat.placeholder
               }
               rows={1}
-              className="max-h-40 w-full resize-none rounded-lg border border-border bg-background p-3 text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+              className="max-h-40 min-h-11 w-full resize-none bg-transparent px-2 py-2.5 text-sm leading-relaxed outline-none placeholder:text-muted-foreground"
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
@@ -276,7 +242,12 @@ export function QueryConsole() {
               }}
             />
 
-            <Button type="submit" size="icon" disabled={mutation.isPending || !question.trim()} aria-label="Send">
+            <Button
+              type="submit"
+              disabled={mutation.isPending || !question.trim()}
+              aria-label="Send question"
+              className="ember-cta size-11 shrink-0 rounded-xl"
+            >
               <ArrowUp className="size-4" aria-hidden="true" />
             </Button>
           </div>
@@ -332,12 +303,12 @@ function ResultCard({
           className={cn(
             "shrink-0 rounded-full px-2 py-0.5 text-xs font-medium",
             isConversational
-              ? "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+              ? "bg-muted text-muted-foreground"
               : success
-              ? "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300"
+              ? "bg-success/15 text-success"
               : isContinuation
-              ? "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
-              : "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300",
+              ? "bg-primary/15 text-primary"
+              : "bg-destructive/15 text-destructive",
           )}
         >
           {isConversational ? "chat" : success ? "success" : isContinuation ? "needs clarification" : "failure"}
@@ -362,21 +333,21 @@ function ResultCard({
       
       {/* Phase 8.10 Layer 2: Show continuation prompt */}
       {isContinuation && result.answer && (
-        <div className="mb-2 rounded-md border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950 p-3 text-sm">
-          <p className="font-semibold text-amber-900 dark:text-amber-100 mb-2 flex items-center gap-2">
+        <div className="mb-2 rounded-md border border-primary/40 bg-primary/10 p-3 text-sm">
+          <p className="mb-2 flex items-center gap-2 font-semibold text-foreground">
             {entry.interactionKind === "clarification" ? (
               <>
-                <span className="text-base">📍</span>
+                <MapPin className="size-4 text-primary" aria-hidden="true" />
                 <span>Clarification needed</span>
               </>
             ) : (
               <>
-                <span className="text-base">💡</span>
+                <Lightbulb className="size-4 text-primary" aria-hidden="true" />
                 <span>Alternative available</span>
               </>
             )}
           </p>
-          <p className="text-amber-900 dark:text-amber-100">{result.answer}</p>
+          <p className="text-foreground">{result.answer}</p>
         </div>
       )}
 
@@ -428,7 +399,7 @@ function ResultCard({
               key={suggestion}
               type="button"
               onClick={() => onSuggestionClick(suggestion)}
-              className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+              className="rounded-full border border-foreground/20 px-3.5 py-2 text-[13px] text-foreground/85 transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {suggestion}
             </button>
@@ -481,13 +452,12 @@ function PhasePipeline({ trace }: { trace: PhaseGateTraceEntry[] }) {
             key={phase}
             title={`${phase}: ${last.status}${last.answerability ? ` (${last.answerability})` : ""}`}
             className={cn(
-              "rounded-full px-2 py-0.5 font-medium",
-              stopped
-                ? "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
-                : "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300",
+              "inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium",
+              stopped ? "bg-primary/15 text-primary" : "bg-success/15 text-success",
             )}
           >
-            {stopped ? "⏸" : "✅"} {label}
+            {stopped ? <Pause className="size-3" aria-hidden="true" /> : <Check className="size-3" aria-hidden="true" />}
+            {label}
           </span>
         );
       })}
@@ -495,9 +465,10 @@ function PhasePipeline({ trace }: { trace: PhaseGateTraceEntry[] }) {
         <span
           key={phase}
           title={`${phase}: not reached`}
-          className="rounded-full bg-muted px-2 py-0.5 font-medium text-muted-foreground"
+          className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 font-medium text-muted-foreground"
         >
-          — {GATE_LABELS[phase]}
+          <Minus className="size-3" aria-hidden="true" />
+          {GATE_LABELS[phase]}
         </span>
       ))}
     </div>
@@ -547,7 +518,12 @@ function CallTrace({ result, clientMs }: { result: ChatResponse; clientMs?: numb
 
   return (
     <div className="mb-2 rounded-md bg-muted/40 p-2 text-xs text-muted-foreground">
-      {timings.length > 0 && <p>⏱ {timings.join(" · ")}</p>}
+      {timings.length > 0 && (
+        <p className="flex items-center gap-1.5">
+          <Timer className="size-3.5" aria-hidden="true" />
+          {timings.join(" · ")}
+        </p>
+      )}
       <ul>
         {roles.map((role) => {
           const roleCalls = calls.filter((call) => call.role === role);

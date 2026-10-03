@@ -143,6 +143,9 @@ body {
   --glow-a: oklch(78% 0.17 70 / 0.22);
   --glow-b: oklch(68% 0.2 42 / 0.16);
   --band: oklch(68% 0.2 42 / 0.2);
+  --brand-a: oklch(82% 0.16 78);
+  --brand-b: oklch(66% 0.2 42);
+  --brand-ink: oklch(16% 0.02 68);
 }
 
 :root[data-theme="light"] {
@@ -151,6 +154,9 @@ body {
   --glow-a: oklch(70% 0.18 60 / 0.16);
   --glow-b: oklch(58% 0.19 40 / 0.12);
   --band: oklch(58% 0.19 40 / 0.16);
+  --brand-a: oklch(70% 0.17 75);
+  --brand-b: oklch(54% 0.18 58);
+  --brand-ink: oklch(99% 0.002 66);
 }
 
 .ember-line {

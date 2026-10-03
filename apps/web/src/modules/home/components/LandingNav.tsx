@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Menu, X } from "lucide-react";
 
+import { BrandMark } from "@/shared/components/ui/brand-mark";
 import { Button } from "@/shared/components/ui/button";
 import { ThemeToggle } from "@/shared/components/ui/theme-toggle";
 import { GithubMark } from "@/shared/components/icons/GithubMark";
@@ -24,13 +25,8 @@ export function LandingNav() {
           to="/"
           className="flex min-h-11 items-center gap-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <span
-            aria-hidden="true"
-            className="flex size-7 items-center justify-center rounded-md border border-border bg-surface font-mono text-sm text-primary"
-          >
-            &gt;
-          </span>
-          <span className="text-[15px] font-semibold tracking-tight text-foreground">IntelligenceOS</span>
+          <BrandMark className="size-7 shrink-0" />
+          <span className="text-sm font-semibold tracking-tight text-foreground">IntelligenceOS</span>
         </Link>
 
         <nav aria-label="Primary" className="hidden items-center gap-6 md:flex">
@@ -62,7 +58,7 @@ export function LandingNav() {
           <div className="hidden md:block">
             <Button
               asChild
-              size="sm"
+              size="default"
               className="h-11 ember-cta hover:brightness-95"
             >
               <Link to="/chat">Open the query console</Link>
@@ -107,7 +103,7 @@ export function LandingNav() {
             <li className="pt-1">
               <Button
                 asChild
-                size="sm"
+                size="default"
                 className="w-full ember-cta hover:brightness-95"
               >
                 <Link to="/chat">Open the query console</Link>
