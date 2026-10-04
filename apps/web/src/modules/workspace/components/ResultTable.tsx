@@ -42,7 +42,13 @@ export function ResultTable({ rows }: { rows: Row[] }) {
 
   return (
     <>
-      <div className="min-h-0 flex-1 overflow-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {/* Scrollbar hidden by design; focusable so the keyboard (arrow keys) can still scroll it sideways. */}
+      <div
+        role="region"
+        aria-label="Results table"
+        tabIndex={0}
+        className="min-h-0 flex-1 overflow-auto overscroll-contain rounded-md [scrollbar-width:none] [&::-webkit-scrollbar]:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
         <table className="w-max min-w-full border-collapse text-sm">
           <thead className="sticky top-0 z-10 bg-surface">
             <tr className="border-b border-border">
@@ -87,7 +93,7 @@ export function ResultTable({ rows }: { rows: Row[] }) {
                 {columns.map((column) => (
                   <td
                     key={column}
-                    className={cn("max-w-[22rem] px-3 py-2 align-top break-words", numeric[column] ? "text-right tabular-nums" : "text-left")}
+                    className={cn("max-w-[14rem] px-3 py-2 align-top break-words sm:max-w-[22rem]", numeric[column] ? "text-right tabular-nums" : "text-left")}
                   >
                     {displayValue(row[column])}
                   </td>

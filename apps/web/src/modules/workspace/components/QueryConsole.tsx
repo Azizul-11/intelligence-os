@@ -1,17 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { ArrowUp, CornerDownRight } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ThinkingOrb } from "thinking-orbs";
 
-import { Button } from "@/shared/components/ui/button";
-
-import { askOrchestrator } from "../api/orchestrator";
+import { askOrchestrator, OrchestratorConfigError, type ChatResponse } from "../api/orchestrator";
 import { useFacilityNames } from "../lib/facility-names";
 import { useCanvas } from "../stores/canvas.store";
-import { useChatHistory } from "../stores/chat-history.store";
+import { useChatHistory, type ChatEntry } from "../stores/chat-history.store";
 import { activeDomain } from "@/domains";
 import { Canvas } from "./Canvas";
+import { Composer } from "./Composer";
+import { QuestionBubble } from "./QuestionBubble";
 import { ResultCard } from "./ResultCard";
 
 
@@ -32,6 +31,21 @@ type SubmitVariables = {
   startedAt: number;
 };
 
+// A stable empty list, so a chat with no entries yet does not look "changed" on every render.
+const NO_ENTRIES: ChatEntry[] = [];
+
+const scrollBehavior = (): ScrollBehavior =>
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+
+// What a screen reader hears when a request settles (the visible result is a long card, so it is not read out).
+function announcementFor(result: ChatResponse): string {
+  if (result.pendingInteractionId) return "More detail is needed. Choose an option or type one.";
+  if (!result.success) return result.error ?? "The request failed.";
+  if (result.answerability?.status === "conversational") return "Reply ready.";
+  const count = result.metadata?.rowCount;
+  return count ? `Answer ready, ${count} results.` : "Answer ready.";
+}
+
 export function QueryConsole() {
   const { conversationId } = useParams();
   const navigate = useNavigate();
@@ -41,15 +55,15 @@ export function QueryConsole() {
   const startConversation = useChatHistory((state) => state.startConversation);
   const appendEntry = useChatHistory((state) => state.appendEntry);
 
-  const [question, setQuestion] = useState("");
+  const [announcement, setAnnouncement] = useState("");
   // A fresh random 8 for each new chat, so starting over never shows the same prompts.
   const examplePrompts = useMemo(() => pickRandomPrompts(activeDomain.chat.examplePrompts, 6), [conversationId]);
 
-  const history = conversation?.entries ?? [];
+  const history = conversation?.entries ?? NO_ENTRIES;
   const activePendingInteraction = conversation?.pendingInteraction ?? null;
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const lastEntryRef = useRef<HTMLDivElement>(null);
 
   // Saved from the mutation's own options, not per-call callbacks, so a reply still lands in its chat if the user navigates away first.
   const mutation = useMutation({
@@ -71,8 +85,12 @@ export function QueryConsole() {
           ? { id: result.pendingInteractionId, kind: result.interactionKind }
           : null,
       );
+      setAnnouncement(announcementFor(result));
     },
     onError: (error, vars) => {
+      console.error("[orchestrator request failed]", error);
+      // A setup problem keeps its own message; anything else (network, a non-JSON reply) gets a cause and a next step.
+      const message = error instanceof OrchestratorConfigError ? error.message : "I couldn't reach the analysis service. Check your connection and try again.";
       appendEntry(
         vars.conversationId,
         {
@@ -81,12 +99,13 @@ export function QueryConsole() {
           result: {
             success: false,
             answer: "",
-            error: error instanceof Error ? error.message : "Request failed.",
+            error: message,
           },
           clientMs: Math.round(performance.now() - vars.startedAt),
         },
         null,
       );
+      setAnnouncement(message);
     },
   });
 
@@ -96,10 +115,19 @@ export function QueryConsole() {
   const closeCanvas = useCanvas((state) => state.close);
   const canvasEntry = history.find((entry) => entry.id === canvasEntryId && entry.result.success) ?? null;
 
-  // Modern chat convention: newest message stays in view, scrolled to automatically.
+  // A question just sent: keep it and the loading row in view at the bottom.
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [history, isPendingHere]);
+    if (isPendingHere) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: scrollBehavior() });
+  }, [isPendingHere]);
+
+  // An answer landed: bring the top of the newest turn (question and summary) into view, not its footer.
+  useEffect(() => {
+    const container = scrollRef.current;
+    const latest = lastEntryRef.current;
+    if (!container || !latest) return;
+    const offset = latest.getBoundingClientRect().top - container.getBoundingClientRect().top;
+    container.scrollTo({ top: container.scrollTop + offset - 16, behavior: scrollBehavior() });
+  }, [history.length]);
 
   function submit(q: string) {
     const trimmed = q.trim();
@@ -115,6 +143,7 @@ export function QueryConsole() {
     const currentPendingId = activePendingInteraction?.id;
     const isContinuation = activePendingInteraction !== null;
 
+    setAnnouncement("Running your query…");
     mutation.mutate({
       conversationId: targetId,
       q: trimmed,
@@ -122,16 +151,13 @@ export function QueryConsole() {
       contResp: isContinuation ? trimmed : undefined,
       startedAt: performance.now(),
     });
-
-    setQuestion("");
-    if (textareaRef.current) textareaRef.current.style.height = "auto";
   }
 
   return (
     <div className="flex h-full">
       <div className="flex min-w-0 flex-1 flex-col">
       {/* contain-paint keeps content that scrolls inside this box (an open process panel, a long table) from adding height to the page. */}
-      <div ref={scrollRef} className="contain-paint flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="contain-paint flex-1 overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 py-6 sm:px-6">
           {history.length === 0 && !isPendingHere && (
             <div className="flex min-h-[60vh] flex-col items-center justify-center gap-6 text-center">
@@ -151,87 +177,37 @@ export function QueryConsole() {
             </div>
           )}
 
-          {history.map((entry) => (
-            <ResultCard key={entry.id} entry={entry} onSuggestionClick={submit} />
+          {history.map((entry, index) => (
+            <div key={entry.id} ref={index === history.length - 1 ? lastEntryRef : undefined}>
+              <ResultCard entry={entry} onSuggestionClick={submit} />
+            </div>
           ))}
 
-          {isPendingHere && (
-            <div className="flex items-center gap-3 text-sm">
-              <ThinkingOrb state="solving" size={20} aria-label="Running your query…" />
-              <span className="text-sm text-muted-foreground">Running your query…</span>
+          {isPendingHere && mutation.variables && (
+            <div className="flex flex-col gap-4">
+              <QuestionBubble>{mutation.variables.q}</QuestionBubble>
+              <div className="flex items-center gap-3 text-sm">
+                <ThinkingOrb state="solving" size={20} aria-label="Running your query…" />
+                <span className="text-sm text-muted-foreground">Running your query…</span>
+              </div>
             </div>
           )}
         </div>
       </div>
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          submit(question);
-        }}
-        className="shrink-0 pt-2 pb-4"
-      >
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-4 sm:px-6">
-          {/* Phase 8.10 Layer 2: Show continuation context */}
-          {activePendingInteraction && (
-            <div className="rounded-md border border-primary/40 bg-primary/10 p-3 text-sm">
-              <p className="flex items-center gap-2 font-semibold text-foreground">
-                <CornerDownRight className="size-4 text-primary" aria-hidden="true" />
-                <span>
-                  {activePendingInteraction.kind === "clarification"
-                    ? "Please clarify your previous question"
-                    : "Please select an alternative capability"}
-                </span>
-              </p>
-            </div>
-          )}
+      <p role="status" className="sr-only">
+        {announcement}
+      </p>
 
-          <div className="flex items-end gap-2 rounded-xl border border-border bg-surface p-2 transition-colors focus-within:border-primary focus-within:ring-2 focus-within:ring-primary">
-            <label htmlFor="query-input" className="sr-only">
-              Ask a question
-            </label>
-            <textarea
-              id="query-input"
-              ref={textareaRef}
-              value={question}
-              onChange={(e) => {
-                setQuestion(e.target.value);
-                const el = e.target;
-                el.style.height = "auto";
-                el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
-              }}
-              placeholder={
-                activePendingInteraction
-                  ? activePendingInteraction.kind === "clarification"
-                    ? "Enter the location or identifier..."
-                    : "Enter your capability choice..."
-                  : activeDomain.chat.placeholder
-              }
-              rows={1}
-              className="field-sizing-content max-h-40 min-h-11 w-full resize-none bg-transparent px-2 py-2.5 text-sm leading-relaxed outline-none placeholder:text-muted-foreground"
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  submit(question);
-                }
-              }}
-            />
-
-            <Button
-              type="submit"
-              disabled={mutation.isPending || !question.trim()}
-              aria-label="Send question"
-              className="ember-cta size-11 shrink-0 rounded-xl"
-            >
-              <ArrowUp className="size-4" aria-hidden="true" />
-            </Button>
-          </div>
-        </div>
-      </form>
+      <Composer
+        pending={mutation.isPending}
+        pendingInteraction={activePendingInteraction}
+        placeholder={activeDomain.chat.placeholder}
+        compactPlaceholder={activeDomain.chat.compactPlaceholder}
+        onSubmit={submit}
+      />
       </div>
       {canvasEntry && <Canvas entry={canvasEntry} onClose={closeCanvas} />}
     </div>
   );
 }
-
-

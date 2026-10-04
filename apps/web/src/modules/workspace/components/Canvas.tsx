@@ -2,11 +2,12 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useState,
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { Download, X } from "lucide-react";
+import { Download, GripVertical, X } from "lucide-react";
 
 import type { ChatResponse } from "../api/orchestrator";
 import { useCanvas } from "../stores/canvas.store";
@@ -45,15 +46,36 @@ export function Canvas({ entry, onClose }: { entry: ChatEntry; onClose: () => vo
   );
   const columnCount = Object.keys(rows[0] ?? {}).length;
 
-  // Put keyboard focus back where it was when the canvas closes, so Escape never strands the user.
+  // Below lg the canvas covers the whole screen, so it behaves as a modal: the chat column behind it is made inert.
+  const [overlay, setOverlay] = useState(() => window.matchMedia("(max-width: 1023px)").matches);
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 1023px)");
+    const sync = () => setOverlay(query.matches);
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, []);
+
+  // Declared before the focus effect so the chat is interactive again before focus returns to it on close.
+  useEffect(() => {
+    const chat = asideRef.current?.previousElementSibling;
+    if (!overlay || !chat) return;
+    chat.setAttribute("inert", "");
+    return () => chat.removeAttribute("inert");
+  }, [overlay]);
+
+  // Move focus into the canvas on open, and back to where it was on close, so Escape never strands the user.
   useEffect(() => {
     const returnTo = document.activeElement as HTMLElement | null;
+    asideRef.current?.focus({ preventScroll: true });
     return () => returnTo?.focus?.();
   }, []);
 
   useEffect(() => {
     function onEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      // Escape belongs to a text field or an open dialog first; it only closes the canvas from anywhere else.
+      if ((event.target as HTMLElement | null)?.closest("textarea, input, select, [contenteditable]") || document.querySelector("dialog[open]")) return;
+      onClose();
     }
     window.addEventListener("keydown", onEscape);
     return () => window.removeEventListener("keydown", onEscape);
@@ -92,8 +114,11 @@ export function Canvas({ entry, onClose }: { entry: ChatEntry; onClose: () => vo
     <aside
       ref={asideRef}
       aria-label="Result canvas"
+      role={overlay ? "dialog" : undefined}
+      aria-modal={overlay || undefined}
+      tabIndex={-1}
       style={{ "--canvas-width": width ? `${width}px` : "46%" } as CSSProperties}
-      className="canvas-enter fixed inset-0 z-40 flex min-h-0 flex-col bg-surface lg:relative lg:z-auto lg:my-3 lg:mr-3 lg:w-(--canvas-width) lg:shrink-0 lg:rounded-xl lg:border lg:border-border"
+      className="canvas-enter fixed inset-0 z-40 flex min-h-0 flex-col bg-surface outline-none overscroll-contain lg:relative lg:z-auto lg:my-3 lg:mr-3 lg:w-(--canvas-width) lg:shrink-0 lg:rounded-xl lg:border lg:border-border"
     >
       <div
         role="separator"
@@ -102,10 +127,16 @@ export function Canvas({ entry, onClose }: { entry: ChatEntry; onClose: () => vo
         aria-valuemin={CANVAS_MIN_WIDTH}
         aria-valuenow={width ?? undefined}
         tabIndex={0}
+        title="Drag to resize"
         onPointerDown={startResize}
         onKeyDown={resizeWithKeys}
-        className="absolute inset-y-0 -left-1 z-10 hidden w-2 cursor-col-resize rounded-full transition-colors hover:bg-primary/40 focus-visible:bg-primary/60 focus-visible:outline-none lg:block"
-      />
+        className="group absolute inset-y-0 -left-1 z-10 hidden w-2 cursor-col-resize rounded-full transition-colors hover:bg-primary/40 focus-visible:bg-primary/60 focus-visible:outline-none lg:block"
+      >
+        {/* The grip: always visible, so the edge reads as draggable before anyone hovers it. */}
+        <span className="pointer-events-none absolute top-1/2 left-1/2 flex h-10 w-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-field bg-surface text-muted-foreground transition-colors group-hover:border-primary group-hover:text-primary group-focus-visible:border-primary group-focus-visible:text-primary">
+          <GripVertical className="size-3.5" aria-hidden="true" />
+        </span>
+      </div>
 
       <header className="flex items-center gap-2 border-b border-border px-5 py-3">
         <div className="min-w-0 flex-1">

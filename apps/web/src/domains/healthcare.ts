@@ -21,6 +21,7 @@ export const healthcare: DomainConfig = {
     ),
   chat: {
     placeholder: "Ask about a hospital, a state, or a condition",
+    compactPlaceholder: "Ask about a hospital…",
     examplePrompts: [
         "Stroke mortality rate in Ohio",
         "Hospitals with the best patient safety scores",

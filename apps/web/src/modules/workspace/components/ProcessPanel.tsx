@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Check, ChevronDown, Copy, Minus, Pause, type LucideIcon } from "lucide-react";
 
 import { Button } from "@/shared/components/ui/button";
@@ -113,7 +113,7 @@ function Timings({ result, clientMs }: { result: Partial<ChatResponse>; clientMs
       {items.map(([label, value]) => (
         <div key={label}>
           <dt className="text-xs text-muted-foreground">{label}</dt>
-          <dd className="text-sm tabular-nums text-foreground">{value !== undefined ? fmtMs(value) : "Not recorded"}</dd>
+          <dd className={cn("text-sm tabular-nums text-foreground", value !== undefined && "font-mono")}>{value !== undefined ? fmtMs(value) : "Not recorded"}</dd>
         </div>
       ))}
     </dl>
@@ -160,6 +160,13 @@ export function ProcessPanel({
   result: Partial<ChatResponse>;
   clientMs?: number;
 }) {
+  const panelRef = useRef<HTMLElement>(null);
+  // It mounts below the fold on the newest turn: bring it into view instead of leaving it behind the composer.
+  useEffect(() => {
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    panelRef.current?.scrollIntoView({ block: "nearest", behavior: reduceMotion ? "auto" : "smooth" });
+  }, []);
+
   const trace = result.trace ?? [];
   const steps = buildSteps(trace);
   // The intent triage call is internal plumbing (casual-or-data routing), so it is not listed. Its latency still counts in the timings.
@@ -168,9 +175,10 @@ export function ProcessPanel({
 
   return (
     <section
+      ref={panelRef}
       id={id}
       aria-label="Query process"
-      className="process-enter mt-1 flex flex-col gap-4 rounded-lg border border-border bg-surface p-4"
+      className="process-enter mt-1 flex scroll-mb-4 flex-col gap-4 rounded-lg border border-border bg-surface p-4"
     >
       <Timings result={result} clientMs={clientMs} />
 

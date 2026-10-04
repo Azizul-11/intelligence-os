@@ -1,14 +1,15 @@
 import { useId, useState } from "react";
-import { Lightbulb, MapPin, PanelRight, Workflow } from "lucide-react";
+import { CircleAlert, Info, Lightbulb, MapPin, PanelRight, PanelRightClose, Workflow } from "lucide-react";
 
 import { Button } from "@/shared/components/ui/button";
 
 import { useFacilityNames } from "../lib/facility-names";
-import { withFacilityNames, type Row } from "../lib/result-format";
+import { displayValue, withFacilityNames, type Row } from "../lib/result-format";
 import type { ChatEntry } from "../stores/chat-history.store";
 import { useCanvas } from "../stores/canvas.store";
 import { CARD_LIST_LIMIT, RankedList } from "./RankedList";
 import { ProcessPanel } from "./ProcessPanel";
+import { QuestionBubble } from "./QuestionBubble";
 
 export function ResultCard({
   entry,
@@ -19,6 +20,9 @@ export function ResultCard({
 }) {
   const { question, result } = entry;
   const openCanvas = useCanvas((state) => state.open);
+  const closeCanvas = useCanvas((state) => state.close);
+  // True while this answer is the one shown in the canvas, so its button can offer to close it.
+  const canvasOpen = useCanvas((state) => state.entryId === entry.id);
   const [processOpen, setProcessOpen] = useState(false);
   const processId = useId();
   const success = result.success;
@@ -34,6 +38,9 @@ export function ResultCard({
   // Phase 8.10 Layer 2: Treat continuation prompts differently from errors
   const isContinuation = !success && "pendingInteractionId" in result && !!result.pendingInteractionId;
   const isError = !success && !isContinuation;
+  // The backend declined on purpose (out of scope, not answerable): a calm notice, not a failure. No answerability = a real error.
+  const isRefusal = isError && "answerability" in result && !!result.answerability;
+  const errorMessage = "error" in result && result.error ? result.error : "The backend returned a failure with no error message.";
 
   let rows: unknown = null;
   let parseError: string | null = null;
@@ -52,12 +59,10 @@ export function ResultCard({
   return (
     <div className="flex flex-col gap-4">
       {/* The question is a right-aligned bubble; the answer below reads from the left, like a chat reply. */}
-      <div className="flex justify-end">
-        <p className="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-muted px-4 py-2.5 text-sm text-foreground sm:max-w-[70%]">{question}</p>
-      </div>
+      <QuestionBubble>{question}</QuestionBubble>
 
       <div className="flex w-full flex-col gap-3 text-sm">
-      {isConversational && <p className="max-w-prose text-foreground">{result.answer}</p>}
+      {isConversational && <p className="max-w-prose text-base leading-relaxed text-foreground">{result.answer}</p>}
 
       {/* Phase 8.10 Layer 2: Show continuation prompt */}
       {isContinuation && result.answer && (
@@ -75,23 +80,37 @@ export function ResultCard({
               </>
             )}
           </p>
-          <p className="text-foreground">{result.answer}</p>
+          <p className="text-base leading-relaxed text-foreground">{result.answer}</p>
         </div>
       )}
 
-      {isError && (
-        <p role="alert" className="text-sm text-destructive">
-          {"error" in result && result.error
-            ? result.error
-            : "The backend returned a failure with no error message."}
-        </p>
+      {isRefusal && (
+        <div className="rounded-md border border-border bg-muted/40 p-3">
+          <p className="mb-2 flex items-center gap-2 font-semibold text-foreground">
+            <Info className="size-4 text-primary" aria-hidden="true" />
+            <span>I can&rsquo;t answer that directly</span>
+          </p>
+          <p className="text-base leading-relaxed text-foreground">{errorMessage}</p>
+        </div>
+      )}
+
+      {isError && !isRefusal && (
+        <div role="alert" className="flex flex-col items-start gap-3">
+          <p className="flex items-start gap-2 text-base text-destructive">
+            <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+            <span>{errorMessage}</span>
+          </p>
+          <Button type="button" variant="outline" size="sm" onClick={() => onSuggestionClick(question)} className="min-h-11 px-3">
+            Try again
+          </Button>
+        </div>
       )}
 
       {/* LLM Integration Layer 3: purely additive - only rendered when
           the backend's own numeric cross-check already accepted it; the
           raw rows table below is completely unaffected either way. */}
       {success && "summary" in result && result.summary && (
-        <p className="max-w-prose whitespace-pre-line text-sm text-foreground">{result.summary}</p>
+        <p className="max-w-prose whitespace-pre-line text-base leading-relaxed text-foreground">{result.summary}</p>
       )}
 
       {success && parseError && (
@@ -122,11 +141,11 @@ export function ResultCard({
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => openCanvas(entry.id)}
+              onClick={() => (canvasOpen ? closeCanvas() : openCanvas(entry.id))}
               className="min-h-11 gap-2 px-3"
             >
-              <PanelRight className="size-4" aria-hidden="true" />
-              {rows.length > CARD_LIST_LIMIT ? `See all ${rows.length} in canvas` : "Open in canvas"}
+              {canvasOpen ? <PanelRightClose className="size-4" aria-hidden="true" /> : <PanelRight className="size-4" aria-hidden="true" />}
+              {canvasOpen ? "Close canvas" : rows.length > CARD_LIST_LIMIT ? `See all ${rows.length} in canvas` : "Open in canvas"}
             </Button>
           )}
           <Button
@@ -168,7 +187,7 @@ export function ResultCard({
               onClick={() => onSuggestionClick(suggestion)}
               className="inline-flex min-h-11 items-center rounded-full border border-foreground/20 px-3.5 text-sm text-foreground/85 transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              {suggestion}
+              {displayValue(suggestion)}
             </button>
           ))}
         </div>

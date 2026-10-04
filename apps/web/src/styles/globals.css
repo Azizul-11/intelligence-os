@@ -58,9 +58,16 @@
   --color-border: oklch(33% 0.005 90);
   --color-input: oklch(33% 0.005 90);
   --color-ring: oklch(74% 0.15 68 / 0.5);
+  /* The composer's edge must clear 3:1 against the page; the hairline border token does not. */
+  --color-field: oklch(54% 0.006 90);
+}
+
+:root {
+  color-scheme: dark;
 }
 
 :root[data-theme="light"] {
+  color-scheme: light;
   --color-background: oklch(99% 0.002 90);
   --color-foreground: oklch(15% 0.005 90);
 
@@ -88,6 +95,7 @@
   --color-border: oklch(90% 0.004 90);
   --color-input: oklch(90% 0.004 90);
   --color-ring: oklch(55% 0.16 66 / 0.5);
+  --color-field: oklch(62% 0.008 90);
 }
 
 @media (prefers-color-scheme: light) {

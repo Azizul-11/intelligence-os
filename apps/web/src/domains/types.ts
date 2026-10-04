@@ -1,5 +1,7 @@
 export type ChatConfig = {
   placeholder: string;
+  // Shown instead of `placeholder` on phones, where the full text would be cut off.
+  compactPlaceholder?: string;
   examplePrompts: readonly string[];
 };
 
