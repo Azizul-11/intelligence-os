@@ -1,3 +1,4 @@
+import { healthcareVisualizers } from "./healthcare-ui";
 import type { DomainConfig } from "./types";
 
 // Healthcare is the first domain SDK: CMS Care Compare hospital data.
@@ -19,6 +20,7 @@ export const healthcare: DomainConfig = {
     import("../../../../domain-packs/healthcare/src/runtime/hospital-identity-directory").then(({ hospitalIdentityDirectory }) =>
       Object.fromEntries(hospitalIdentityDirectory.map((record) => [record.facilityId, record.hospitalName])),
     ),
+  visualizers: healthcareVisualizers,
   chat: {
     placeholder: "Ask about a hospital, a state, or a condition",
     compactPlaceholder: "Ask about a hospital…",

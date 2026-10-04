@@ -9,6 +9,8 @@ import {
 } from "react";
 import { Download, GripVertical, X } from "lucide-react";
 
+import { activeDomain } from "@/domains";
+
 import type { ChatResponse } from "../api/orchestrator";
 import { useCanvas } from "../stores/canvas.store";
 import type { ChatEntry } from "../stores/chat-history.store";
@@ -45,6 +47,8 @@ export function Canvas({ entry, onClose }: { entry: ChatEntry; onClose: () => vo
     [entry.result, names],
   );
   const columnCount = Object.keys(rows[0] ?? {}).length;
+  // A domain's richer view of these rows, if it has one; otherwise the generic table below.
+  const visualizer = useMemo(() => activeDomain.visualizers?.find((candidate) => candidate.matches(rows)), [rows]);
 
   // Below lg the canvas covers the whole screen, so it behaves as a modal: the chat column behind it is made inert.
   const [overlay, setOverlay] = useState(() => window.matchMedia("(max-width: 1023px)").matches);
@@ -142,7 +146,7 @@ export function Canvas({ entry, onClose }: { entry: ChatEntry; onClose: () => vo
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{entry.question}</p>
           <p className="text-xs text-muted-foreground tabular-nums">
-            {rows.length} results · {columnCount} columns
+            {rows.length} {rows.length === 1 ? "result" : "results"} · {columnCount} columns
           </p>
         </div>
         <button
@@ -165,10 +169,12 @@ export function Canvas({ entry, onClose }: { entry: ChatEntry; onClose: () => vo
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col p-5">
-        {rows.length > 0 ? (
-          <ResultTable key={entry.id} rows={rows} />
-        ) : (
+        {rows.length === 0 ? (
           <p className="text-sm text-muted-foreground">No results to show.</p>
+        ) : visualizer ? (
+          <visualizer.Component key={entry.id} rows={rows} />
+        ) : (
+          <ResultTable key={entry.id} rows={rows} />
         )}
       </div>
     </aside>

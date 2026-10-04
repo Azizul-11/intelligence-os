@@ -4,6 +4,8 @@ import { CircleAlert, Info, Lightbulb, MapPin, PanelRight, PanelRightClose, Work
 import { Button } from "@/shared/components/ui/button";
 
 import { useFacilityNames } from "../lib/facility-names";
+import { activeDomain } from "@/domains";
+
 import { displayValue, withFacilityNames, type Row } from "../lib/result-format";
 import type { ChatEntry } from "../stores/chat-history.store";
 import { useCanvas } from "../stores/canvas.store";
@@ -55,6 +57,7 @@ export function ResultCard({
 
   const names = useFacilityNames();
   const namedRows = Array.isArray(rows) ? withFacilityNames(rows as Row[], names) : [];
+  const visualizer = activeDomain.visualizers?.find((candidate) => candidate.matches(namedRows));
 
   return (
     <div className="flex flex-col gap-4">
@@ -130,7 +133,7 @@ export function ResultCard({
           <p className="text-sm text-muted-foreground">
             {rows.length > CARD_LIST_LIMIT
               ? `Showing ${CARD_LIST_LIMIT} of ${rows.length} results`
-              : `${rows.length} results returned`}
+              : `${rows.length} ${rows.length === 1 ? "result" : "results"} returned`}
           </p>
         ) : (
           <span />
@@ -145,7 +148,7 @@ export function ResultCard({
               className="min-h-11 gap-2 px-3"
             >
               {canvasOpen ? <PanelRightClose className="size-4" aria-hidden="true" /> : <PanelRight className="size-4" aria-hidden="true" />}
-              {canvasOpen ? "Close canvas" : rows.length > CARD_LIST_LIMIT ? `See all ${rows.length} in canvas` : "Open in canvas"}
+              {canvasOpen ? "Close canvas" : (visualizer?.openLabel ?? (rows.length > CARD_LIST_LIMIT ? `See all ${rows.length} in canvas` : "Open in canvas"))}
             </Button>
           )}
           <Button
