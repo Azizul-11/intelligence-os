@@ -11,8 +11,11 @@
     <title>IntelligenceOS - Deterministic Truth for Enterprise Analytics</title>
     <script>
       (function () {
-        var t = localStorage.getItem("theme");
-        if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+        var t = "dark";
+        try {
+          if (localStorage.getItem("theme") === "light") t = "light";
+        } catch (e) {}
+        document.documentElement.setAttribute("data-theme", t);
       })();
     </script>
   </head>

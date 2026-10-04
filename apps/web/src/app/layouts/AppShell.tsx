@@ -11,7 +11,7 @@ export function AppShell({ children }: AppShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(() => typeof window === "undefined" || window.innerWidth >= 768);
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-dvh">
       <Sidebar open={sidebarOpen} onToggle={() => setSidebarOpen((open) => !open)} />
 
       <div className="flex min-w-0 flex-1 flex-col">
