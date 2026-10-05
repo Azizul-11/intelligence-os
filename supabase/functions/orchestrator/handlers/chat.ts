@@ -4,7 +4,7 @@ import type { ChatResponse } from "../types/response.ts";
 import { supabase } from "../../shared/supabase.ts";
 import { executeRuntime } from "../services/runtime.ts";
 import { handleContinuation } from "../services/continuation.ts";
-import { isConversational, preflightClarification } from "../services/conversational.ts";
+import { isConversational, isPureGreeting, preflightClarification } from "../services/conversational.ts";
 import { createPendingInteraction } from "@intelligence/runtime-engine";
 import { getDomainMetrics, getDomainCapabilities, getRuntimeEngine, describeResultNote } from "../services/domain-registry.ts";
 import { buildIgnoredNote, buildInterpretedRefusal, buildScopeMessage, buildUnaccountedMessage, composeSummary, droppedTerms, gateAlternates } from "../services/graceful-message.ts";
@@ -117,6 +117,11 @@ async function persistTrace(
   }
 }
 
+/** Keeps a promise running after the response is sent (Supabase EdgeRuntime.waitUntil); elsewhere (local scripts) it simply runs detached. */
+function runInBackground(promise: Promise<unknown>): void {
+  (globalThis as { EdgeRuntime?: { waitUntil?: (task: Promise<unknown>) => void } }).EdgeRuntime?.waitUntil?.(promise);
+}
+
 /** Every response carries server latency and each LLM call (role, model, latency) so the frontend can attribute a slow query without log access. */
 export async function handleChat(
   request: ChatRequest,
@@ -141,6 +146,11 @@ async function runChat(
   // LLM Layer 0: intercepted BEFORE Gate 1 and the pipeline; never SQL, only an onboarding/deflection reply (see isConversational()).
   if (isConversational(request.question)) {
     const capabilities = getDomainCapabilities();
+    const welcome = capabilities.prompts?.conversational?.fallbackAnswer;
+    // A bare greeting needs no model: the domain's canned welcome plus its example questions (already known to be answerable) reply instantly.
+    if (welcome && isPureGreeting(request.question)) {
+      return { success: true, answer: welcome, suggestions: capabilities.exampleAnswerableQuestions.slice(0, 3), answerability: { status: "conversational" } };
+    }
     const conversational = await llmGateway.handleConversational(request.question, capabilities);
     const suggestions = await validateConversationalSuggestions(conversational.suggestions);
     return {
@@ -181,7 +191,9 @@ async function runChat(
       };
     }
   });
-  await persistTrace(requestId, request.question, result);
+  // The trace row is written off the response path; recordRejectedSummary below waits for it because it updates that same row.
+  const tracePersisted = persistTrace(requestId, request.question, result);
+  runInBackground(tracePersisted);
 
   // ConversationalFix (2026-09-27): the `conversationalCheck` hook caught small talk / a capability question; 0 SQL,
   // same shape as Layer 0's regex branch, and `result.rows` is empty so the success-path machinery below does not apply.
@@ -364,6 +376,7 @@ async function runChat(
   const suggestions = alternates.length > 0 ? [...new Set([...alternates, ...(result.suggestions ?? [])])].slice(0, 4) : result.suggestions;
 
   if (verified.rejected) {
+    await tracePersisted;
     await recordRejectedSummary(requestId, result.trace, verified.rejected);
   }
 

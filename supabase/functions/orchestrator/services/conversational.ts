@@ -23,6 +23,13 @@ export function isConversational(question: string): boolean {
   return core.length > 0 && CONVERSATIONAL.test(core);
 }
 
+const PURE_GREETINGS = new Set(["hi", "hello", "hey", "hiya", "howdy", "greetings", "yo", "hi there", "hello there", "hey there"]);
+
+/** A bare greeting (exact match, nothing else): safe to answer with the domain's canned welcome and no model call. */
+export function isPureGreeting(question: string): boolean {
+  return PURE_GREETINGS.has(question.trim().toLowerCase().replace(/[\s!.?]+$/, ""));
+}
+
 /**
  * Batch 4: questions that cannot be answered as typed and are better asked
  * about than run, with 0 SQL. Returns the clarifying question, or undefined
