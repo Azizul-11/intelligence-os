@@ -1,11 +1,5 @@
-/**
- * Phase 8.10 Layer 2: Bounded Conversational Continuation
- * 
- * Focused tests for two-turn clarification and guidance flows.
- * Tests pending interaction storage, retrieval, matching, and reconstruction.
- * 
- * PREREQUISITE: Migration 20260831_create_pending_interactions.sql must be applied
- */
+/** Phase 8.10 Layer 2: two-turn clarification/guidance continuation (pending interaction store, retrieve, match, reconstruct). Requires migration
+ * 20260831_create_pending_interactions.sql. */
 
 import { createClient } from "@supabase/supabase-js";
 import {

@@ -1,12 +1,4 @@
-/**
- * Phase 6.1 - Semantic Position Verification
- *
- * Verifies that SemanticCandidate.start/end now reflect real originating
- * phrase positions (previously hardcoded to 0/0), and that existing
- * single-metric resolution behavior is unchanged.
- *
- * NO SQL execution - semantic extraction only.
- */
+/** Phase 6.1: SemanticCandidate.start/end reflect real phrase positions (were hardcoded 0/0) and single-metric behavior is unchanged; no SQL. */
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";

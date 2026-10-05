@@ -1,13 +1,7 @@
 import type { SqlTemplateDefinition } from "@intelligence/domain-sdk";
 
-/**
- * Batch 5B-4: a list of hospitals with no state named ("rural emergency hospitals", "which hospitals offer emergency
- * services?"). hospital-list-by-state requires `states`, which is what keeps a bare "show hospitals" from listing all
- * 5,442; this template keeps the same safety rule a different way: it is only selected when a hospital-type or flag
- * filter, or an ownership CMS never rates (Phase 3.5: Department of Defense), is present (runtime/execution-strategy.ts),
- * its WHERE clause matches nothing unless one of those is bound, and it
- * returns at most 100 rows (alphabetical). When more match, the answer says how many (hospital-attribute-directory.ts).
- */
+/** Batch 5B-4: a no-state hospital list, selected only with a hospital-type/flag filter or an unrated ownership (Phase 3.5; runtime/execution-strategy.ts), so a bare "show hospitals" cannot list all 5,442;
+ * the WHERE matches nothing unless one is bound, returns at most 100 rows (alphabetical), and the answer says how many matched (hospital-attribute-directory.ts). */
 export const hospitalListNationwideSqlTemplate: SqlTemplateDefinition = {
   id: "hospital-list-nationwide",
 

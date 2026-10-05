@@ -12,101 +12,31 @@ export interface RuntimeResult<T = unknown> {
 
   error?: string;
 
-  /**
-   * Pre-Phase 8 semantic-completeness check: whether every semantically
-   * resolved candidate was accounted for in the ExecutionPlan that
-   * produced this result. Diagnostic only - present only on a
-   * successful execution where a plan was actually built; never
-   * present, and never inspected, on any failure path. Domain-agnostic,
-   * additive, and not yet consumed by any caller - reserved for a
-   * future Phase 8 answerability layer.
-   */
+  /** Pre-Phase 8 semantic-completeness check: whether every resolved candidate was accounted for in the ExecutionPlan; diagnostic, only on a successful execution with a plan built, not yet consumed (reserved for Phase 8 answerability). */
   completeness?: PlanCompletenessReport;
 
-  /**
-   * Phase 8.1: structured classification of whether this request could
-   * proceed to deterministic execution. Present on every response - a
-   * generalization of four gates that already existed as separate ad hoc
-   * checks (unresolved semantic result, unsupported negation, a detected
-   * direction contradiction, and zero resolved metrics), plus the new
-   * identity-ambiguity signal (see SemanticResolutionResult.
-   * identityAmbiguities). Additive and diagnostic: nothing about which
-   * requests succeed or fail, or their existing error text, changes
-   * because this field exists.
-   */
+  /** Phase 8.1: structured classification of whether the request could proceed to deterministic execution; present on every response, generalizes four ad hoc gates plus identity ambiguity. Additive: success/failure and error text are unchanged. */
   answerability?: AnswerabilityResult;
 
-  /**
-   * Phase 8.6C: purely evidentiary, policy-neutral population-coverage
-   * facts - one entry per metric whose resolved template declared a
-   * companion `coverageTemplateId` (see SqlTemplateDefinition). Present
-   * only on a successful "rank"/"aggregate" execution where at least
-   * one involved metric's template opted in; never present otherwise.
-   * Additive and diagnostic: nothing about success/failure, `rows`, or
-   * `rowCount` changes because this field exists or because coverage
-   * is incomplete. Deliberately carries no interpretation of the
-   * numbers - no policy, no threshold, no disclosure text - that
-   * remains a later, separately-authorized answerability/guidance
-   * decision.
-   */
+  /** Phase 8.6C: evidentiary, policy-neutral coverage facts, one per metric whose template declared `coverageTemplateId` (SqlTemplateDefinition); only on a successful "rank"/"aggregate" where a template opted in.
+   * Additive and diagnostic: carries no interpretation (policy, threshold, disclosure text), which is a later answerability/guidance decision. */
   coverage?: CoverageFact[];
 
-  /**
-   * Batch 5A-1: the parameters the answering template ran with (the resolved filters and the like), present only on a
-   * successful execution. Lets a Domain describe its own result exactly (for instance how many records tie for the
-   * top value IN THIS SCOPE) without re-deriving the scope from the rows. Diagnostic and additive: nothing about
-   * success, `rows` or `rowCount` changes because this field exists.
-   */
+  /** Batch 5A-1: parameters the answering template ran with (resolved filters etc.), only on success, so a Domain can describe its result exactly (e.g. ties for the top value IN THIS SCOPE). Diagnostic and additive. */
   executedParameters?: Record<string, unknown>;
 
-  /**
-   * Tier0 Task 2 (F8) Phase 2: the ordered gate trace PhaseGateTracker
-   * recorded for this exact execution - present on every response,
-   * whatever gate it stopped at. Diagnostic only, additive: nothing about
-   * success/failure or any other field changes because this is present.
-   */
+  /** Tier0 Task 2 (F8) Phase 2: ordered gate trace PhaseGateTracker recorded for this execution; present on every response, diagnostic and additive. */
   trace?: PhaseGateEntry[];
 
-  /**
-   * Tier0 Task 6: present only on an identity-ambiguous refusal - the
-   * semantic candidates (metric/concept/dimension/etc, never the
-   * ambiguous entity itself) this request already resolved before the
-   * entity-identity-ambiguity gate refused it. Opaque (`unknown[]`, no
-   * `@intelligence/semantic` type import here, mirroring
-   * PendingInteraction.originalSemanticResult's own "avoid circular
-   * dependencies" reasoning) so a Layer 2 continuation's Turn 1
-   * pending-interaction can actually carry forward the context its own
-   * `originalSemanticResult` field was always documented to hold,
-   * instead of the empty placeholder it stored before. Diagnostic/
-   * carry-forward only: nothing about this request's own success or
-   * failure changes because this field exists.
-   */
+  /** Tier0 Task 6: only on an identity-ambiguous refusal - the semantic candidates (never the ambiguous entity) resolved before that gate refused; opaque `unknown[]` (no `@intelligence/semantic` import, to avoid circular dependencies).
+   * Lets a Layer 2 Turn 1 pending-interaction carry real context into `originalSemanticResult` instead of an empty placeholder; carry-forward only. */
   semanticMatches?: unknown[];
 
-  /**
-   * Tier1 Task 6: 2-3 short, independently clickable follow-up question
-   * texts - present on BOTH success and failure paths, never absent by
-   * omission alone (an empty array is a valid "nothing to suggest right
-   * now" signal; the field itself is always populated when a Domain SDK
-   * implements `DomainExecutionStrategy.generateSuggestions`).
-   * Deterministic, rule-based for Tier 1 - the same field can be
-   * populated by an LLM call later with zero contract change; callers
-   * must never assume which produced it.
-   *
-   * Every entry here has already been dry-run validated by
-   * create-runtime-engine.ts (re-executed end-to-end and confirmed
-   * `success && rowCount > 0`) before being surfaced - never a candidate
-   * that would itself fail if clicked.
-   */
+  /** Tier1 Task 6: 2-3 clickable follow-up question texts, on success and failure paths (empty array = nothing to suggest); populated whenever a Domain SDK implements `DomainExecutionStrategy.generateSuggestions`. Rule-based now, may be LLM later: callers must not assume which.
+   * Each has been dry-run validated by create-runtime-engine.ts (`success && rowCount > 0`) before being surfaced. */
   suggestions?: string[];
 
-  /**
-   * ConversationalFix (2026-09-27): present only when `answerability.status === "conversational"` - an optional
-   * `conversationalCheck` hook (see CreateRuntimeEngineOptions) decided this not-yet-understood question was small
-   * talk or a capability question rather than a real request for data, before the paid normalizer was ever tried.
-   * `rows` stays empty (0 SQL); the caller renders this text directly, exactly as the front-door regex classifier's
-   * own conversational branch already does. Universal Core never inspects this string - it only carries whatever
-   * the hook returned back to the caller.
-   */
+  /** ConversationalFix (2026-09-27): only when `answerability.status === "conversational"` - the optional `conversationalCheck` hook (CreateRuntimeEngineOptions) judged the question small talk or a capability question, before the paid normalizer ran.
+   * `rows` stays empty (0 SQL); the caller renders this text directly and Core never inspects it. */
   conversationalAnswer?: string;
 }

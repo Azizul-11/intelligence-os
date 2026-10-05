@@ -1,19 +1,5 @@
-/**
- * Pre-Phase 9 Tier1 Task 6 Audit: Dynamic Contextual Follow-Up
- * Suggestions & Graceful Guidance Engine.
- *
- * STRICTLY DIAGNOSTIC - read-only, no production writes. Live, in-process
- * against the remote Supabase warehouse. Simulates the exact RuntimeResult
- * shape across representative success and failure paths to prove:
- *   (a) no `suggestions` field exists anywhere on the contract today;
- *   (b) exactly which failure paths already produce a deterministic,
- *       non-hallucinating guidance message (Phase 8.9/8.10) vs. which
- *       still leak a blunt/raw technical string;
- *   (c) the success path carries zero forward-looking follow-up content
- *       at all, regardless of how rich the resolved context is.
- *
- * Run: npx tsx scripts/verify-prephase9-tier1-t6-audit.ts
- */
+/** Tier1 Task 6 Audit: follow-up suggestions and guidance. DIAGNOSTIC ONLY (read-only, live): no `suggestions` field exists on the contract, and some
+ * failure paths still leak raw strings. */
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";

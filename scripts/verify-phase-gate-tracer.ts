@@ -1,14 +1,5 @@
-/**
- * Tier0 Task 2 (F8) Phase 2: Query Tracer Observability — Verification Suite.
- *
- * Confirms, against the live remote database, that RuntimeResult.trace
- * (see packages/runtime-engine/src/phase-gate-tracker.ts) actually
- * reflects which of the 7 gates each specific query visited, and that a
- * request which stops early correctly shows the LATER gates as never
- * entered rather than silently appearing "complete".
- *
- * Run: npx tsx scripts/verify-phase-gate-tracer.ts
- */
+/** Tier0 Task 2 (F8) Phase 2: RuntimeResult.trace must show which of the 7 gates each query visited, with later gates never entered after an early
+ * stop (live DB). */
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";

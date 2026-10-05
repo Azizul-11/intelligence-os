@@ -1,19 +1,5 @@
-/**
- * LLM Integration Layer 2 — end-to-end integration proof.
- *
- * Confirms the real wiring (HealthcareExecutionStrategy.generateSuggestions
- * -> generateHealthcareSuggestionsWithLLMRephrasing -> llmGateway.
- * synthesizeSuggestions) actually engages a real, live LLM call when run
- * through the full engine pipeline with the environment correctly
- * loaded - as opposed to scripts/verify-tier1-t6-suggestions-fix*.ts,
- * which import "./shared/env" LAST (after healthcareDomain's own import
- * chain already evaluated FALLBACK_CHAIN with unset env vars) and so
- * always exercise the deterministic-only fallback path by construction -
- * a real, load-bearing finding from this implementation turn, not an
- * assumption.
- *
- * Run: npx tsx scripts/verify-llm-layer2-suggestion-rephrasing.ts
- */
+/** Layer 2 end-to-end: the suggestion rephrasing chain makes a real LLM call with env loaded; verify-tier1-t6-suggestions-fix*.ts import "./shared/env" LAST (after FALLBACK_CHAIN is evaluated) so they only ever hit the deterministic fallback.
+ * Run: npx tsx scripts/verify-llm-layer2-suggestion-rephrasing.ts */
 import "dotenv/config"; // MUST be first - see this file's own doc comment above.
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";

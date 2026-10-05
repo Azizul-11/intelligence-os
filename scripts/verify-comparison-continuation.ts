@@ -1,23 +1,7 @@
 #!/usr/bin/env tsx
 
-/**
- * Comparison continuation (Layer 2, Turn 2) regression suite.
- *
- * The flow: Turn 1 `compare memorial hospital vs <a named hospital>` is ambiguous (Memorial Hospital exists in 12
- * places), the user picks a place, and Turn 2 must return BOTH hospitals with the full 22-field dossier. It has
- * regressed more than once, and no automated test covered it (verify-titlecase-and-acb-regression.ts says so in its own
- * header), so a change to the engine gates or to the Turn 2 wording broke it without a single suite going red.
- *
- * Default (in-process, deterministic, no LLM, read-only SELECTs): the REAL `continuationQuestion()` the orchestrator uses
- * builds the Turn 2 question, and the REAL runtime engine runs it with the same identity pins continuation.ts sends
- * (forcedIdentityCandidate, companionEntities, forcedIntent, identityAlreadyResolved).
- *
- * With `--live`: the same flows over HTTP against the deployed orchestrator (real pending interactions, real
- * continuation.ts, real LLM fallback). Run this after ANY change to the engine gates, the semantic pipeline or the
- * orchestrator's continuation code, and after each deploy.
- *
- * Usage: pnpm exec tsx scripts/verify-comparison-continuation.ts [--live]
- */
+/** Regression suite for comparison continuation (Layer 2 Turn 2): "compare memorial hospital vs X" is ambiguous (12 Memorial Hospitals); Turn 2 must return BOTH hospitals with the full 22-field dossier. Default is in-process, deterministic, read-only, using the real continuationQuestion() and continuation.ts identity pins.
+ * `--live` runs over HTTP against the deployed orchestrator; run it after any engine gate, semantic pipeline or continuation change and each deploy. Usage: pnpm exec tsx scripts/verify-comparison-continuation.ts [--live] */
 import "dotenv/config";
 
 import { continuationQuestion } from "../supabase/functions/orchestrator/services/continuation-question";

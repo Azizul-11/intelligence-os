@@ -1,16 +1,7 @@
 #!/usr/bin/env tsx
 
-/**
- * Batch 2 (geographic and territory resolution) verification. Deterministic: no LLM is wired, so a pass here is the
- * resolver and planner alone (the live warehouse is read with SELECTs).
- *
- *   2.1  entity-overlap suppression uses inclusive span ends (packages/semantic semantic-pipeline.ts)
- *   2.2  shouted messages skip the colliding state codes; "in VA" is Virginia (state-abbreviation-preprocessor.ts)
- *   2.3  a city or county that exists in exactly one state derives that state (parameter-resolver.ts)
- *   2.5  exact-literal informal city names (entity-provider.ts)
- *
- * Usage: pnpm exec tsx scripts/verify-batch2-geography.ts
- */
+/** Batch 2 verification (deterministic, no LLM, read-only live warehouse): inclusive entity-overlap span ends (2.1), shouted messages skip colliding state codes (2.2), single-state city/county derives its state (2.3), informal city names (2.5).
+ * Usage: pnpm exec tsx scripts/verify-batch2-geography.ts */
 import "dotenv/config";
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";

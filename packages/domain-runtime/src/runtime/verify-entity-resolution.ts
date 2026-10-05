@@ -1,11 +1,4 @@
-/**
- * Executable verification of Phase 3.1 EntityProvider integration.
- * 
- * Tests:
- * 1. HealthcareEntityProvider resolves "california" → "CA"
- * 2. SemanticPipeline attaches resolvedValue to SemanticCandidate
- * 3. EntityParameterResolver produces state = "CA"
- */
+/** Executable verification of Phase 3.1 EntityProvider integration (california -> CA through the pipeline and EntityParameterResolver). */
 
 import { healthcareDomain } from "@intelligence/healthcare-domain";
 import { createSemanticRegistry } from "./create-semantic-registry";

@@ -10,9 +10,7 @@ export const hospitalOverallRatingRankingSqlTemplate: SqlTemplateDefinition = {
   description:
     "Returns the highest rated hospitals. Tier1 Task 5 balanced-limits fix: a single-state/nationwide request returns the top 10 overall; a multi-state request returns the top 5 PER named state (via ROW_NUMBER() OVER PARTITION BY state), so every requested state gets fair representation instead of one state's tied hospitals crowding out another's.",
 
-  // 2,000 sweep (Batch A3): a scope in which CMS rated no hospital at all (physician-owned in Indiana, American Samoa,
-  // Ponce) returned 0 rows although it holds hospitals. Such a scope is listed alphabetically instead (D11, generalised:
-  // the domain's result note says why); whenever at least one hospital in scope is rated, the rows are exactly as before.
+  // 2,000 sweep (Batch A3): a scope where CMS rated no hospital returned 0 rows; it is listed alphabetically instead (D11 generalised, result note says why).
   template: `
 WITH scoped AS (
     SELECT
@@ -137,9 +135,6 @@ ORDER BY overall_rating :direction NULLS LAST, state ASC, hospital_name ASC
 
   enabled: true,
 
-  // Phase 8.6C: this template's own WHERE clause already applies
-  // exactly the eligibility/presence conditions (`overall_rating IS
-  // NOT NULL`, the same `:state` scope) the companion coverage
-  // template independently re-measures without LIMIT/ORDER BY.
+  // Phase 8.6C: this WHERE already applies the eligibility conditions (`overall_rating IS NOT NULL`, `:state`) the coverage template re-measures without LIMIT/ORDER BY.
   coverageTemplateId: "hospital-overall-rating-ranking-coverage",
 };

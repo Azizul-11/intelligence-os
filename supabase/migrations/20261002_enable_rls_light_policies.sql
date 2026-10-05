@@ -1,25 +1,5 @@
--- =====================================================
--- IntelligenceOS
--- Security hardening: enable RLS on every table tracked
--- in this migrations folder.
---
--- Why: the orchestrator edge function always connects with the
--- service_role key (supabase/functions/shared/supabase.ts), which
--- bypasses RLS regardless of policy - so this changes nothing about
--- how the app itself reads or writes data. What it does close is the
--- public anon key (bundled into the browser build) being usable to
--- query these tables directly over PostgREST, bypassing the
--- orchestrator entirely, since every table here currently has RLS
--- disabled (Postgres grants that key full read/write once a schema
--- is exposed, with no policy standing in the way).
---
--- Policy shape (deliberately light, one pattern everywhere): allow
--- SELECT for anyone, no INSERT/UPDATE/DELETE policy at all. Reading
--- this data isn't sensitive (public CMS hospital-quality data, plus
--- ephemeral continuation/trace rows with no auth system attached to
--- them) - writing it from outside the app never should be, and stays
--- blocked by default the moment RLS is enabled with no write policy.
--- =====================================================
+-- Security: RLS on every table. The anon key is public (bundled in the browser) and would otherwise allow direct PostgREST access; the orchestrator uses service_role, which bypasses RLS.
+-- Policy: public SELECT only (public CMS data, ephemeral trace rows); with no write policy, writes stay blocked.
 
 alter table public.warehouse_hospitals enable row level security;
 alter table public.warehouse_states enable row level security;

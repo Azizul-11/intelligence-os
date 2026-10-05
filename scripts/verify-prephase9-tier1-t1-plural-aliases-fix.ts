@@ -1,14 +1,5 @@
-/**
- * Tier1 Task 1 Fix Verification: Plural / Morphological Variant Mapping.
- *
- * Live, in-process, spy-instrumented verification of Option A (literal
- * plural-form additions to existing Healthcare alias files) against the
- * remote Supabase warehouse. Supersedes
- * `verify-prephase9-tier1-t1-plural-alias-audit.ts` (left unmodified as a
- * frozen pre-fix reproduction) for regression purposes going forward.
- *
- * Run: npx tsx scripts/verify-prephase9-tier1-t1-plural-aliases-fix.ts
- */
+/** Tier1 Task 1 Fix: literal plural-form additions to Healthcare alias files (Option A), live and spy-instrumented. Supersedes
+ * verify-prephase9-tier1-t1-plural-alias-audit.ts (kept frozen as the pre-fix reproduction). */
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";

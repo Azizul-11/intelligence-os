@@ -6,9 +6,7 @@ import type {
   DimensionDefinition as SemanticDimensionDefinition,
 } from "@intelligence/contracts/semantic";
 
-/**
- * Converts Domain SDK dimensions into canonical Semantic dimensions.
- */
+/** Converts Domain SDK dimensions into canonical Semantic dimensions. */
 export function loadDimensions(
   dimensions: readonly DomainDimensionDefinition[],
   domain: string,

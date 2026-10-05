@@ -26,9 +26,7 @@ export class ReferenceValidator
   context.concepts.map((c) => c.id),
 );
 
-    //
     // Alias references
-    //
 
     for (const alias of context.aliases) {
       switch (alias.type.toUpperCase()) {

@@ -1,46 +1,5 @@
-/**
- * Phase 8.9 - Useful Alternative Discovery Verification
- *
- * Phase 8.9's entire approved implementation scope is a single additive
- * discovery step in `createRuntimeEngine()`
- * (packages/runtime-engine/src/create-runtime-engine.ts), attached only
- * to the two pre-existing Phase 8.5 "capability-unavailable" gates
- * (template not found; template registered but `enabled: false`).
- *
- * `discoverAlternatives()` iterates `runtime.domain.metrics` (excluding
- * the unavailable metric itself), keeps only candidates carrying the
- * operation-appropriate capability flag (rankable/aggregatable/
- * comparable), asks the Domain's own `selectTemplateFromPlan` what
- * template IT would pick for that candidate metric under the exact same
- * plan shape, requires that template to be found+enabled (Phase 8.5's own
- * mechanism), and requires every one of the current request's filters to
- * be representable by that template's parameters (Phase 8.8's own
- * `isFilterCompatibleWithTemplate`, factored out unchanged and reused -
- * not reimplemented). "Same category" is never consulted - length-of-stay
- * and emergency-department-visits share `utilizationCategory` yet both
- * independently query the nonexistent `hospital_metrics` table, so
- * category membership alone would produce a fabricated suggestion; that
- * failure mode is the entire reason this task refused category-based
- * shortcuts (see Test G).
- *
- * Every path that already attached a specific answerability (identity-
- * ambiguous, data-unavailable, plan-incomplete, semantic-incomplete, or a
- * raw executor-failure fallback) returns before either capability-
- * unavailable gate is ever reached, and is therefore completely
- * unmodified by this task - Tests C, D, I confirm this directly.
- *
- * Tests A, B, C, D, E, F, G, H use the REAL semantic + planner +
- * runtime-engine pipeline against the REAL remote warehouse
- * (SupabaseDatabaseAdapter) - real runtime evidence, no mocking of any
- * Universal or Domain layer. Test I re-confirms four pre-existing
- * answerability reasons are byte-identical to their Phase 8.7/8.8 shape.
- * Test J is a synthetic, non-Healthcare proof (invented
- * "widget-utilization"/"widget_rank"/"region" metadata) that the
- * discovery RULE itself - operation flag -> found+enabled -> filter
- * compatibility -> declaration order - contains no Healthcare-specific
- * branching, mirroring the Universal-vs-Domain test already established
- * in verify-phase8.8-validation-execution-gate.ts.
- */
+/** Phase 8.9: discoverAlternatives() runs only at the two Phase 8.5 capability-unavailable gates; it keeps metrics whose Domain template is
+ * found+enabled and accepts every request filter (8.8). Category is never used (Test G). J is synthetic; the rest hit the real warehouse. */
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
@@ -83,13 +42,8 @@ function makeRealEngine() {
 }
 
 async function run() {
-  // A - length-of-stay ranking is genuinely unavailable (no
-  // "length-of-stay-ranking" template is registered); real, currently
-  // supported ranking alternatives must be discovered, and
-  // emergency-department-visits - length-of-stay's own same-category
-  // sibling - must NOT be one of them (it is also rankable, but its own
-  // "-ranking" template is equally unregistered; see Test G below for
-  // the isolated proof of *why*).
+  // A - length-of-stay ranking is unavailable (no template registered); real alternatives are discovered, but its same-category sibling
+  // emergency-department-visits must NOT be one (its "-ranking" template is also unregistered; see Test G).
   {
     const engine = makeRealEngine();
     const result = await engine.execute({ question: "hospitals ranked by length of stay", parameters: {} });
@@ -109,11 +63,8 @@ async function run() {
     );
   }
 
-  // B - no-fabricated-alternative case: grouping "by hospital" for an
-  // aggregation is a universally unsupported shape (RCG-008's
-  // deliberately unregistered "-ranking-by-dimension-unsupported" id) -
-  // no metric offers this capability, so discovery must honestly return
-  // no alternatives rather than fabricate one.
+  // B - grouping "by hospital" for an aggregation is universally unsupported (RCG-008 "-ranking-by-dimension-unsupported"); discovery must return no
+  // alternatives rather than fabricate one.
   {
     const engine = makeRealEngine();
     const result = await engine.execute({ question: "average length of stay by hospital", parameters: {} });
@@ -130,9 +81,7 @@ async function run() {
     );
   }
 
-  // C - existing identity ambiguity (Phase 8.1) unaffected: this path
-  // returns before either capability-unavailable gate is reached, so
-  // discovery never runs and `alternatives` must be entirely absent.
+  // C - identity ambiguity (8.1) returns before the capability-unavailable gates, so `alternatives` must be absent.
   {
     const engine = makeRealEngine();
     const result = await engine.execute({ question: "Northwest Medical Center", parameters: {} });
@@ -149,9 +98,7 @@ async function run() {
     );
   }
 
-  // D - existing data-unavailable (Phase 8.6B) unaffected: a different
-  // gate entirely (the template IS found+enabled; the single-entity
-  // record is genuinely absent) - discovery never runs here either.
+  // D - data-unavailable (8.6B) is a different gate (template found+enabled, record absent); discovery never runs.
   {
     const engine = makeRealEngine();
     const result = await engine.execute({
@@ -171,10 +118,7 @@ async function run() {
     );
   }
 
-  // E - scope preservation: a state-scoped capability-unavailable
-  // ranking request must only surface alternatives whose own template
-  // actually accepts that same "state" filter (by value) - never a
-  // scope-losing alternative.
+  // E - scope preservation: state-scoped alternatives must use templates that accept the same "state" filter.
   {
     const engine = makeRealEngine();
     const result = await engine.execute({
@@ -196,11 +140,8 @@ async function run() {
     );
   }
 
-  // F - explicit multi-entity comparison: alternatives must be
-  // discovered via each candidate's own "-by-facility-ids" template
-  // (Phase 7.5's explicit-hospital-set routing, exercised per-candidate
-  // through the same Domain-owned selectTemplateFromPlan), preserving
-  // the exact same facilityIds set - never a scope-losing alternative.
+  // F - explicit multi-entity comparison: alternatives come via each candidate's "-by-facility-ids" template (7.5 routing) and preserve the same
+  // facilityIds set.
   {
     const engine = makeRealEngine();
     const result = await engine.execute({
@@ -222,14 +163,8 @@ async function run() {
     );
   }
 
-  // G - explicit same-category-is-not-sufficient proof: isolate the
-  // fact that emergency-department-visits (length-of-stay's own
-  // utilizationCategory sibling, and independently rankable) is excluded
-  // BECAUSE its own "-ranking" template is unregistered, not because of
-  // any category-based rule - proven by requesting emergency-department-
-  // visits' OWN ranking directly and observing the identical
-  // capability-unavailable outcome (its unavailability is not a
-  // consequence of anything length-of-stay-specific).
+  // G - same category is not sufficient: emergency-department-visits is excluded because its own "-ranking" template is unregistered, shown by
+  // requesting its ranking directly (same capability-unavailable outcome).
   {
     const engine = makeRealEngine();
     const result = await engine.execute({
@@ -250,13 +185,8 @@ async function run() {
     );
   }
 
-  // H - deterministic declaration order: alternatives for Test A must
-  // appear in exactly `healthcareMetrics`' own declaration order
-  // (hospital-overall-rating, mortality-rate, readmission-rate,
-  // emergency-department-visits, patient-experience, length-of-stay,
-  // hospital-count, hospital-list, safety-performance, hospital-detail),
-  // filtered down to the rankable, found+enabled, self-and-sibling-
-  // excluded subset - never scored or reordered.
+  // H - deterministic order: Test A alternatives follow healthcareMetrics' declaration order (rankable, found+enabled, self and sibling excluded),
+  // never scored or reordered.
   {
     const engine = makeRealEngine();
     const result = await engine.execute({ question: "hospitals ranked by length of stay", parameters: {} });
@@ -271,10 +201,7 @@ async function run() {
     );
   }
 
-  // I - existing answerability reasons remain semantically unchanged:
-  // re-run one real case per pre-existing reason and confirm the shape
-  // is identical to Phase 8.7/8.8 evidence (no `alternatives` field
-  // appears anywhere it didn't before).
+  // I - existing answerability reasons are unchanged: one real case per reason, with no new `alternatives` field.
   {
     const engine = makeRealEngine();
 
@@ -315,14 +242,8 @@ async function run() {
     );
   }
 
-  // J - Universal-vs-Domain: the discovery RULE itself (operation flag
-  // -> found+enabled -> filter compatibility by value -> declaration
-  // order) exercised against entirely synthetic, non-Healthcare
-  // metadata ("widget-utilization", "widget_rank", "region": "north") to
-  // prove it contains no Healthcare-specific branching. Mirrors
-  // verify-phase8.8-validation-execution-gate.ts Test 15's own synthetic
-  // proof of the underlying compatibility check this task reuses
-  // unchanged.
+  // J - Universal-vs-Domain: the discovery rule on synthetic metadata ("widget-utilization", "widget_rank", "region": "north") proves no
+  // Healthcare-specific branching; mirrors verify-phase8.8 Test 15.
   {
     type SyntheticMetric = { id: string; rankable?: boolean };
     type SyntheticTemplate = { id: string; enabled?: boolean; parameters: { name: string; type: string }[] };
@@ -387,21 +308,11 @@ async function run() {
     );
   }
 
-  // ================================================================
-  // Multi-metric sub-slice (this task): reuses discoverAlternatives()
-  // unchanged, attached to the Phase 7 secondary-metric loop's own
-  // found/enabled check. The whole request still fails atomically -
-  // these tests exist specifically to prove that, not to prove partial
-  // execution (which remains explicitly out of scope).
-  // ================================================================
+  // Multi-metric sub-slice: discoverAlternatives() is reused on the Phase 7 secondary-metric found/enabled check; the whole request still fails
+  // atomically (partial execution stays out of scope).
 
-  // K - secondary capability-unavailable (this task's Test 2): a real
-  // two-metric request where the FIRST-mentioned metric
-  // (hospital-overall-rating) is the primary/supported one and the
-  // SECOND (length-of-stay) is secondary and capability-unavailable.
-  // The whole request must still fail atomically - no partial rows,
-  // no primary-only success - with alternatives attached for the
-  // secondary metric that actually blocked it.
+  // K - secondary capability-unavailable: primary hospital-overall-rating is supported, secondary length-of-stay is not; the whole request fails
+  // atomically (no partial rows) with alternatives for the secondary.
   {
     const engine = makeRealEngine();
     const result = await engine.execute({
@@ -425,10 +336,7 @@ async function run() {
     );
   }
 
-  // L - secondary alternatives preserve scope (this task's Test 3):
-  // Texas-scoped request, secondary length-of-stay unavailable -
-  // alternatives must only include metrics whose own template accepts
-  // the same state=TX filter (identical reuse of the 8.8 mechanism).
+  // L - secondary alternatives preserve scope: with state=TX, only metrics whose template accepts the same filter (8.8 mechanism).
   {
     const engine = makeRealEngine();
     const result = await engine.execute({
@@ -451,11 +359,7 @@ async function run() {
     );
   }
 
-  // M - secondary alternatives in an explicit comparison (this task's
-  // Test 4): the supported primary metric (overall rating) must NOT be
-  // executed and returned as a partial comparison; alternatives for the
-  // unavailable secondary (length-of-stay) must preserve the exact same
-  // explicit facilityIds scope.
+  // M - explicit comparison: the supported primary is NOT executed as a partial result; secondary alternatives keep the same facilityIds scope.
   {
     const engine = makeRealEngine();
     const result = await engine.execute({
@@ -478,14 +382,8 @@ async function run() {
     );
   }
 
-  // N - multiple secondary metrics, short-circuit preserved (this
-  // task's Test 11): a three-metric request (overall-rating primary,
-  // length-of-stay and emergency-department-visits both secondary and
-  // both independently capability-unavailable). The pre-existing loop
-  // returns on the FIRST secondary failure it encounters - this test
-  // proves that ordering is unchanged (alternatives are for
-  // length-of-stay, the loop never reaches emergency-department-visits)
-  // rather than inventing new "collect all failures" semantics.
+  // N - three metrics, short-circuit preserved: the existing loop returns on the FIRST secondary failure (length-of-stay), never reaching
+  // emergency-department-visits; no new collect-all semantics.
   {
     const engine = makeRealEngine();
     const result = await engine.execute({
@@ -526,10 +424,7 @@ async function run() {
     );
   }
 
-  // P - Jacksonville false-positive regression, re-confirmed in this
-  // script (this task's Test 9): unaffected by the secondary-loop
-  // change, since this query never reaches the multi-metric loop at
-  // all (single metric, single entity).
+  // P - Jacksonville false-positive regression: single metric, single entity never reaches the multi-metric loop.
   {
     const engine = makeRealEngine();
     const result = await engine.execute({
@@ -562,16 +457,8 @@ async function run() {
     );
   }
 
-  // R - Universal-vs-Domain for the secondary path specifically (this
-  // task's Test 12): confirmed by direct source inspection (not a
-  // second synthetic re-derivation of Test J's own proof) that exactly
-  // ONE discoverAlternatives function exists and is called from exactly
-  // TWO sites (the primary capability-unavailable gate and the
-  // secondary found/enabled check) - no discoverSecondaryAlternatives()
-  // or any Healthcare-specific secondary-only branching was created.
-  // Test J already proves that shared function is fully Domain-
-  // agnostic; this test proves the secondary path reuses it verbatim
-  // rather than a parallel implementation.
+  // R - Universal-vs-Domain for the secondary path (source inspection): exactly ONE discoverAlternatives, called from exactly TWO sites (primary
+  // gate and secondary found/enabled check); no secondary-only or Healthcare-specific branch exists (Test J proves it Domain-agnostic).
   {
     const fs = await import("node:fs");
     const source = fs.readFileSync(

@@ -1,12 +1,4 @@
-/**
- * LLM Integration — suggestion diversity verification.
- *
- * Confirms suggestions now select from a genuinely larger, diverse pool
- * (not just rephrase the same 3), and that every selected suggestion
- * still independently executes successfully.
- *
- * Run: npx tsx scripts/verify-llm-suggestion-diversity.ts
- */
+/** Suggestions come from a larger diverse pool and each selected suggestion still executes successfully. Run: npx tsx scripts/verify-llm-suggestion-diversity.ts */
 import "dotenv/config";
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";

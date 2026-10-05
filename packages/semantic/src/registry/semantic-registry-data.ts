@@ -9,9 +9,6 @@
   
 //   readonly categories: ReadonlySet<string>;
 
-//   readonly relationships: ReadonlySet<string>;
-//   readonly dimensions: ReadonlySet<string>;
-//   readonly benchmarks: ReadonlySet<string>;
 
 
 // }

@@ -1,19 +1,7 @@
 #!/usr/bin/env tsx
 
-/**
- * Batch 5B-1 (zero-SQL capability registrations: stroke, hospital-wide mortality, ownership sub-labels) verification.
- * No live model is called anywhere in this suite: the engine runs deterministically (real lay-mapper and pre-check,
- * no llmFallback needed for any of these cases) against the live warehouse (read-only SELECTs).
- *
- *   1  registry: the concepts and their aliases are exposed to the capability catalog correctly
- *   2  stroke: engine resolution (nationwide, state), the bare lay-vocabulary phrase, direction, negative controls
- *   3  hospital-wide mortality: engine resolution, the bare all-cause phrase, negative control (readmission)
- *   4  ownership sub-labels: physician, tribal, church (typed and typo'd), Department of Defense, military; VA and
- *      the existing ownership families are unaffected
- *   5  Phase 8: every negative control above is refused with 0 SQL
- *
- * Usage: pnpm exec tsx scripts/verify-batch5b1-registrations.ts
- */
+/** Batch 5B-1 verification of zero-SQL registrations (stroke, hospital-wide mortality, ownership sub-labels); no live model, read-only live warehouse; every negative control is refused with 0 SQL (Phase 8).
+ * Usage: pnpm exec tsx scripts/verify-batch5b1-registrations.ts */
 import "dotenv/config";
 
 import { healthcareDomain, DOMAIN_CAPABILITIES } from "../domain-packs/healthcare/src/index";

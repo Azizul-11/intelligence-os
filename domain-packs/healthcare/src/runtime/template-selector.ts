@@ -1,12 +1,4 @@
-/**
- * RCG-008: maps a dimension's opaque canonical key (as carried on
- * ExecutionPlan.grouping.dimensions, unchanged Universal shape) to the
- * SQL template-id suffix for the grouped template Healthcare has
- * authored for it. Dimensions with no entry here (e.g. "year-dimension"
- * - no backing warehouse column; "hospital-dimension" - grouping by row
- * identity is degenerate) are deliberately unsupported; see
- * HealthcareExecutionStrategy.selectTemplateFromPlan().
- */
+/** RCG-008: maps a dimension canonical key to its grouped SQL template-id suffix; dimensions with no entry are deliberately unsupported (see selectTemplateFromPlan()). */
 const GROUPED_DIMENSION_TEMPLATE_SUFFIX: Record<string, string> = {
   "state-dimension": "state",
   "county-dimension": "county",
@@ -23,11 +15,7 @@ export class HealthcareTemplateSelector {
         ? GROUPED_DIMENSION_TEMPLATE_SUFFIX[dimensionKey]
         : undefined;
 
-      // No registered grouped template for this dimension - deliberately
-      // resolve to an id with no matching template, so this fails
-      // honestly ("SQL template not found") instead of silently falling
-      // through to the plain, ungrouped ranking template (the exact
-      // RCG-008 silent-no-op defect this cycle fixes).
+      // No grouped template for this dimension: resolve to a missing id so it fails honestly ("SQL template not found") instead of silently running the ungrouped ranking (RCG-008).
       return suffix
         ? `${metricId}-ranking-by-${suffix}`
         : `${metricId}-ranking-by-dimension-unsupported`;

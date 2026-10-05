@@ -68,17 +68,8 @@ var PhaseGateTracker = class {
       ...detail !== void 0 ? { detail } : {}
     });
   }
-  /**
-   * Checks that every phase in `required` was visited at least once.
-   * `required` is caller-supplied rather than hardcoded: which gates a
-   * given request *should* visit depends on what kind of request it is
-   * (e.g. a Layer 2 continuation visits "layer2-continuation"; an
-   * ordinary Turn 1 query never does) and on which phases are actually
-   * built yet (Phase 9-11 "memory"/"insight" gates don't exist in the
-   * codebase yet and are never asserted here - asserting them
-   * unconditionally would make every current query "fail" a check for a
-   * phase that cannot possibly run, which proves nothing).
-   */
+  /** Checks that every phase in `required` was visited at least once; `required` is caller-supplied since gates depend on request kind (e.g. only continuations visit "layer2-continuation")
+   * and Phase 9-11 "memory"/"insight" gates don't exist yet, so asserting them would fail every query. */
   verifyAllPhasesVisited(required) {
     return required.every((phase) => this.gates.some((gate) => gate.phase === phase));
   }
@@ -1028,9 +1019,7 @@ async function createPendingInteraction(supabase, params) {
     original_semantic_result: params.originalSemanticResult,
     pending_target: params.pendingTarget,
     offered_options: params.offeredOptions
-    // expires_at has DEFAULT (NOW() + INTERVAL '5 minutes')
-    // consumed has DEFAULT FALSE
-    // created_at has DEFAULT NOW()
+    // expires_at (5 min), consumed (FALSE) and created_at (NOW) are DB defaults
   }).select().single();
   if (error) {
     throw new Error(`Failed to create pending interaction: ${error.message}`);

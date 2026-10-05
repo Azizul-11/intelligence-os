@@ -1,17 +1,5 @@
-/**
- * Tier1 Task 6 Fix Verification: Dynamic Contextual Follow-Up
- * Suggestions & Graceful Guidance Engine.
- *
- * Live, in-process, against the remote Supabase warehouse (same harness
- * as every prior Tier1 verification script).
- * Run: npx tsx scripts/verify-tier1-t6-suggestions-fix.ts
- *
- * Two mandatory invariants from the master prompt, both checked here:
- *  1. Every-Turn Invariant - `suggestions` is defined with 2-3 items on
- *     EVERY query (success, clarification, guidance, and true dead-end).
- *  2. 100% Executable Guarantee - every suggested string, re-executed
- *     independently through the same engine, returns success && rowCount > 0.
- */
+/** Tier1 Task 6 Fix: contextual follow-up suggestions (live). Invariants: (1) every query (success, clarification, guidance, dead-end) has 2-3
+ * `suggestions`; (2) every suggestion re-executed returns success && rowCount > 0. */
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";

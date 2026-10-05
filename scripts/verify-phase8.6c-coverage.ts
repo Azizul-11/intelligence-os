@@ -1,19 +1,5 @@
-/**
- * Phase 8.6C - Partial Data Coverage / Result Completeness Verification
- *
- * Verifies the evidence-only coverage mechanism:
- * `SqlTemplateDefinition.coverageTemplateId` (Domain-declared) →
- * `RuntimeResult.coverage?: CoverageFact[]` (`{metric, eligibleCount,
- * coveredCount}`), computed via a Domain-authored companion query with
- * no LIMIT/ORDER BY, using the exact same request-scope parameters as
- * the primary execution - never `rowCount`, never `LIMIT`, never the
- * primary result's own returned identity values.
- *
- * Uses the real semantic + planner + runtime-engine pipeline with the
- * REAL SqlExecutor (SupabaseDatabaseAdapter) against the real remote
- * warehouse for every coverage assertion - a mocked/spy executor
- * cannot prove real population counts.
- */
+/** Phase 8.6C: Domain-declared coverageTemplateId yields evidence-only RuntimeResult.coverage from a no-LIMIT companion query with the primary
+ * request scope, never from rowCount. Uses the real warehouse (a mock cannot prove population counts). */
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
@@ -94,21 +80,8 @@ async function run() {
     );
   }
 
-  // 3 - Puerto Rico overall-rating coverage (extreme real case).
-  //
-  // Batch 5B-5: Puerto Rico is a registered jurisdiction now, so the same figure is also reached from natural
-  // language (3b below). The direct execution is kept as the template-level proof.
-  //
-  // Before 5B-5: "Puerto Rico" was not a resolvable state qualifier in the current
-  // Healthcare STATES vocabulary (domain-packs/healthcare/src/runtime/
-  // entity-provider.ts) - a pre-existing, out-of-scope semantic gap
-  // confirmed by direct inspection, not something 8.6C may touch. The
-  // primary ranking query would fall back to the same national scope
-  // if driven through natural language, so this executes the real
-  // companion template directly (as the primary ranking template
-  // itself would be executed with state="PR") to prove the SQL
-  // template's own real-warehouse correctness independent of that
-  // unrelated vocabulary gap.
+  // 3 - Puerto Rico overall-rating coverage (extreme real case). Batch 5B-5 registered Puerto Rico as a jurisdiction, so NL also reaches it (3b);
+  // this direct companion-template execution remains the template-level proof.
   {
     const coverageTemplate = runtime.sqlResolver.resolve("hospital-overall-rating-ranking-coverage");
     if (!coverageTemplate.found || !coverageTemplate.template) {
@@ -161,19 +134,8 @@ async function run() {
     );
   }
 
-  // 5 - Multi-metric ranking: the primary metric (hospital-overall-
-  // rating, via its own opted-in ranking template) gets its own
-  // independent, population-scoped CoverageFact; the secondary metric
-  // (mortality-rate) is resolved via Phase 7's pre-existing
-  // `mortality-rate-by-facility-ids` template - already scoped to the
-  // primary ranking's own top-10 facility_ids, never opted into
-  // `coverageTemplateId` since attaching population coverage to an
-  // already-narrowed 10-row lookup would misrepresent it as a
-  // population statistic. This proves both "no intersection" (the
-  // one fact present reflects only its own metric's full scope,
-  // unaffected by the second metric) and "never derived from the
-  // primary's returned facility subset" (eligibleCount is 5442, not
-  // 10, and no fabricated fact appears for the secondary metric).
+  // 5 - Multi-metric ranking: only the primary metric gets a population-scoped CoverageFact; the secondary (top-10 "-by-facility-ids") gets none, as
+  // it would misrepresent a 10-row lookup (eligibleCount is 5442, not 10).
   {
     const engine = makeRealEngine();
     const result = await engine.execute({
@@ -202,9 +164,7 @@ async function run() {
     const flag = { called: false };
     const engine = makeSpyEngine(flag);
     const result = await engine.execute({ question: "hospitals in Wyoming with an overall rating of 1", parameters: {} });
-    // This query shape may or may not resolve through the current
-    // semantic vocabulary; the assertion that matters is only that
-    // no coverage-related field ever reclassifies an ordinary result.
+    // This shape may or may not resolve; the assertion is only that no coverage field reclassifies an ordinary result.
     const pass = result.answerability?.reason !== "data-unavailable";
     check(
       "6-LEGITIMATE-EMPTY-RESULT-UNAFFECTED",

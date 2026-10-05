@@ -4,16 +4,8 @@ import type { ChatRequest } from "../types/request.ts";
 
 import type { RuntimeResult } from "@intelligence/runtime-engine";
 
-// export async function executeRuntime(
-//   request: ChatRequest,
-// ): Promise<RuntimeResult> {
-//   const engine = getRuntimeEngine();
+// Superseded stub: executeRuntime once called engine.execute({ question, parameters: {} }) directly.
 
-//   return engine.execute({
-//     question: request.question,
-//     parameters: {},
-//   });
-// }
 
 
 export async function executeRuntime(
@@ -32,9 +24,7 @@ export async function executeRuntime(
     question: request.question,
     parameters: {},
     requestId,
-    // Tier1 Task 6: the real, top-level Turn 1 entry point - the one
-    // place a fresh user question should get dry-run-validated
-    // suggestions attached (see RuntimeRequest.includeSuggestions).
+    // Tier1 Task 6: the top-level Turn 1 entry point, where fresh questions get dry-run-validated suggestions (RuntimeRequest.includeSuggestions).
     includeSuggestions: true,
     ...(onResult ? { onResult } : {}),
   });

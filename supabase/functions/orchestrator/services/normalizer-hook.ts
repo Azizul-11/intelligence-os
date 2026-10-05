@@ -1,22 +1,5 @@
-/**
- * Batch 1 (Step 1.3): maps the LLM gateway's normalizer result onto the narrow shape Universal
- * Core's optional `llmFallback` hook accepts. Pure and dependency-free (its one import is the equally
- * pure `lay-mapper.ts`), so the deployed function (`domain-registry.ts`) and the local-live harness
- * share ONE implementation.
- *
- * - `unsupported_terms` is the LLM's report of what the question asks for that the catalog cannot
- *   answer, made alongside whatever status it chose. A reported term that names a topic the domain's
- *   own catalog lists as unsupported (`capabilities.unsupportedTopics`, exact phrase on word
- *   boundaries) makes the result BINDING (`{ unsupportedTerms }`, under any status): the engine refuses
- *   instead of answering the rest of the question, where those words would be silently dropped and a
- *   broader answer returned (a stroke question answered as generic mortality, `cleanest` rewritten to
- *   Safety). The LLM is not trusted alone: measured on the 600-query baseline it over-reports (it
- *   listed "state-by-state view", "better-rated", "satisfied with their care" for questions the
- *   platform answers correctly), and a false refusal breaks a working answer.
- * - Any other `fallback` keeps its previous meaning ("no usable answer": the deterministic pipeline
- *   still gets its turn on the original text). Some correct answers depend on that.
- * - A response without the field behaves exactly as before, so the gateway change is backward compatible.
- */
+/** Batch 1 (Step 1.3): maps the gateway's normalizer result onto Universal Core's `llmFallback` shape; pure, shared by the deployed function and the local-live harness.
+ * An `unsupported_terms` entry naming a catalog-unsupported topic makes the result BINDING (the LLM alone is not trusted: it over-reports); any other `fallback` still means "no usable answer". */
 import { mapLayLanguage, type LayVocabularyLike } from "./lay-mapper.ts";
 
 export interface NormalizerResultLike {
@@ -34,10 +17,7 @@ export interface NormalizerResultLike {
 
 export interface UnsupportedTopicCatalog {
   unsupportedTopics?: readonly string[];
-  /**
-   * 2,000 sweep (Batch A2): a topic word the domain refuses on its own ("since", "doctors") that is not the topic when the
-   * question also has one of these phrases ("since my dad's stroke", "doctors explain things"); keyed by topic.
-   */
+  /** 2,000 sweep (Batch A2): a refused topic word ("since", "doctors") is not the topic when one of these phrases is also present; keyed by topic. */
   unsupportedTopicExceptions?: Readonly<Record<string, readonly string[]>>;
   /** Batch 5A-1: the layperson vocabulary the domain owns (see services/lay-mapper.ts). */
   layVocabulary?: LayVocabularyLike;
@@ -47,24 +27,14 @@ export interface UnsupportedTopicCatalog {
   stateCodes?: readonly string[];
   /** 2,000 sweep (Batch D): the domain's lower-case city names, for a city typed in lower case before such a code. */
   cityNames?: readonly string[];
-  /**
-   * Batch 5A-2: what a canonical question the model wrote that the pipeline cannot rank means in this domain (a rewrite of
-   * it, and the plain note that replaces the model's own reading). Applied to a model's rewrite only.
-   */
+  /** Batch 5A-2: how a model-written canonical question the pipeline cannot rank is rewritten, with the plain note replacing the model's reading; model rewrites only. */
   canonicalRepairs?: readonly { pattern: string; flags?: string; replacement: string; note: string }[];
-  /**
-   * 2,000 sweep (Batch D): a word that alone is ambiguous in this domain. A question with `term` and none of `unless` is
-   * answered with `reason` as a clarification whenever the model rewrote it anyway; a model decline or clarification stands.
-   */
+  /** 2,000 sweep (Batch D): an ambiguous word; a model rewrite of a question with `term` and none of `unless` is answered with `reason` as a clarification. */
   ambiguousTerms?: readonly { term: string; unless: readonly string[]; reason: string; caseSensitive?: boolean }[];
   /** 2,000 sweep (Batch E): unsupported topics no literal can list (a year); regular-expression sources, matched on the lower-case question. */
   unsupportedPatterns?: readonly string[];
-  /**
-   * Batch Normalizer Enhancement: a topic keyed here is a refusal only when the question ALSO contains one of these
-   * companion words - an unkeyed topic is refused on its own, as before. "years ago" alone is a narrative connector
-   * ("my grandpa had bypass surgery years ago"); paired with a comparison word ("better", "changed", "trend") it asks
-   * for a historical snapshot this platform does not hold.
-   */
+  /** Batch Normalizer Enhancement: a keyed topic is a refusal only with one of these companion words ("years ago" alone is a narrative connector,
+   * with "better"/"trend" it asks for a historical snapshot we do not hold); unkeyed topics are refused alone. */
   unsupportedTopicRequires?: Readonly<Record<string, readonly string[]>>;
 }
 
@@ -139,11 +109,8 @@ export function mapNormalizerResult(result: NormalizerResultLike, catalog?: Unsu
   return meta.meta ? { meta: meta.meta } : null;
 }
 
-/**
- * Batch 5A-2: the model's canonical question, repaired when the domain says it names something the pipeline cannot rank.
- * The plain note replaces the model's reading (which described the wrong measure) and the question the model wrote is kept
- * in the trace (`repaired`). Nothing else about the result changes.
- */
+/** Batch 5A-2: repairs the model's canonical question when the domain says it names something unrankable; the plain note replaces the model's reading
+ * and the original is kept in the trace (`repaired`). */
 export function repairCanonical(result: NormalizerHookResult, catalog?: UnsupportedTopicCatalog): NormalizerHookResult {
   if (!result || !("canonicalQuestion" in result)) {
     return result;
@@ -166,14 +133,8 @@ export function repairCanonical(result: NormalizerHookResult, catalog?: Unsuppor
   return result;
 }
 
-/**
- * Batch 3 (Step 3.0): deterministic pre-check. The domain's own catalog lists what it knows it cannot answer
- * (`unsupportedTopics`); when the RAW question names one of those topics, exact phrase on word boundaries, the
- * question is refused before any LLM call: 0 SQL, 0 tokens, and the refusal no longer depends on whether the
- * model chose to report the topic (removing the topic list from the prompt in Batch 2 made that report unreliable).
- * Every matched topic is returned except one that is only part of a longer matched topic ("communication" inside
- * "nurse communication"); "birthing friendly" and "birthing-friendly" normalize to the same words and count once.
- */
+/** Batch 3 (Step 3.0): deterministic pre-check; a RAW question naming a topic in `unsupportedTopics` (exact phrase, word boundaries) is refused before any LLM call (0 SQL, 0 tokens).
+ * Matched topics are all returned except one contained in a longer matched topic; "birthing friendly"/"birthing-friendly" count once. */
 export function precheckUnsupported(question: string, catalog?: UnsupportedTopicCatalog): string[] {
   const padded = words(question);
   const seen = new Set<string>();
@@ -200,19 +161,8 @@ export function precheckUnsupported(question: string, catalog?: UnsupportedTopic
   return hits.filter((topic) => !hits.some((other) => other !== topic && words(other).length > words(topic).length && words(other).includes(words(topic))));
 }
 
-/**
- * The whole `llmFallback` body, shared by the deployed function and the local-live harness: pre-check first, then
- * (Batch 5A-1) the domain's layperson vocabulary, then the normalizer (`normalize` is the gateway call), then the
- * Batch 1 mapping. A pre-check refusal is the same `{ unsupportedTerms }` shape the engine already treats as a
- * binding refusal; `meta.source` marks it in the trace (`llm-normalization` = `unsupported`, no provider or latency
- * because no model was called).
- *
- * The vocabulary step is deterministic and free: an exact misspelling is corrected first (so "chruch owned" is refused
- * as the "church owned" it is), and a layperson phrase becomes the canonical question the pipeline answers, with
- * `meta` carrying what the trace and the answer note need (`source` = `lay-vocabulary`, `interpretation`,
- * `filler_dropped`, `corrected`, `alternates`). No model is called for it. Anything it cannot map without guessing
- * goes to the model on the corrected text, exactly as before.
- */
+/** The whole `llmFallback` body, shared by the deployed function and the local-live harness: pre-check (binding `{ unsupportedTerms }`, `meta.source` marks it in the trace),
+ * then the free lay vocabulary (Batch 5A-1), then the normalizer (`normalize` is the gateway call), then the Batch 1 mapping; what the vocabulary cannot map without guessing goes to the model. */
 export async function normalizeQuestion(
   question: string,
   catalog: UnsupportedTopicCatalog | undefined,

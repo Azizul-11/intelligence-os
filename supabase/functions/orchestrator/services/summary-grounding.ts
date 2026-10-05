@@ -1,36 +1,12 @@
-/**
- * Layer 3 guard, the name-side companion to the numeric cross-check in
- * handlers/chat.ts. That check only proves every NUMBER in a summary occurs in
- * the rows; live (2026-09-19) both summaries shown named hospitals that were not
- * in the table (New England Medical Center, Mount Sinai, UPMC Pittsburgh,
- * AdventHealth Orlando) and passed it.
- *
- * A "name" here is a run of two or more consecutive Capitalised tokens
- * ("Mayo Clinic", "Pittsburgh Medical Center"). It is grounded when all of its
- * words occur together in ONE source string - a row value, a column name, the
- * user's question, or the caller's own vocabulary (state names, metric names).
- * One string, not the whole pool, so a name cannot be assembled from words
- * scattered across unrelated cells.
- *
- * Deliberate simplifications (the ceiling, and why it errs safe): single
- * capitalised words are not checked (a lone invented "Stanford" passes); an
- * embellished real name ("Cleveland Clinic Foundation" for "CLEVELAND CLINIC")
- * is rejected. A wrongly rejected summary only costs the optional sentence -
- * the rows are untouched. Upgrade path if it rejects too much: a domain-supplied
- * alias list.
- */
+/** Layer 3 guard, the name-side companion to handlers/chat.ts's numeric cross-check: a name (2+ Capitalised tokens) must have all its words in ONE source string (row value, column, question, vocabulary), never scattered cells.
+ * Deliberate simplification: lone capitalised words pass and an embellished real name is rejected (costs only the optional sentence); upgrade path: a domain alias list. */
 
-// Batch 5A-1: "Co." (company) is an abbreviation, "CO." (Colorado) is a state code that ends a sentence
-// ("... in Castle Rock, CO. Other facilities ..."). Read as an abbreviation it glued the next sentence's first word
-// onto it ("CO Other"), so every summary of a table listing a Colorado hospital was rejected as naming a hospital
-// that is not in the rows (9 of 40 live answers, 2026-09-21).
+// Batch 5A-1: "Co." is an abbreviation but "CO." (Colorado) ends a sentence ("... Castle Rock, CO. Other ..."); reading it as an abbreviation
+// glued the next word on ("CO Other") and wrongly rejected 9 of 40 live summaries (2026-09-21).
 const ABBREVIATION = { test: (token: string): boolean => /^(st|dr|mt|ft|inc|corp|ltd|jr|sr)\.$/i.test(token) || token === "Co." };
 
-/**
- * Batch 5A-2: a summary that prints a column name or a code ("avg_patient_satisfaction", "MORT_30_AMI") reads as a database
- * dump, not as a sentence to a person. Any word joined by underscores is grounds to leave the sentence out (the rows and
- * the note are unaffected); no hospital, place or plain word contains one.
- */
+/** Batch 5A-2: a word joined by underscores ("avg_patient_satisfaction", "MORT_30_AMI") is a column/code dump, so the sentence is left out
+ * (rows and note unaffected); no hospital, place or plain word contains one. */
 export function mentionsIdentifier(summary: string): boolean {
   return /[A-Za-z0-9]+_[A-Za-z0-9_]+/.test(summary);
 }
@@ -53,11 +29,7 @@ function words(text: string): string[] {
   return text.toLowerCase().replace(/['’]/g, "").split(/[^a-z0-9]+/).filter(Boolean);
 }
 
-/**
- * `vocabulary` is the caller's own domain terms (state, metric, condition names);
- * "United States" is generic prose ("...in the United States") and always allowed.
- * Returns the unsupported names, empty when the summary is grounded.
- */
+/** `vocabulary` is the caller's domain terms; "United States" is generic prose and always allowed. Returns unsupported names, empty when grounded. */
 export function findUngroundedNames(
   summary: string,
   question: string,

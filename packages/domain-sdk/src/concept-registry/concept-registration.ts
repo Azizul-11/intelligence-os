@@ -1,8 +1,6 @@
 import type { ConceptDefinition } from "./concept-definition";
 
-/**
- * Registers a concept with the Domain Registry.
- */
+/** Registers a concept with the Domain Registry. */
 export interface ConceptRegistration {
   concept: ConceptDefinition;
 

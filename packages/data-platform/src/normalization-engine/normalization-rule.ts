@@ -1,8 +1,6 @@
 import type { ID } from "@intelligence/contracts";
 
-/**
- * Describes one normalization rule.
- */
+/** Describes one normalization rule. */
 export interface NormalizationRule {
   id: ID;
 

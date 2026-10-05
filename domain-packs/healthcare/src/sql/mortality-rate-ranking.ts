@@ -112,9 +112,6 @@ ORDER BY
 
   enabled: true,
 
-  // Phase 8.6C: `facility_mort_measure_count > 0` (this template's own
-  // eligibility condition, alongside the same `:state` scope) is
-  // independently re-measured, without LIMIT/ORDER BY, by the
-  // companion coverage template.
+  // Phase 8.6C: `facility_mort_measure_count > 0` (plus `:state`) is re-measured without LIMIT/ORDER BY by the coverage template.
   coverageTemplateId: "mortality-rate-ranking-coverage",
 };

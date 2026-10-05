@@ -1,30 +1,22 @@
 // src/llm-model-gateway.ts
 import { AsyncLocalStorage } from "node:async_hooks";
 var FALLBACK_CHAIN = [
-  // --- Groq (primary). LIVE-VERIFIED 2026-09-13: the original "llama-3.3-70b-versatile"/"llama-3.1-8b-instant"
-  // assumption 404s - Groq's free catalog is the open-weight GPT-OSS family, not Llama. Using the two confirmed,
-  // json_mode-capable models below instead. ---
+  // Groq (primary), live-verified 2026-09-13: the free catalog is the open-weight GPT-OSS family, not Llama (those 404).
   { provider: "groq", model: "openai/gpt-oss-20b", apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", timeoutMs: 3e3, maxRetries: 2, keyId: "groq-gpt-oss-20b", isFree: true },
   { provider: "groq", model: "openai/gpt-oss-120b", apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", timeoutMs: 4e3, maxRetries: 1, keyId: "groq-gpt-oss-120b", isFree: true },
-  // --- Extra Groq quota tier, added after dogfooding exhausted the 2 gpt-oss tiers' 1K-requests/day cap each.
-  // "allam-2-7b" has a 7K-requests/day cap (~7x the headroom); placed last so Zero-Stall 429 Failover only reaches
-  // it once both gpt-oss tiers are exhausted, at no added latency when they're healthy. ---
+  // Extra Groq quota tier (7K requests/day vs 1K per gpt-oss tier); last, so Zero-Stall 429 Failover reaches it only once both gpt-oss tiers are exhausted.
   { provider: "groq", model: "allam-2-7b", apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", timeoutMs: 4e3, maxRetries: 1, keyId: "groq-allam-2-7b", isFree: true, unsafeForRewrite: true },
   // --- Google Gemini. LIVE-VERIFIED 2026-09-13: the original "gemini-2.0-flash"/"gemini-1.5-flash" assumption both
   // 404 - using Google's own error-response-named replacement model directly. ---
   { provider: "google", model: "gemini-3.6-flash", apiKey: process.env.GOOGLE_API_KEY, timeoutMs: 4e3, maxRetries: 2, keyId: "google-3.6-flash", isFree: true },
-  // --- OpenRouter — ONE real key confirmed in .env (not two). The original "meta-llama/...instruct:free" entries
-  // are confirmed gone from OpenRouter's free catalog as of 2026-09-13; replaced with LIVE-CONFIRMED models -
-  // "laguna-s-2.1:free" also confirmed working end-to-end by scripts/verify-llm-gateway.ts. ---
+  // OpenRouter: one real key in .env; the old "meta-llama/...instruct:free" entries are gone from the free catalog (2026-09-13), replaced with live-confirmed models.
   { provider: "openrouter", model: "poolside/laguna-s-2.1:free", apiKey: process.env.OPENROUTER_API_KEY, baseURL: "https://openrouter.ai/api/v1", timeoutMs: 6e3, maxRetries: 2, keyId: "openrouter-key1-laguna-s", isFree: true, stripReasoningTokens: true },
   { provider: "openrouter", model: "poolside/laguna-xs-2.1:free", apiKey: process.env.OPENROUTER_API_KEY, baseURL: "https://openrouter.ai/api/v1", timeoutMs: 5e3, maxRetries: 1, keyId: "openrouter-key1-laguna-xs", isFree: true, stripReasoningTokens: true },
   { provider: "openrouter", model: "nvidia/nemotron-3-super-120b-a12b:free", apiKey: process.env.OPENROUTER_API_KEY_2 || process.env.OPENROUTER_API_KEY, baseURL: "https://openrouter.ai/api/v1", timeoutMs: 8e3, maxRetries: 1, keyId: "openrouter-key2-nemotron-super", isFree: true, stripReasoningTokens: true },
   // --- NVIDIA NIM (direct) — OpenAI-compatible, free tier ~40 RPM
   // global cap. Reasoning model - stripReasoningTokens mandatory. ---
   { provider: "nvidia", model: "nvidia/nemotron-3-ultra-550b-a55b", apiKey: process.env.NVIDIA_API_KEY, baseURL: "https://integrate.api.nvidia.com/v1", timeoutMs: 15e3, maxRetries: 1, keyId: "nvidia-direct-nemotron", isFree: true, stripReasoningTokens: true },
-  // --- Future placeholders — confirmed ABSENT from .env today.
-  // Graceful Unset Bypass (§6) skips these with zero network calls;
-  // adding a key later activates them with zero code change. ---
+  // Future placeholders, keys absent from .env: skipped with no network call (Graceful Unset Bypass, §6); adding a key activates them with no code change.
   { provider: "openai", model: "gpt-4o-mini", apiKey: process.env.OPENAI_API_KEY, baseURL: "https://api.openai.com/v1", timeoutMs: 4e3, maxRetries: 2, keyId: "openai-mini", isFree: false },
   { provider: "openai", model: "gpt-4o", apiKey: process.env.OPENAI_API_KEY, baseURL: "https://api.openai.com/v1", timeoutMs: 6e3, maxRetries: 1, keyId: "openai-gpt4o", isFree: false },
   { provider: "anthropic", model: "claude-3-5-haiku-latest", apiKey: process.env.ANTHROPIC_API_KEY, timeoutMs: 4e3, maxRetries: 2, keyId: "anthropic-haiku", isFree: false },
@@ -33,10 +25,8 @@ var FALLBACK_CHAIN = [
   { provider: "mistral", model: "mistral-large-latest", apiKey: process.env.MISTRAL_API_KEY, baseURL: "https://api.mistral.ai/v1", timeoutMs: 5e3, maxRetries: 1, keyId: "mistral-large", isFree: false },
   // --- Local, always available when running. ---
   { provider: "ollama", model: "llama3", endpoint: process.env.OLLAMA_ENDPOINT ?? "http://localhost:11434", timeoutMs: 8e3, maxRetries: 1, keyId: "ollama-local", isFree: true },
-  // --- Zero-dependency deterministic tier. `callMock` always throws immediately - a mock provider can't produce a
-  // role-correct answer, since it doesn't know which of the 3 bounded roles is calling. Reaching it means every
-  // real provider is unavailable, at which point the caller applies its OWN documented deterministic fallback.
-  // Exists so the chain is provably total and appears in fallback-event logs for observability parity. ---
+  // Zero-dependency deterministic tier: `callMock` always throws, since it can't know which role is calling.
+  // Reaching it means every real provider is down, so the caller applies its OWN deterministic fallback; keeps the chain total and visible in fallback-event logs.
   { provider: "mock", model: "deterministic-fallback", timeoutMs: 0, maxRetries: 0, keyId: "mock-deterministic", isFree: true }
 ];
 var AICREDITS_QWEN_FLASH_TIER = {
@@ -705,18 +695,8 @@ var LLMModelGateway = class {
       recordCall("intent", trace, startedAt);
     }
   }
-  /**
-   * Layer 2, diversity mode (PrePhase 9.5). Given a POOL of already
-   * mechanically-valid candidates (built by the Domain-owned generator
-   * from its own comparable-metrics/peer-states/ownership/entity data -
-   * never invented by the LLM), selects `count` of them for maximum
-   * diversity across dimensions and rephrases each for natural wording.
-   * Never selects anything outside the given pool, never combines two
-   * pool entries into one, never invents a new fact. On any
-   * failure/malformed/wrong-length response, falls back to the first
-   * `count` pool entries unchanged - the caller's own dry-run validation
-   * is what actually guarantees every returned suggestion is answerable.
-   */
+  /** Layer 2 diversity mode (PrePhase 9.5): from a POOL of Domain-built, mechanically-valid candidates, picks `count` for max diversity and rephrases them; never selects outside the pool, merges entries or invents facts.
+   * On any failure/malformed/wrong-length response falls back to the first `count` pool entries unchanged (the caller's dry-run validation guarantees answerability). */
   async selectAndRephraseSuggestions(pool, context, count = 3, deadlineMs, wording) {
     const fallback = pool.slice(0, count);
     if (pool.length <= count) {

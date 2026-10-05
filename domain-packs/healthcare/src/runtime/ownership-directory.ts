@@ -1,28 +1,5 @@
-/**
- * Healthcare ownership directory.
- *
- * Hand-maintained (unlike geographic-directory.ts, not generated from a
- * CSV) - the warehouse's own `ownership` column has a small, fixed,
- * CMS-defined set of 12 values, confirmed live via direct DB query
- * (Tier0 Task 5 audit):
- *
- *   Department of Defense, Government - Federal,
- *   Government - Hospital District or Authority, Government - Local,
- *   Government - State, Physician, Proprietary, Tribal,
- *   Veterans Health Administration, Voluntary non-profit - Church,
- *   Voluntary non-profit - Other, Voluntary non-profit - Private
- *
- * There is no single "Non-Profit" value and no single "Government"
- * value - each natural-language ownership phrase maps to a SQL LIKE
- * pattern matching a common prefix shared by several of the raw values
- * above (a many-to-one mapping), never an exact equality - this is why
- * ownership resolution produces a LIKE pattern string (with its own
- * trailing `%` already included) rather than a single warehouse value,
- * unlike state/county/city's exact-match canonical values.
- *
- * Keys are normalized (lowercase, punctuation stripped to spaces, per
- * normalizer.ts/entity-provider.ts's own normalizeText()) for matching.
- */
+/** Hand-maintained (not generated) ownership phrases for the 12 CMS `ownership` values (Tier0 Task 5 audit); there is no single "Non-Profit"/"Government" value,
+ * so each phrase maps to a SQL LIKE pattern (trailing `%` included), not an exact value. Keys are normalized like normalizeText(). */
 
 export interface OwnershipValue {
   /** Human-readable label for clarification/error messages. */
@@ -38,23 +15,12 @@ export const OWNERSHIP = new Map<string, OwnershipValue>([
 
   ["government", { label: "government", likePattern: "Government%" }],
   ["government owned", { label: "government", likePattern: "Government%" }],
-  // Batch 3: "state owned" names one sub-label, not all government ownership (the warehouse's own value is
-  // "Government - State"); a broader "Government%" match returned county and federal hospitals as state-owned ones.
-  // V4 fix plan (Batch 4): its own label, not "government" - the prompt's ownership list is built from the set of
-  // unique labels (capability-catalog.ts), so sharing "government" collapsed this sub-label into the generic one the
-  // same way federal/local/district all did before Batch B1 gave each its own label (comment below); the model,
-  // given only "government" back, wrote "government" and a different filter was applied ("5 star state-owned
-  // hospitals in Arizona" answered as plain government hospitals, no 5-star filter either).
+  // Batch 3: "state owned" is the "Government - State" sub-label only (a broad "Government%" returned county/federal). V4 Batch 4: it needs its own label, not "government",
+  // because the prompt's ownership list is built from unique labels and sharing one collapsed this into the generic filter.
   ["state owned", { label: "state-owned", likePattern: "Government - State%" }],
   ["state-owned", { label: "state-owned", likePattern: "Government - State%" }],
   ["public", { label: "government", likePattern: "Government%" }],
-  // Bug L Part A (2026-09-15): common misspellings of "government" -
-  // confirmed live that these previously matched nothing at all (exact-
-  // match only, no fuzzy correction anywhere in this map), so the
-  // ownership filter was silently absent rather than merely mis-typed -
-  // the request fell back to a bare geographic/default-ranking shape
-  // with no ownership scoping. Same finite, hand-maintained, exact-match
-  // convention as every other entry in this map.
+  // Bug L Part A (2026-09-15): misspellings of "government" matched nothing (exact-match only), silently dropping the ownership filter.
   ["goverment", { label: "government", likePattern: "Government%" }],
   ["govt", { label: "government", likePattern: "Government%" }],
   ["gov", { label: "government", likePattern: "Government%" }],
@@ -67,10 +33,7 @@ export const OWNERSHIP = new Map<string, OwnershipValue>([
   ["veterans", { label: "veterans", likePattern: "Veterans Health Administration%" }],
   ["va", { label: "veterans", likePattern: "Veterans Health Administration%" }],
 
-  // Batch 5B-1: ownership sub-labels (Batch 4 deferred these to "post-baseline capability expansion"; that hold is
-  // lifted here). Multi-word keys only, except "tribal" and "military" bare (0 and 1 hospital-name collisions,
-  // section 2.9 of the 5B audit; the one collision, Walter Reed National Military Med Cen, is a full official name
-  // resolved by the hospital-identity matcher first, ahead of this generic ownership lookup).
+  // Batch 5B-1: ownership sub-labels, multi-word keys except bare "tribal"/"military" (0 and 1 name collisions; Walter Reed is a full official name matched first).
   ["church owned", { label: "church-owned", likePattern: "Voluntary non-profit - Church%" }],
   ["church affiliated", { label: "church-owned", likePattern: "Voluntary non-profit - Church%" }],
   // 2,000 sweep (Batch B1): everyday words for the same sub-label. "catholic" is bare although 2 hospital names contain
@@ -101,10 +64,8 @@ export const OWNERSHIP = new Map<string, OwnershipValue>([
   ["navy", { label: "military", likePattern: "Department of Defense%" }],
   ["air force", { label: "military", likePattern: "Department of Defense%" }],
 
-  // Government sub-labels. 2,000 sweep (Batch B1): each has its OWN label now. The labels are the ownership words the
-  // rewrite prompt lists (capability-catalog.ts `ownerships`), and while all three shared "government" the model wrote
-  // "federally owned" / "city-owned" / "hospital-district" back as "government" - every government hospital (31 rows).
-  // Each label is also a key below, so the word the model writes resolves to the same sub-label.
+  // 2,000 sweep (Batch B1): each government sub-label has its OWN label (the ownership words in capability-catalog.ts `ownerships`); sharing "government"
+  // made the model write back "government" and match every government hospital. Each label is also a key below.
   ["federal", { label: "federal", likePattern: "Government - Federal%" }],
   ["federally owned", { label: "federal", likePattern: "Government - Federal%" }],
   ["federal owned", { label: "federal", likePattern: "Government - Federal%" }],

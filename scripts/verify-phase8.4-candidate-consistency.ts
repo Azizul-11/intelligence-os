@@ -1,26 +1,5 @@
-/**
- * Phase 8.4 - Candidate Consistency Verification
- *
- * Verifies the two additive Phase 8.4 mechanisms:
- *
- * 1. Containment suppression (packages/semantic/src/pipeline/semantic-pipeline.ts):
- *    a non-entity candidate (e.g. dimension) whose span is fully
- *    contained within a successfully-resolved entity candidate's span
- *    (e.g. "county" inside "Greene County Hospital") no longer survives
- *    as a spurious independent signal, and no longer contaminates the
- *    ExecutionPlan with an unrequested grouping.
- *
- * 2. Relationship-without-benchmark detection
- *    (packages/query-planner/src/candidate-consistency.ts,
- *    wired into packages/runtime-engine/src/create-runtime-engine.ts):
- *    a "relationship" candidate (above/below) with no "benchmark"
- *    candidate to compare against now refuses honestly instead of
- *    silently executing as an ordinary, unfiltered query.
- *
- * Uses the real semantic + planner + runtime-engine pipeline throughout,
- * with a spy SqlExecutor to prove SQL is called (or not) for each case -
- * no SQL execution against a real database.
- */
+/** Phase 8.4: (1) semantic-pipeline.ts suppresses non-entity candidates contained in a resolved entity span ("county" in "Greene County Hospital");
+ * (2) candidate-consistency.ts refuses a relationship (above/below) with no benchmark. Real pipeline with a spy SqlExecutor; no real-DB SQL. */
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";

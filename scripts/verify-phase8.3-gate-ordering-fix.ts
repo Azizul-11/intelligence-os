@@ -1,24 +1,5 @@
-/**
- * Post-Phase-8.3 gate-ordering fix verification.
- *
- * Confirms that RuntimeEngine.execute() now checks
- * `semanticResult.identityAmbiguities` BEFORE `!semanticResult.resolved`,
- * so an already-detected, labeled identity ambiguity is never discarded
- * merely because no other part of the query (e.g. a metric) also
- * resolved - the exact gap found by the 8.1-8.3 frontend-connect
- * investigation ("What is the rating of Northwest Medical Center?").
- *
- * Proves the reorder does not affect any other gate: ordinary
- * unresolved questions, unsupported capability questions, F5 negation,
- * RCG-010 contradictions, valid unique entities, qualified duplicate
- * entities, multiple entities, and the existing whole-request-refusal
- * granularity for a mixed ambiguous/unambiguous request.
- *
- * Uses the real semantic + planner + runtime-engine pipeline throughout
- * (a spy SqlExecutor proves SQL is never reached for ambiguous cases,
- * same methodology as the Phase 8.1/8.2/8.3 verification scripts) - no
- * SQL execution against a real database.
- */
+/** Post-8.3 gate ordering: execute() checks identityAmbiguities BEFORE !resolved, so a detected ambiguity is not discarded when nothing else resolved
+ * ("What is the rating of Northwest Medical Center?"). Other gates stay unaffected; real pipeline with a spy SqlExecutor, no real DB. */
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
@@ -63,9 +44,7 @@ function makeEngine(sqlCalledFlag: { called: boolean }) {
 }
 
 async function run() {
-  // 1 - THE FIX: ambiguous entity + otherwise unresolved (no metric) must
-  // now produce the targeted clarification, NOT the generic
-  // "Unable to resolve question."
+  // 1 - THE FIX: ambiguous entity with no metric must give the targeted clarification, not "Unable to resolve question."
   {
     const flag = { called: false };
     const engine = makeEngine(flag);
@@ -92,9 +71,7 @@ async function run() {
     );
   }
 
-  // 2 - Regression: ambiguous entity + a recognized metric must still
-  // produce the same targeted clarification as before this fix (Phase
-  // 8.3's own proven case).
+  // 2 - Regression: ambiguous entity + a recognized metric still gives the same targeted clarification.
   {
     const flag = { called: false };
     const engine = makeEngine(flag);
@@ -153,14 +130,8 @@ async function run() {
       result.success === false &&
       result.error === "Unable to resolve question." &&
       result.answerability?.status === "not_directly_answerable" &&
-      // LLM Integration Layer 1: this gate now attaches the
-      // already-declared "semantic-incomplete" reason (reused from the
-      // conceptually identical "Unable to create query plan." gate
-      // elsewhere in this file) so the new optional llmFallback hook can
-      // precisely target only this dead-end shape - previously no
-      // reason was attached at all. Updated, not bypassed: the message
-      // and refusal-with-zero-SQL behavior this check actually cares
-      // about are both still exactly unchanged.
+      // LLM Integration Layer 1: this gate now attaches the existing "semantic-incomplete" reason so the llmFallback hook can target it; message and
+      // zero-SQL refusal are unchanged.
       result.answerability?.reason === "semantic-incomplete" &&
       !flag.called;
 
@@ -191,9 +162,7 @@ async function run() {
     );
   }
 
-  // 6 - F5 negation regression: must remain unchanged (identityAmbiguities
-  // is not present for this query, so this gate's relative position is
-  // untouched by the fix, but re-verify the live behavior directly).
+  // 6 - F5 negation regression: unchanged (no identityAmbiguities for this query), re-verified directly.
   {
     const flag = { called: false };
     const engine = makeEngine(flag);
@@ -244,9 +213,7 @@ async function run() {
     );
   }
 
-  // 8 - Mixed ambiguous + unambiguous request: whole-request refusal
-  // granularity preserved - must NOT silently execute only the
-  // unambiguous portion.
+  // 8 - Mixed ambiguous + unambiguous: whole-request refusal is preserved, never executing only the unambiguous part.
   {
     const flag = { called: false };
     const engine = makeEngine(flag);

@@ -1,23 +1,5 @@
-/**
- * Phase 8.6C - Remote Deployment Verification
- *
- * Exercises the REAL deployed orchestrator function (version 10,
- * uejnblmhappddtbablki) directly over HTTPS, using the exact frontend
- * request shape - never assumed from local/direct-engine behavior.
- *
- * The orchestrator's `ChatResponse` (supabase/functions/orchestrator/
- * types/response.ts) is pre-existing, unmodified by 8.6C, and never
- * forwards `RuntimeResult.coverage` - only `success`, `answer`
- * (stringified rows), `metadata.rowCount`, and `error`. This is the
- * correct, unchanged API boundary (8.6C is explicitly evidence-only
- * and does not extend ChatResponse). Consequently these HTTP checks
- * assert only what that boundary actually carries: success, row
- * presence/count, and error text. The coverage NUMBERS themselves
- * (eligibleCount/coveredCount) are independently reconfirmed against
- * the real remote warehouse via the identical, unchanged
- * `scripts/verify-phase8.6c-coverage.ts` (same source now deployed;
- * see the deployment verification report for that run's results).
- */
+/** Phase 8.6C: exercises the deployed orchestrator (version 10) over HTTPS with the frontend request shape; ChatResponse never forwards RuntimeResult.coverage, so only success, row count and error are asserted.
+ * Coverage numbers are reconfirmed against the remote warehouse by scripts/verify-phase8.6c-coverage.ts. */
 import { env } from "./shared/env";
 
 const ORCHESTRATOR_URL = `${env.supabaseUrl}/functions/v1/orchestrator`;

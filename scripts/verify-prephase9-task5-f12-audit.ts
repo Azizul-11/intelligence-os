@@ -1,27 +1,5 @@
-/**
- * Tier0 Task 5: F12 Ownership & Condition-Specific Measures — Audit
- * Reproduction.
- *
- * READ-ONLY diagnostic script against the live remote DB. No
- * assertions - this is audit evidence, not a regression gate. Reports,
- * for every query in Groups A/B/C:
- *
- * - Semantic layer: every candidate resolved, its `semanticType` and
- *   `canonicalKey` (to see whether "non-profit"/"AMI"/"CABG" etc.
- *   resolve as anything at all, and if so, as what type).
- * - Planning layer: `plan.filters`, `plan.metric`, `ExecutionPlan`
- *   shape.
- * - Completeness layer: `assessPlanCompleteness()`'s own discrepancy
- *   report (this already exists in packages/query-planner/src/
- *   plan-completeness.ts and is already partially gated in
- *   create-runtime-engine.ts for "concept"/"metric" discrepancies -
- *   this script surfaces it directly so the audit can see exactly what
- *   it does and does not catch for each query shape).
- * - Runtime layer: `success`, `answerability`, `rowCount`, `sqlCalls`,
- *   sample rows (including `ownership`/`measure_code` when present).
- *
- * Run: npx tsx scripts/verify-prephase9-task5-f12-audit.ts
- */
+/** Tier0 Task 5: READ-ONLY F12 ownership and condition-specific measure audit on the live DB (no assertions), Groups A/B/C: candidates, plan.filters,
+ * assessPlanCompleteness() discrepancies and runtime results. */
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";

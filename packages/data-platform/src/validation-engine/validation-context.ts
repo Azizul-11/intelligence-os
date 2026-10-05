@@ -5,27 +5,17 @@ import type {
 
 import type { FileRecord } from "../raw-file-registry";
 
-/**
- * Context supplied to the Validation Engine.
- */
+/** Context supplied to the Validation Engine. */
 export interface ValidationContext {
-  /**
-   * Dataset being validated.
-   */
+  /** Dataset being validated. */
   dataset: Dataset;
 
-  /**
-   * Physical file.
-   */
+  /** Physical file. */
   file: FileRecord;
 
-  /**
-   * Optional schema definition.
-   */
+  /** Optional schema definition. */
   schema?: Record<string, unknown>;
 
-  /**
-   * Additional metadata.
-   */
+  /** Additional metadata. */
   metadata?: Metadata;
 }

@@ -1,26 +1,5 @@
-/**
- * Tier0 Task 3: Mayo Rochester Non-"in" Qualifier — Fix B + Safety Half A
- * Verification Suite.
- *
- * T1-T3 updated by Tier0 Task 3 FULL FIX (brand aliasing): these three
- * originally asserted a bare, SAFE FAILURE for the Mayo Rochester
- * no-"in" phrasing - correct for the narrower Fix B + Safety Half A
- * scope this file was first written for, and explicitly NOT the same
- * as returning correct Rochester data (out of scope at the time). The
- * Full Fix closes that remaining gap, so these now assert the actual
- * correct outcome (facility 240010) - a strictly stronger guarantee
- * that still proves the original P0 (100151 never silently reused).
- * See scripts/verify-prephase9-task3-full-fix-brand-alias.ts for the
- * broader, multi-brand verification the Full Fix also requires.
- *
- * Verifies, against the live remote database, that:
- * - The exact-official-name cases still work (unaffected).
- * - Memorial Hospital Texas now narrows to 3 TX candidates instead of 12
- *   nationwide, both with and without "in".
- * - Johns Hopkins (Root Cause C) and Birmingham (Task 2) are unchanged.
- *
- * Run: npx tsx scripts/verify-prephase9-task3-mayo-non-in-boundaries.ts
- */
+/** Tier0 Task 3: Fix B + Safety Half A (live DB). T1-T3 were reversed by the Full Fix: they now assert Rochester facility 240010 instead of a safe
+ * failure, still proving 100151 is never silently reused (see verify-prephase9-task3-full-fix-brand-alias.ts). */
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";

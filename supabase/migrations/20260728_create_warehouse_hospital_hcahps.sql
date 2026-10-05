@@ -1,8 +1,4 @@
--- =====================================================
--- IntelligenceOS
--- Phase A9
--- Warehouse HCAHPS
--- =====================================================
+-- IntelligenceOS Phase A9: Warehouse HCAHPS
 
 create table if not exists public.warehouse_hospital_hcahps (
 

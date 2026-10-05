@@ -1,13 +1,5 @@
-/**
- * Pre-Phase 9 Tier1 Task 5 Fix Verification: Multi-State Comparison
- * Execution Pipeline (F6 Layer B) - Phase 1 + Phase 2 + Phase 3 wired.
- *
- * Live, in-process, spy-instrumented against the remote Supabase warehouse.
- * Authoritative post-fix verification - supersedes the audit script
- * (verify-tier1-t5-multistate-audit.ts) for regression purposes.
- *
- * Run: npx tsx scripts/verify-tier1-t5-multistate-fix.ts
- */
+/** Tier1 Task 5 Fix: multi-state comparison pipeline (F6 Layer B), Phases 1-3 wired (live, spy-instrumented). Supersedes
+ * verify-tier1-t5-multistate-audit.ts for regression. */
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";

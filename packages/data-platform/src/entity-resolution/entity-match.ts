@@ -2,23 +2,14 @@ import type { ID } from "@intelligence/contracts";
 
 import type { ConfidenceScore } from "./confidence-score";
 
-/**
- * Represents a possible match
- * between two entity candidates.
- */
+/** A possible match between two entity candidates. */
 export interface EntityMatch {
-  /**
-   * Source candidate.
-   */
+  /** Source candidate. */
   source: ID;
 
-  /**
-   * Target candidate.
-   */
+  /** Target candidate. */
   target: ID;
 
-  /**
-   * Confidence score.
-   */
+  /** Confidence score. */
   confidence: ConfidenceScore;
 }

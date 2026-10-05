@@ -1,43 +1,5 @@
-/**
- * Phase 8.8 - Validation / Execution Gate Verification
- *
- * Phase 8.8's entire approved implementation scope is two additive
- * checks in `createRuntimeEngine()`
- * (packages/runtime-engine/src/create-runtime-engine.ts):
- *
- * 1. A generic plan/template compatibility check, inserted right after
- *    parameters are resolved and before the primary `executor.execute()`
- *    call. For every filter in `executionPlan.filters`, it looks for a
- *    template parameter whose RESOLVED VALUE matches the filter's value
- *    (`valuesMatch()` - by value, not by name, since a Domain's own
- *    parameter-resolution step, e.g. Healthcare's "hospital" ->
- *    "hospitalId"/"facilityIds" rename, may copy a filter's value onto
- *    a differently-named parameter). If no template parameter carries
- *    that value at all, or if the filter's operator is "in" (an array
- *    value) but the matching parameter is not declared `type: "array"`,
- *    the request is refused with `{status: "not_directly_answerable"}`
- *    - no reason invented, no SQL executes. This closes F8 (a named
- *    entity's "=" filter reaching a generic template that declares no
- *    parameter backed by that value) and the historical multi-state
- *    crash (a multi-value "in" filter reaching a template parameter
- *    never declared as "array") as the SAME mechanism.
- * 2. Extending the existing, already-computed `hasUnaccountedMetricLoss`
- *    gate to also fire on `concept`-type completeness discrepancies -
- *    `assessPlanCompleteness()` already produces one, unconditionally,
- *    for every concept candidate; this task only changes whether that
- *    already-existing evidence is acted on.
- *
- * Every path that already attached a specific answerability
- * (identity-ambiguous, candidate-inconsistent, semantic-incomplete,
- * capability-unavailable, data-unavailable) returns before either new
- * check is ever reached, and is therefore completely unmodified.
- *
- * Tests 1-2, 6, 9-12 use the REAL semantic + planner + runtime-engine
- * pipeline against the REAL remote warehouse (SupabaseDatabaseAdapter)
- * - real runtime evidence. Tests 3-5, 7-8 use a spy executor to prove
- * `sqlCalled === false` for every newly-blocked case - this cannot be
- * inferred from `success: false` alone, per instruction.
- */
+/** Phase 8.8: each execution filter must match a template parameter by RESOLVED VALUE (an "in" filter needs type:"array"), else refuse with no SQL (F8, multi-state crash);
+ * concept discrepancies also trip hasUnaccountedMetricLoss. Tests 3-5, 7-8 use a spy, the rest the real warehouse. */
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
@@ -123,12 +85,8 @@ async function run() {
       question: "Was Mayo Clinic's overall rating better five years ago?",
       parameters: {},
     });
-    // Tier0 Task 2 (F8): upgraded from a bare `not_directly_answerable`
-    // capability-mismatch refusal to a targeted `ambiguous` clarification
-    // (subject/lookup vs reference-point/similar) per the approved F8
-    // product design decision - the safety property this test guards
-    // (no nationwide top-10 silently reaches the caller, sqlCalled===false)
-    // is unchanged; only the classification/message improved.
+    // Tier0 Task 2 (F8): upgraded from a bare capability-mismatch refusal to a targeted `ambiguous` clarification (own vs similar); safety is
+    // unchanged (no nationwide top-10, sqlCalled===false).
     const pass =
       result.success === false &&
       result.answerability?.status === "ambiguous" &&
@@ -166,16 +124,8 @@ async function run() {
     });
   }
 
-  // 5 - Multi-state crash prevention (spy executor). Tier1 Task 5
-  // (2026-09-12): previously asserted a safe refusal (the only option
-  // before Task 5 added real `states` array-parameter support to the
-  // ranking templates + the Phase 1 gate generalization that makes it
-  // safe to reach them at all). Now asserts the stronger, intended
-  // outcome - a real, successful multi-state answer - while the
-  // original protection this test name describes (no raw Postgres
-  // crash reaching the caller) still holds by construction: `flag.called`
-  // being true here means SQL genuinely executed and returned rows, not
-  // that a crash was merely swallowed.
+  // 5 - Multi-state (spy). Tier1 Task 5 (2026-09-12): was a safe refusal; now asserts a real multi-state answer (states array parameter + Phase 1
+  // gate generalization). No raw Postgres crash reaches the caller: flag.called means SQL ran and returned rows.
   {
     const flag = { called: false };
     const engine = makeSpyEngine(flag);
@@ -192,10 +142,7 @@ async function run() {
     );
   }
 
-  // 6 - Multi-state, REAL executor: Tier1 Task 5 (2026-09-12) - now
-  // genuinely answerable against the live warehouse (see test 5's own
-  // updated comment); confirm real rows come back and no raw Postgres
-  // error ever reaches `result.error`.
+  // 6 - Multi-state, REAL executor (Tier1 Task 5, 2026-09-12): real rows come back and no raw Postgres error reaches result.error.
   {
     const engine = makeRealEngine();
     const result = await engine.execute({ question: "Best hospitals in Texas and California.", parameters: {} });
@@ -208,18 +155,8 @@ async function run() {
     );
   }
 
-  // 7 - Concept loss protection, updated by Tier0 Task 5 (F12 Sub-Task
-  // B, B-full): "heart attack" (AMI) is no longer merely detected and
-  // refused - it is now genuinely consumed. `ExecutionPlanMapper.
-  // buildFilters()` turns the resolved concept into a `measureCode`
-  // filter (via the concept's own declared `measureCodesByMetric` map),
-  // and `mortality-rate.ts`'s single-hospital lookup template now
-  // accepts an optional `:measureCode` parameter, scoping its result to
-  // exactly the requested condition instead of every measure the
-  // hospital reports. The original protection this test proved
-  // (a resolved concept must never be silently dropped) is preserved by
-  // a STRONGER guarantee: the concept is not just accounted for, it
-  // actually narrows the answer to the single, precisely-requested row.
+  // 7 - Concept loss, updated by Tier0 Task 5 (F12 B-full): "heart attack" (AMI) now becomes a measureCode filter via measureCodesByMetric and
+  // mortality-rate.ts accepts :measureCode, so the concept narrows the answer instead of being refused.
   {
     const engine = makeRealEngine();
     const result = await engine.execute({
@@ -239,9 +176,8 @@ async function run() {
     );
   }
 
-  // 8 - Concept loss, confirm plural form (no concept candidate at all) is NOT affected by this gate
-  // (it fails for the pre-existing, unrelated plural-alias reason, not concept-loss - this test
-  // documents that distinction rather than asserting a specific outcome for the deferred gap).
+  // 8 - Plural form (no concept candidate) is NOT affected by this gate; it fails for the pre-existing plural-alias reason, which this test
+  // documents without asserting an outcome.
   {
     const flag = { called: false };
     const engine = makeSpyEngine(flag);
@@ -347,18 +283,8 @@ async function run() {
     });
   }
 
-  // 15 - Universal-vs-Domain: the compatibility RULE itself (find a
-  // template parameter whose resolved value matches the filter's value;
-  // if the filter's operator is "in", that parameter must be declared
-  // `type: "array"`) is exercised here against entirely synthetic,
-  // non-Healthcare field names ("widgetId", "categoryCode") to prove it
-  // contains no Healthcare-specific branching - it only ever reads
-  // ExecutionFilter.field/operator/value and SqlTemplateParameter.name/
-  // type, both already-Universal contracts. This mirrors the exact
-  // decision logic added to create-runtime-engine.ts (confirmed by
-  // direct inspection: grepping the new code for "hospital"/"Mayo"/
-  // "mortality"/"state"/"Healthcare" returns zero matches in any
-  // non-comment, non-preexisting line).
+  // 15 - Universal-vs-Domain: the compatibility rule runs on synthetic non-Healthcare fields ("widgetId", "categoryCode") to prove it reads only
+  // ExecutionFilter.field/operator/value and SqlTemplateParameter.name/type, mirroring create-runtime-engine.ts.
   {
     function isCompatible(
       filters: { field: string; operator: string; value: unknown }[],

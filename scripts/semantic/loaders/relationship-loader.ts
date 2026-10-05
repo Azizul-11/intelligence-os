@@ -6,9 +6,7 @@ import type {
   RelationshipDefinition as SemanticRelationshipDefinition,
 } from "@intelligence/contracts/semantic";
 
-/**
- * Converts Domain SDK relationships into canonical Semantic relationships.
- */
+/** Converts Domain SDK relationships into canonical Semantic relationships. */
 export function loadRelationships(
   relationships: readonly DomainRelationshipDefinition[],
   domain: string,

@@ -1,15 +1,5 @@
-/**
- * Phase 8.10 Layer 2: Bounded conversational continuation state.
- * 
- * Represents a pending clarification or guidance interaction that requires
- * user follow-up. This is NOT general conversation memory - it stores only
- * the minimum context needed to reconstruct a complete request after user
- * responds to a clarification or guidance prompt.
- * 
- * Lifecycle: Create → Pending → Match → Consume → Delete
- * TTL: 5 minutes
- * Scope: Two-turn only (no multi-turn chains)
- */
+/** Phase 8.10 Layer 2: bounded state for a pending clarification/guidance (not conversation memory).
+ * Lifecycle Create > Pending > Match > Consume > Delete; TTL 5 min; two-turn only. */
 export interface PendingInteraction {
   /** UUID v4 identifier (server-generated) */
   id: string;
@@ -23,11 +13,7 @@ export interface PendingInteraction {
   /** Original user question text */
   originalQuestion: string;
   
-  /** 
-   * Full semantic resolution result from Turn 1 for reconstruction context.
-   * Stored as unknown to avoid circular dependencies - actual type is
-   * SemanticResolutionResult from @intelligence/semantic.
-   */
+  /** Turn 1 semantic result for reconstruction; `unknown` to avoid a circular dependency (real type: SemanticResolutionResult from @intelligence/semantic). */
   originalSemanticResult: unknown;
   
   /** Specific ambiguity or unavailability that triggered this interaction */
@@ -46,10 +32,7 @@ export interface PendingInteraction {
   createdAt: string; // ISO timestamp
 }
 
-/**
- * Clarification target: represents an ambiguous entity mention that needs
- * user disambiguation.
- */
+/** Clarification target: an ambiguous entity mention needing user disambiguation. */
 export interface ClarificationTarget {
   /** The ambiguous entity mention from original query */
   entityMention: string;
@@ -58,10 +41,7 @@ export interface ClarificationTarget {
   candidates: unknown[];
 }
 
-/**
- * Guidance target: represents an unavailable capability with offered
- * alternatives.
- */
+/** Guidance target: an unavailable capability with offered alternatives. */
 export interface GuidanceTarget {
   /** The capability ID that was unavailable */
   unavailableCapabilityId: string;
@@ -73,11 +53,7 @@ export interface GuidanceTarget {
   scope: Record<string, unknown>;
 }
 
-/**
- * Clarification option: a single candidate entity that user can select.
- * Domain-specific structure (Healthcare example shown, but architecture
- * is generic).
- */
+/** Clarification option: one selectable candidate entity (structure is domain-specific; Healthcare shown). */
 export interface ClarificationOption {
   /** Display label shown to user (e.g., "NORTHWEST MEDICAL CENTER - TUCSON, AZ") */
   displayLabel: string;
@@ -86,9 +62,7 @@ export interface ClarificationOption {
   [key: string]: unknown;
 }
 
-/**
- * Guidance option: a single alternative capability that user can select.
- */
+/** Guidance option: a single alternative capability that user can select. */
 export interface GuidanceOption {
   /** Capability identifier (e.g., "hospital-overall-rating") */
   capabilityId: string;

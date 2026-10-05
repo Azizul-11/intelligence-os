@@ -1,37 +1,5 @@
-/**
- * Qualifier Identity Safety Verification
- *
- * Verifies the two locked fixes from
- * docs/phase8/QUALIFIER_IDENTITY_SAFETY/QUALIFIER_IDENTITY_SAFETY_DESIGN_LOCK.md:
- *
- * Fix 1 (Domain, domain-packs/healthcare/src/runtime/entity-provider.ts):
- * narrowByQualifier()'s zero-match fallback returns status:"not_found"
- * (not "ambiguous") when the original candidate count was exactly 1 -
- * there is no real ambiguity to report when only one candidate ever
- * existed and the qualifier contradicts it.
- *
- * Fix 2 (Universal, packages/semantic/src/pipeline/semantic-pipeline.ts):
- * the Phase 8.1 ambiguity-overlap suppression now requires the
- * overlapping resolved candidate to share the ambiguity's own
- * `entityId` before suppressing it - a different-typed candidate (e.g.
- * a `state` entity) can never suppress a same-mention `hospital`
- * ambiguity.
- *
- * Plus the necessary complementary mechanism discovered during
- * implementation (documented in full in the implementation report):
- * a `not_found` qualifier-conflict (Fix 1's new result) suppresses an
- * overlapping, SAME bare-name, SAME-type resolved candidate elsewhere
- * in the query - but only when doing so is safe with respect to other
- * same-type entities in the query (the sole entity, or a genuine
- * duplicate of an already-resolved value) - so a multi-entity
- * comparison's own, independent entities are never corrupted.
- *
- * Uses the real semantic + planner + runtime-engine pipeline
- * throughout. The two most safety-critical cases use the REAL
- * SqlExecutor (with a MockDatabaseAdapter) rather than a spy, since
- * only the real executor's own required-parameter guard can prove no
- * wrong facility_id ever reaches a SQL parameter.
- */
+/** Qualifier Identity Safety (docs/phase8/QUALIFIER_IDENTITY_SAFETY/QUALIFIER_IDENTITY_SAFETY_DESIGN_LOCK.md): Fix 1 returns not_found when a
+ * qualifier contradicts a sole candidate; Fix 2 needs a matching entityId to suppress an ambiguity. Critical cases use the real SqlExecutor + MockDatabaseAdapter. */
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
@@ -134,16 +102,8 @@ async function run() {
     check("5-GREENE-EUTAW-VALID-QUALIFIER", "Greene County Hospital in Eutaw: unique facility 010051", pass, JSON.stringify({ resolvedValue: entity?.resolvedValue }));
   }
 
-  // 6 - CRITICAL, updated by Tier0 Task 3 Full Fix (brand aliasing):
-  // this assertion was deliberately reversed from its prior form. The
-  // prior control asserted a bare, safe FAILURE (100151 never silently
-  // reused) - correct as far as it went, but incomplete: Rochester's
-  // own real facility (240010, "MAYO CLINIC HOSPITAL ROCHESTER") does
-  // exist and should resolve, not merely fail safely. The invariant
-  // that must never regress is unchanged - 100151 (Jacksonville) must
-  // never be silently substituted for Rochester's request - it is now
-  // proven by asserting the CORRECT distinct value, a stronger check
-  // than merely asserting failure.
+  // 6 - CRITICAL, reversed by Tier0 Task 3 Full Fix: now asserts Rochester's correct facility (240010) instead of a bare safe failure; the invariant
+  // is unchanged (100151 Jacksonville is never substituted for Rochester).
   {
     const sem = semantic.resolve("What is the overall rating of Mayo Clinic in Rochester, Minnesota?");
     const hospitalEntity = sem.matches.find((m) => m.semanticType === "entity" && m.canonicalKey === "hospital");
@@ -198,16 +158,8 @@ async function run() {
     check("10-COMPARE-MAYO-CLEVELAND-REGRESSION", "Compare Mayo Clinic and Cleveland Clinic: unaffected, existing successful comparison", pass, JSON.stringify({ result, sqlCalled: flag.called }));
   }
 
-  // 11 - Qualified comparison safety, updated by Tier0 Task 3 Full Fix
-  // (brand aliasing): the prior assertion required Rochester to fail
-  // to resolve at all (hospitalEntities.length <= 1), which was this
-  // suite's proxy for "never duplicates Jacksonville's value" before a
-  // real resolution path for Rochester existed. Now that brand-prefix
-  // expansion lets Rochester resolve to its OWN correct, distinct
-  // facility (240010), the real invariant - no two extracted hospital
-  // entities ever collapse to the same facility_id - is asserted
-  // directly instead, which remains true whether Rochester resolves or
-  // not and correctly catches the original duplication bug either way.
+  // 11 - Reversed by Tier0 Task 3 Full Fix: now asserts directly that no two extracted hospital entities collapse to the same facility_id (true
+  // whether Rochester resolves or not), instead of hospitalEntities.length <= 1.
   {
     const sem = semantic.resolve("Compare Mayo Clinic in Jacksonville with Mayo Clinic in Rochester");
     const hospitalEntities = sem.matches.filter((m) => m.semanticType === "entity" && m.canonicalKey === "hospital");
@@ -225,10 +177,7 @@ async function run() {
     );
   }
 
-  // 12 - Regression discovered during implementation: a trailing
-  // qualifier near ONE of several distinct entities in a comparison
-  // must not corrupt that entity, even when the qualifier does not
-  // match it (Phase 7.5.8's own pre-existing TEST 6).
+  // 12 - Regression: a trailing qualifier near ONE of several distinct entities must not corrupt it, even if it does not match (Phase 7.5.8 TEST 6).
   {
     const flag = { called: false };
     const engine = makeSpyEngine(flag);

@@ -40,13 +40,8 @@ function hasComparisonKeyword(question: string): boolean {
   return COMPARISON_KEYWORDS.some((keyword) => words.includes(keyword));
 }
 
-/**
- * Whether Turn 1 was a multi-entity comparison query ("compare memorial hospital vs ANIMAS").
- * Bug found live: the original check counted `comparable` entities in `originalSemanticResult`, requiring 2+ - but
- * that array excludes the ambiguous entity itself, so a comparison with one ambiguous entity could never reach 2.
- * It also checked `.definition?.comparable`, a field that only exists on MetricDefinition, never EntityDefinition.
- * Fixed by checking the original question text for a comparison keyword plus one already-resolved entity instead.
- */
+/** Whether Turn 1 was a multi-entity comparison ("compare memorial hospital vs ANIMAS"): checks the question text for a comparison keyword plus one resolved entity,
+ * because counting `comparable` entities never reaches 2 (the ambiguous one is excluded and EntityDefinition has no `comparable`). */
 function wasComparisonQuery(originalQuestion: string, originalSemanticResult: unknown): boolean {
   if (!hasComparisonKeyword(originalQuestion) || !Array.isArray(originalSemanticResult)) {
     return false;
@@ -131,10 +126,8 @@ export async function handleContinuation(
       if (hospitalChoice?.kind === "lookup") {
         await consumePendingInteraction(supabase, interaction.id);
 
-        // Tier0 Task 6 (F8 own-choice extension): Turn 1 named a specific metric/condition - the bare
-        // overall-rating lookup below would silently substitute a generic rating for it. Re-executes the ORIGINAL
-        // Turn 1 question with the identity forced and `forcedIntent: "lookup"` so "best" doesn't route to a
-        // population-wide ranking template with no parameter for this one known facility.
+        // Tier0 Task 6 (F8): Turn 1 named a specific metric/condition, so re-execute the ORIGINAL question with the identity forced
+        // and `forcedIntent: "lookup"` ("best" would otherwise route to a population-wide ranking; the bare overall-rating lookup below would substitute a generic rating).
         if (hadMetricOrConcept(interaction.originalSemanticResult)) {
           const requestId = crypto.randomUUID();
           const engine = getRuntimeEngine();

@@ -1,14 +1,7 @@
 import type { AliasDefinition } from "@intelligence/domain-sdk";
 
-// Batch 5B-2: concept aliases for the 11 individual PSI concepts (concepts/psi.ts). "in-hospital fall" is
-// deliberately never registered bare: 17 hospital names contain "Falls" (5B audit section 2.9), so only the
-// multi-word "in-hospital fall(s) with fracture" phrasing is aliased. Two aliases per concept, not the fuller
-// synonym lists an earlier draft of this file had (Bedsore, DVT, Pulmonary Embolism, Wound Reopening, the PSI_03
-// through PSI_15 numeric codes...): the normalizer prompt shows every alias for every concept in brackets
-// (packages/llm-model-gateway, universal, not editable here), and 11 concepts with 5-7 aliases each measured
-// 11,962 characters - 1,462 over the 10,500 guard. Cut to what this batch's own catalog rows actually need; the
-// dropped synonyms are not lost capability so much as deferred - add them back only if a real question needs one
-// and the guard has room (D8, this batch's own report).
+// Batch 5B-2: 11 PSI concept aliases, two each: the normalizer prompt lists every alias (llm-model-gateway, not editable) and fuller lists exceeded the 10,500-char guard (D8).
+// "in-hospital fall" is never registered bare: 17 hospital names contain "Falls" (5B audit 2.9).
 export const pressureUlcerAlias: AliasDefinition = {
   id: "pressure-ulcer",
   canonical: "pressure-ulcer",

@@ -1,11 +1,5 @@
-/**
- * Verification script for Bug A/C — Single-Hospital Dossier Regression
- * 
- * Reproduces the exact queries that broke after Round 3's crowd-out fix.
- * Expected: All queries should return success=true, rowCount=1, correct facility.
- * 
- * Run with: npx tsx scripts/verify-bug-a-c-single-hospital-dossier-regression.ts
- */
+/** Bug A/C: reproduces the single-hospital dossier queries broken by Round 3's crowd-out fix (expect success=true, rowCount=1, correct facility).
+ * Run: npx tsx scripts/verify-bug-a-c-single-hospital-dossier-regression.ts */
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";

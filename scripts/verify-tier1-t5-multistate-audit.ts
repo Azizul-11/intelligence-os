@@ -1,12 +1,4 @@
-/**
- * Pre-Phase 9 Tier1 Task 5 Audit: Multi-State Comparison Execution
- * Pipeline (F6 Layer B).
- *
- * STRICTLY DIAGNOSTIC - read-only, no production writes. Live, in-process,
- * spy-instrumented against the remote Supabase warehouse.
- *
- * Run: npx tsx scripts/verify-tier1-t5-multistate-audit.ts
- */
+/** Tier1 Task 5 Audit: multi-state comparison pipeline (F6 Layer B). DIAGNOSTIC ONLY (read-only), live and spy-instrumented. */
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";

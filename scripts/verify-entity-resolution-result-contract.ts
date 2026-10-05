@@ -1,16 +1,4 @@
-/**
- * Phase 7.5.1A - EntityResolutionResult contract extension verification.
- *
- * Proves the extended Universal representation can express the three
- * outcomes required by the actual repository/data evidence gathered in
- * Phase 7.5.1 - UNIQUE, AMBIGUOUS, NOT_FOUND - using domain-neutral
- * examples only. This is a pure Universal Core contract-shape check; it
- * does not touch Healthcare, hospitals, facilities, or any domain data.
- *
- * No EntityProvider implementation is exercised here - see the existing
- * Phase 4/5/6/7 regression scripts for proof that real state resolution
- * (via HealthcareEntityProvider) is unaffected by this change.
- */
+/** Phase 7.5.1A: pure Universal Core contract-shape check that EntityResolutionResult can express UNIQUE, AMBIGUOUS and NOT_FOUND with domain-neutral examples; no EntityProvider is exercised. */
 
 import type { EntityResolutionResult } from "../packages/domain-sdk/src/runtime/entity-resolution-result";
 
@@ -79,9 +67,7 @@ function check(id: string, description: string, pass: boolean, detail: string) {
   );
 }
 
-// AMBIGUOUS with three candidates - confirms the representation is not
-// hardcoded to exactly two (no "if candidates.length === 2" assumption
-// anywhere in the type or this check).
+// AMBIGUOUS with three candidates: the representation must not assume exactly two.
 {
   const result: EntityResolutionResult = {
     found: false,
@@ -129,10 +115,7 @@ function check(id: string, description: string, pass: boolean, detail: string) {
   );
 }
 
-// BACKWARD COMPATIBILITY OF SHAPE - a result using only the original
-// four fields (no status, no candidates) must remain a fully valid
-// EntityResolutionResult. This is exactly the shape every existing
-// EntityProvider implementation already returns today.
+// Backward compatibility: a result with only the original four fields (no status, no candidates) must stay valid.
 {
   const legacyShapedResult: EntityResolutionResult = {
     found: true,

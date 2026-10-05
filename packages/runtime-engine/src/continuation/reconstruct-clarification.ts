@@ -4,21 +4,7 @@ import type {
   ClarificationTarget,
 } from "@intelligence/contracts";
 
-/**
- * Phase 8.10 Layer 2: Reconstruct a complete request from a clarification
- * continuation.
- * 
- * For now, this returns the original question along with metadata about the
- * selected identity. The RuntimeEngine will inject this resolved identity
- * directly into the semantic context, bypassing EntityResolver's ambiguity.
- * 
- * Future: May implement string-based substitution if needed, but initial
- * approach is structured injection.
- * 
- * @param interaction Pending clarification interaction
- * @param selectedOption User-selected clarification option
- * @returns Reconstructed request context
- */
+/** Phase 8.10 Layer 2: rebuilds the request from a clarification reply as the original question plus the selected identity, which RuntimeEngine injects into the semantic context (bypassing EntityResolver's ambiguity); string substitution is a possible future alternative. */
 export function reconstructClarificationRequest(
   interaction: PendingInteraction,
   selectedOption: ClarificationOption

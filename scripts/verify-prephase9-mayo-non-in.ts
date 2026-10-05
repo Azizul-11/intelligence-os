@@ -1,14 +1,4 @@
-/**
- * Tier0 Task 3: Mayo Rochester Non-"in" Qualifier — Audit Reproduction.
- *
- * READ-ONLY reproduction script (Part 2 of the Task 3 master prompt).
- * No assertions - this is audit evidence against the live remote DB, not
- * a regression gate. Reports actual current behavior for every query
- * shape named in the master prompt plus the additional shapes this
- * audit's own investigation surfaced (see F3_AUDIT_QUERIES_MAYO_NON_IN.md).
- *
- * Run: npx tsx scripts/verify-prephase9-mayo-non-in.ts
- */
+/** Tier0 Task 3: READ-ONLY audit reproduction of the Mayo Rochester non-"in" qualifier (no assertions, live DB); see F3_AUDIT_QUERIES_MAYO_NON_IN.md. */
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";

@@ -32,10 +32,7 @@ const METRIC_WORDS_BY_ID: Record<string, string> = {
 const bestEndWord = (metricId: string): string =>
   healthcareMetrics.find((metric) => metric.id === metricId)?.lowerIsBetter ? "lowest" : "best";
 
-/**
- * Phase 3.5: a listing, count or profile is not a measure, so a chip never ranks by it ("best Hospital List" was
- * offered after every plain location list); the overall rating is the measure those answers pivot to.
- */
+/** Phase 3.5: a listing, count or profile is not a measure, so a chip never ranks by it; the overall rating is the measure those answers pivot to. */
 const NON_MEASURE_METRICS = new Set(["hospital-list", "hospital-count", "hospital-detail"]);
 const measureMetricId = (metricId: string): string => (NON_MEASURE_METRICS.has(metricId) ? "hospital-overall-rating" : metricId);
 

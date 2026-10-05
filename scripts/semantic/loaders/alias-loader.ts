@@ -6,9 +6,7 @@ import type {
   AliasDefinition as SemanticAliasDefinition,
 } from "@intelligence/contracts/semantic";
 
-/**
- * Converts Domain SDK aliases into canonical Semantic aliases.
- */
+/** Converts Domain SDK aliases into canonical Semantic aliases. */
 export function loadAliases(
   aliases: readonly DomainAliasDefinition[],
   domain: string,

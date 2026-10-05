@@ -1,15 +1,5 @@
-/**
- * LLM Integration — combined ownership + clinical-concept simple-language
- * verification.
- *
- * PrePhase 9.5 Round 2: confirms a question naming BOTH a simple
- * ownership phrase and a simple clinical-concept phrase resolves
- * correctly - both are independent, already-working mechanisms (ownership
- * deterministic, concept via the newly capability-aware gateway); this
- * confirms they compose without interfering with each other.
- *
- * Run: npx tsx scripts/verify-llm-ownership-concept-combined.ts
- */
+/** PrePhase 9.5 Round 2: a question naming both a simple ownership phrase and a simple clinical-concept phrase resolves correctly (independent mechanisms compose).
+ * Run: npx tsx scripts/verify-llm-ownership-concept-combined.ts */
 import "dotenv/config";
 
 import { healthcareDomain, DOMAIN_CAPABILITIES } from "../domain-packs/healthcare/src/index";

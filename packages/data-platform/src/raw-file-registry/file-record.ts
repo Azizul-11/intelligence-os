@@ -1,51 +1,23 @@
 import type { ID, Metadata, Timestamp } from "@intelligence/contracts";
 
-/**
- * Represents a physical file entering the IntelligenceOS platform.
- *
- * A FileRecord contains metadata about the file itself,
- * not the contents of the dataset.
- */
+/** Metadata about a physical file entering the platform, not the dataset contents. */
 export interface FileRecord {
-  /**
-   * Unique platform identifier.
-   */
+  /** Unique platform identifier. */
   id: ID;
 
-  /**
-   * Original filename.
-   */
+  /** Original filename. */
   filename: string;
 
-  /**
-   * File extension.
-   *
-   * Examples:
-   * csv
-   * json
-   * xlsx
-   * parquet
-   * zip
-   */
+  /** File extension, e.g. csv, json, xlsx, parquet, zip. */
   extension: string;
 
-  /**
-   * MIME type.
-   *
-   * Example:
-   * text/csv
-   * application/json
-   */
+  /** MIME type, e.g. text/csv, application/json. */
   mimeType: string;
 
-  /**
-   * File size in bytes.
-   */
+  /** File size in bytes. */
   size: number;
 
-  /**
-   * Current lifecycle status.
-   */
+  /** Current lifecycle status. */
   status:
     | "registered"
     | "validated"
@@ -53,13 +25,9 @@ export interface FileRecord {
     | "processed"
     | "failed";
 
-  /**
-   * File metadata.
-   */
+  /** File metadata. */
   metadata?: Metadata;
 
-  /**
-   * File timestamps.
-   */
+  /** File timestamps. */
   timestamps?: Timestamp;
 }

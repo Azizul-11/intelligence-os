@@ -1,25 +1,5 @@
-/**
- * Phase 2.1 (2026-09-17/18) — comprehensive regression suite covering:
- *   Suite 1: TitleCase/mixed-case postal abbreviations (the new fix)
- *   Suite 2: Bug L baseline controls (must stay PASS)
- *   Suite 3: ACB single-hospital dossiers (must stay PASS)
- *   Suite 4: ACB multi-hospital comparisons (must stay PASS)
- *
- * Runs against a DETERMINISTIC-ONLY engine (preprocessQuestion wired,
- * llmFallback NOT wired) for everything except where a query is known
- * to require the LLM gateway (none of the suites below do - every case
- * here is a deterministic capability).
- *
- * The one Suite-4 case requiring a real two-turn continuation
- * (Turn 1 ambiguous "compare memorial hospital vs Mayo Clinic" -> Turn 2
- * "CARTHAGE") is NOT exercised by this script - the local engine here
- * has no `pending_interactions` table wiring (that only exists in the
- * deployed orchestrator's chat.ts/continuation.ts layer). It is
- * verified separately via a live HTTP round-trip against the deployed
- * function - see the Phase 2.1 fix doc for that evidence.
- *
- * Run: npx tsx scripts/verify-titlecase-and-acb-regression.ts
- */
+/** Phase 2.1 (2026-09-17/18) regression: TitleCase postal abbreviations, Bug L controls, ACB dossiers and comparisons; deterministic-only engine. The
+ * two-turn "memorial hospital vs Mayo" -> "CARTHAGE" case is verified via live HTTP (no pending_interactions here). */
 import "dotenv/config";
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";

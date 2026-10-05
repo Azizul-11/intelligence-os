@@ -1,18 +1,5 @@
-/**
- * Phase 8.13 — Runtime Safety Proof: Zero SQL on Unsafe States
- *
- * Proves with spy executor instrumentation that validation state is an
- * actual execution boundary:
- *
- * - ANSWERABLE → SQL permitted
- * - AMBIGUOUS → zero SQL
- * - NOT_DIRECTLY_ANSWERABLE → zero SQL
- * - Clarification Turn1 → zero SQL, Turn2 → SQL only after ANSWERABLE
- * - Guidance Turn1 → zero SQL, Turn2 → SQL only after ANSWERABLE
- *
- * Uses existing Phase 8.11/8.8 spy executor pattern - no production code
- * modifications.
- */
+/** Phase 8.13: spy executor proves validation state is an execution boundary (AMBIGUOUS and NOT_DIRECTLY_ANSWERABLE run zero SQL;
+ * clarification/guidance Turn 2 runs SQL only once ANSWERABLE). Reuses the 8.11/8.8 spy pattern; no production changes. */
 
 import { createClient } from "@supabase/supabase-js";
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
@@ -86,9 +73,7 @@ function makeRealEngine() {
   });
 }
 
-// ============================================================================
-// PROOF A: ANSWERABLE → SQL Permitted
-// ============================================================================
+// PROOF A: ANSWERABLE -> SQL permitted
 async function proofA(): Promise<ProofResult> {
   const start = Date.now();
   const spy: ExecutorSpy = { called: false, callCount: 0 };

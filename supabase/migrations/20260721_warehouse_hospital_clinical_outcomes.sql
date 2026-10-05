@@ -1,8 +1,4 @@
--- =====================================================
--- IntelligenceOS
--- Phase 4.4
--- Warehouse Clinical Outcomes
--- =====================================================
+-- IntelligenceOS Phase 4.4: Warehouse Clinical Outcomes
 
 create table if not exists public.warehouse_hospital_clinical_outcomes (
 

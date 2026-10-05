@@ -1,18 +1,5 @@
-/**
- * LLM Integration Layer 1 — end-to-end integration proof.
- *
- * Wires the real llmGateway.normalizeMessyLanguage() into
- * createRuntimeEngine()'s llmFallback hook exactly the way
- * supabase/functions/orchestrator/services/domain-registry.ts does, then
- * proves the full recursive re-resolution behavior live: a bare
- * unresolved question gets rewritten, re-run through the ENTIRE pipeline
- * (not just re-checked), and produces real SQL execution with rowCount >
- * 0 - while confirming Phase 8.13 (NOT_DIRECTLY_ANSWERABLE => sqlCalls=0,
- * ANSWERABLE => sqlCalls>0) holds throughout, and that a request without
- * the hook (every pre-existing caller) is completely unaffected.
- *
- * Run: npx tsx scripts/verify-llm-layer1-messy-language-fallback.ts
- */
+/** Layer 1 end-to-end: normalizeMessyLanguage() wired into createRuntimeEngine()'s llmFallback like domain-registry.ts; the rewrite re-runs the ENTIRE pipeline with rowCount > 0, Phase 8.13 holds (NOT_DIRECTLY_ANSWERABLE => sqlCalls=0), and callers without the hook are unaffected.
+ * Run: npx tsx scripts/verify-llm-layer1-messy-language-fallback.ts */
 import "dotenv/config"; // MUST be first - see verify-llm-layer2-suggestion-rephrasing.ts's own doc comment for why.
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";

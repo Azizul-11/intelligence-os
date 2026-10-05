@@ -1,27 +1,5 @@
-/**
- * Tier0 Task 4: F1 Benchmark Word-Order — Audit Reproduction.
- *
- * READ-ONLY diagnostic script against the live remote DB. No assertions
- * - this is audit evidence, not a regression gate. Reports, for every
- * query pair named in the master prompt:
- *
- * - Semantic layer: every metric-typed candidate resolved, its
- *   `direction` (asc/desc), and whether it was `isFallback` (introduced
- *   by a Healthcare lexical-rewrite idiom rather than named explicitly
- *   by the user - see domain-packs/healthcare/src/lexical-rewrites.ts).
- * - Planning layer: the resulting ExecutionPlan's `operation`, primary
- *   `metric`, full `metrics[]` (with each metric's own direction), and
- *   `filters`.
- * - Runtime layer: `success`, `answerability.status`/`reason`,
- *   `rowCount`, `sqlCalls` (spy-instrumented), and up to 3 result rows.
- *
- * Fulfills both "Live Reproduction & Failure Matrix" and "Step 2 Repro
- * Evidence" from the master prompt in one script (they asked for the
- * same live-pipeline evidence twice under different script names -
- * consolidated here, noted in the audit report).
- *
- * Run: npx tsx scripts/verify-prephase9-task4-f1-audit.ts
- */
+/** Tier0 Task 4: READ-ONLY F1 benchmark word-order audit on the live DB (no assertions): semantic candidates, ExecutionPlan shape and runtime
+ * result/sqlCalls per query pair. */
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";

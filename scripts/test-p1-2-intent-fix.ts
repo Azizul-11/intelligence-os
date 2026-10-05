@@ -1,9 +1,6 @@
 #!/usr/bin/env -S pnpm exec tsx
 
-/**
- * P1-2 Intent Fix Verification
- * Tests that "better" now correctly maps to ranking intent
- */
+/** P1-2 intent fix: "better" must map to ranking intent. */
 
 import { QueryIntentDetector } from "../packages/query-planner/src/query-intent-detector";
 

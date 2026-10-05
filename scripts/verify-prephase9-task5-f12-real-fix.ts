@@ -1,34 +1,5 @@
-/**
- * Tier0 Task 5: F12 Ownership & Condition-Specific Measures — REAL FIX
- * Verification Suite.
- *
- * Part A (ownership): a Domain-owned ownership entity/directory
- * (domain-packs/healthcare/src/entities/ownership.ts,
- * domain-packs/healthcare/src/runtime/ownership-directory.ts), wired
- * into entity-provider.ts's bare-phrase resolution (mirroring
- * state/county/city) and into every ranking + list SQL template's
- * WHERE clause as an `:ownership` LIKE-pattern parameter. Zero
- * Universal Core change - ExecutionPlanMapper.buildFilters() and
- * HealthcareExecutionStrategy.resolveParametersFromPlan() already wire
- * any entity with `execution.parameter` set generically.
- *
- * Part B (condition) - GB7-GB12 updated by the B-full upgrade (see
- * verify-prephase9-task5-f12-real-fix-b-full.ts): the 5 new
- * `"concept"`-type aliases (CABG, COPD, Hip/Knee, Heart Failure,
- * Pneumonia) originally only reached the Phase 8.8 safety-refusal gate
- * (B-minimal). They now resolve to real, condition-specific ranking
- * data via a Domain-declared `measureCodesByMetric` map on each
- * concept, consumed generically by
- * `ExecutionPlanMapper.buildFilters()` into a `measureCode` filter, and
- * 2 new SQL templates joining the per-condition detail tables. Same
- * "deliberate, documented reversal" pattern used for Task 3's test
- * 6/11 and Task 4's V1→V2 - the original safety property (never
- * silently execute an unscoped ranking) is preserved by a *stronger*
- * guarantee: the condition is now genuinely answered, not merely
- * safely refused.
- *
- * Run: npx tsx scripts/verify-prephase9-task5-f12-real-fix.ts
- */
+/** Tier0 Task 5: F12 REAL FIX. A: Domain-owned ownership entity wired into entity-provider.ts and ranking+list templates as :ownership (no Universal
+ * change). B: GB7-GB12 were updated by B-full (verify-prephase9-task5-f12-real-fix-b-full.ts); concepts now return data, not a refusal. */
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";

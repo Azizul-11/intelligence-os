@@ -1,18 +1,7 @@
 #!/usr/bin/env tsx
 
-/**
- * Batch 5B-2 (patient safety indicators and postoperative sepsis) verification. No live model is called: the
- * engine runs deterministically (llmFallback stubbed to `fallback`) against the live warehouse (read-only SELECTs).
- * Rows that need the live model to resolve (A111, A113, A119 - see comments below) are checked only for the
- * deterministic half of their contract here (0 SQL when unresolved, or a correct answer when they do resolve
- * without the model); their live-model outcome is verified separately against the deployed function.
- *
- *   1  registry: the metric, the 12 concepts (11 PSIs + Postoperative Sepsis) and their aliases
- *   2  engine resolution for the batch's 14 owned catalog rows, unit strings, direction
- *   3  Phase 8: negative controls stay refused, 0 SQL
- *
- * Usage: pnpm exec tsx scripts/verify-batch5b2-psi.ts
- */
+/** Batch 5B-2 verification of patient safety indicators and postoperative sepsis (llmFallback stubbed to `fallback`, read-only live warehouse).
+ * A111, A113, A119 need the live model, so only their deterministic half is checked here (0 SQL if unresolved). Usage: pnpm exec tsx scripts/verify-batch5b2-psi.ts */
 import "dotenv/config";
 
 import { healthcareDomain, DOMAIN_CAPABILITIES } from "../domain-packs/healthcare/src/index";

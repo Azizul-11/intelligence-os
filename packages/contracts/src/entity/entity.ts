@@ -3,35 +3,20 @@ import type { EntityKind } from "./entity-kind";
 import type { EntityMetadata } from "./entity-metadata";
 import type { EntityReference } from "./entity-reference";
 
-/**
- * Universal representation of a real-world object within IntelligenceOS.
- *
- * Every domain (Healthcare, Education, Finance, Manufacturing, etc.)
- * models its business objects using this contract.
- */
+/** Universal representation of a real-world object; every domain models its business objects with this. */
 export interface Entity {
-  /**
-   * Unique platform identifier.
-   */
+  /** Unique platform identifier. */
   identifier: EntityIdentifier;
 
-  /**
-   * High-level platform classification.
-   */
+  /** High-level platform classification. */
   kind: EntityKind;
 
-  /**
-   * Human-readable display name.
-   */
+  /** Human-readable display name. */
   name: string;
 
-  /**
-   * Platform metadata.
-   */
+  /** Platform metadata. */
   metadata?: EntityMetadata;
 
-  /**
-   * References to other entities.
-   */
+  /** References to other entities. */
   references?: EntityReference[];
 }

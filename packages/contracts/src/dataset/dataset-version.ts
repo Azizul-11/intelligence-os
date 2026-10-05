@@ -1,14 +1,8 @@
-/**
- * Represents a dataset version.
- */
+/** Represents a dataset version. */
 export interface DatasetVersion {
-  /**
-   * Version identifier.
-   */
+  /** Version identifier. */
   version: string;
 
-  /**
-   * Release date.
-   */
+  /** Release date. */
   releasedAt?: Date;
 }

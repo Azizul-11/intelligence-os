@@ -8,17 +8,7 @@ import type {
 } from "@intelligence/contracts";
 import type { SemanticResolutionResult } from "@intelligence/semantic";
 
-/**
- * Phase 8.10 Layer 2: Create a pending clarification or guidance interaction.
- * 
- * This stores the minimum state needed to reconstruct a complete request after
- * the user responds to a clarification or guidance prompt. NOT general
- * conversation memory - bounded two-turn only.
- * 
- * @param supabase Supabase client for database access
- * @param params Interaction parameters
- * @returns Created pending interaction with generated ID
- */
+/** Phase 8.10 Layer 2: stores the minimum state to rebuild a request after a clarification/guidance reply; NOT conversation memory, bounded two-turn only. */
 export async function createPendingInteraction(
   supabase: SupabaseClient,
   params: {
@@ -39,9 +29,7 @@ export async function createPendingInteraction(
       original_semantic_result: params.originalSemanticResult,
       pending_target: params.pendingTarget,
       offered_options: params.offeredOptions,
-      // expires_at has DEFAULT (NOW() + INTERVAL '5 minutes')
-      // consumed has DEFAULT FALSE
-      // created_at has DEFAULT NOW()
+      // expires_at (5 min), consumed (FALSE) and created_at (NOW) are DB defaults
     })
     .select()
     .single();

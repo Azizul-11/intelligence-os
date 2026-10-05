@@ -1,24 +1,5 @@
-/**
- * Phase 7.5.4 - Explicit Entity Execution Capability Verification
- *
- * Proves that the multi-entity representation Phase 7.5.3 established at
- * the Universal query-planner layer (entity -> scalar | array, filter
- * operator "=" | "in") now survives, unmodified in content, all the way
- * through HealthcareExecutionStrategy.resolveParametersFromPlan() into a
- * parameters object shaped for deterministic Healthcare SQL execution -
- * without collapsing, overwriting, or silently truncating any identity.
- *
- * This is an execution-CAPABILITY proof (parameter construction), not an
- * end-to-end two/three-entity runtime comparison proof - that is Phase
- * 7.5.5's scope. No live database call is made here.
- *
- * Uses the REAL hospitalEntity/stateEntity definitions, the REAL
- * EntityParameterResolver and ExecutionPlanMapper (Phase 7.5.3), and the
- * REAL HealthcareExecutionStrategy - with synthetic facility-id-shaped
- * values (not real hospital names) standing in for already-resolved
- * identities, since identity resolution itself was already proven with
- * real CMS data in Phase 7.5.2.
- */
+/** Phase 7.5.4: multi-entity representation (scalar | array, "=" | "in") survives HealthcareExecutionStrategy.resolveParametersFromPlan() without
+ * collapsing or truncating identities. Parameter construction only (no live DB); synthetic facility-id values stand in for resolved identities. */
 
 import type { SemanticCandidate } from "../packages/semantic/src/candidate/SemanticCandidate";
 import type { SemanticCollections } from "../packages/query-planner/src/semantic-collections";
@@ -103,9 +84,7 @@ function executionPlanFor(entities: SemanticCandidate[]) {
   return executionPlanMapper.map(plan);
 }
 
-// CASE 1 - SINGLE HOSPITAL: existing scalar behavior is unchanged, and
-// now correctly reaches the SQL-facing "hospitalId" parameter name that
-// hospital-overall-rating.ts actually declares.
+// CASE 1: single hospital keeps scalar behavior and reaches the "hospitalId" parameter declared by hospital-overall-rating.ts.
 {
   const executionPlan = executionPlanFor([hospitalCandidate("example hospital", "FACILITY_A")]);
   const parameters = strategy.resolveParametersFromPlan(executionPlan);

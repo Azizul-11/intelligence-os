@@ -1,19 +1,11 @@
-/**
- * Result of evaluating a validation rule.
- */
+/** Result of evaluating a validation rule. */
 export interface ValidationResult {
-  /**
-   * Identifier of the evaluated rule.
-   */
+  /** Identifier of the evaluated rule. */
   ruleId: string;
 
-  /**
-   * Whether the rule passed.
-   */
+  /** Whether the rule passed. */
   passed: boolean;
 
-  /**
-   * Optional validation message.
-   */
+  /** Optional validation message. */
   message?: string;
 }

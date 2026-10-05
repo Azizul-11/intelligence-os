@@ -1,16 +1,5 @@
-/**
- * Batch 5B-4: hospital-type and attribute-flag directory (audit section 4.6).
- *
- * Hand-maintained, exact-literal vocabulary, the same shape as ownership-directory.ts: a normalized phrase maps to the
- * value its execution parameter binds. `hospital_type` values are matched with a LIKE pattern like ownership (D6:
- * "acute care" is the exact `Acute Care Hospitals` type, 3,115; VA and DoD are reached through the ownership words).
- * The two flags bind the warehouse's own values (`emergency_services` boolean, `birthing_friendly` 'Y').
- *
- * Only multi-word phrases, or single words that are a type on their own ("psychiatric", "childrens"). A hospital name
- * that contains one of these words ("Children's Hospital of Philadelphia") is still a hospital: the entity provider
- * never lets a phrase that is itself a full hospital name resolve here, and a longer hospital-name span suppresses a
- * contained type span in the semantic pipeline.
- */
+/** Batch 5B-4: hand-maintained hospital-type and attribute-flag phrases, same shape as ownership-directory.ts (hospital_type via LIKE, D6; flags bind emergency_services / birthing_friendly).
+ * Multi-word phrases or single-word types only; a phrase that is a full hospital name never resolves here, and a longer name span suppresses a contained type span. */
 
 import type { SqlTemplateDefinition } from "@intelligence/domain-sdk";
 
@@ -39,11 +28,7 @@ export const HOSPITAL_TYPES = new Map<string, HospitalTypeValue>([
   // "small rural" appear in no hospital, city or county name. A critical access hospital is CMS's small rural hospital.
   ["cahs", CRITICAL],
   ["small rural", CRITICAL],
-  // V4 fix plan (Batch 4): a bare "acute" ("top 3 county owned acute emergency services ... ohio") is not a
-  // registered key - only "acute care" is - so a rewrite that keeps "acute" right before the domain's own "hospital(s)"
-  // word had nothing to bind it to and the type filter was silently dropped. Two words only, and only right before
-  // "hospital(s)": no hospital, city or county name contains "acute hospital", and the PSI phrase "Acute Kidney
-  // Injury" never has "hospital(s)" as its very next word, so this cannot collide with it.
+  // V4 fix plan (Batch 4): bare "acute" before "hospital(s)" dropped the type filter silently; scoped to that position so "Acute Kidney Injury" and names cannot collide.
   ["acute hospitals", ACUTE],
   ["acute hospital", ACUTE],
   ["reh", RURAL_EMERGENCY],
@@ -74,22 +59,15 @@ export const BIRTHING_FRIENDLY = new Map<string, string>([
 /** The execution parameters the three attribute entities bind (entities/hospital-type.ts and the two flag entities). */
 export const HOSPITAL_ATTRIBUTE_PARAMETERS = ["hospitalType", "emergencyServices", "birthingFriendly"] as const;
 
-/**
- * D11: types CMS never rates. 0 overall ratings, 0 scored outcomes, 0 PSI and 0 survey stars (audit section 4.6),
- * so a ranking of them is empty by nature: they are listed, not ranked, and the answer says why.
- */
+/** D11: types CMS never rates (0 ratings, outcomes, PSI, survey stars) are listed, not ranked, and the answer says why. */
 export const UNRATED_HOSPITAL_TYPES = new Map<string, string>([
   [PSYCHIATRIC.likePattern, "psychiatric"],
   [CHILDRENS.likePattern, "children's"],
   [RURAL_EMERGENCY.likePattern, "rural emergency"],
 ]);
 
-/**
- * Phase 3.5 (D11 for ownership): an ownership CMS never rates. Department of Defense hospitals: 32, 0 overall ratings,
- * 0 scored outcomes (the 5B audit, confirmed 2026-09-25), so "military hospitals" returned an empty ranking ("Zero rows
- * returned"). They are listed instead, with the reason. Tribal (2 of 16 rated) and physician-owned (19 of 81) are
- * partly rated and stay ranked.
- */
+/** Phase 3.5 (D11 for ownership): Department of Defense hospitals have 0 ratings/outcomes, so they are listed with the reason, not ranked;
+ * tribal and physician-owned are partly rated and stay ranked. */
 export const UNRATED_OWNERSHIPS = new Map<string, string>([["Department of Defense%", "military (Department of Defense)"]]);
 
 /** How many hospitals the nationwide attribute list matched, for the "first 100 alphabetically" note. */
@@ -125,11 +103,7 @@ type CountRunner = (
   parameters: Record<string, unknown>,
 ) => Promise<{ success: boolean; rows: readonly unknown[] }>;
 
-/**
- * The attribute note for an answer, or undefined when there is nothing to say:
- * - D11: an unrated type is listed, and the note says CMS does not rate it;
- * - a nationwide attribute list that hit its ceiling says how many matched and that the first 100 are shown.
- */
+/** The attribute note for an answer, or undefined: an unrated type is listed (D11), or a nationwide list that hit its ceiling says how many matched. */
 export async function describeHospitalAttributeResult(input: {
   rows: readonly Record<string, unknown>[];
   parameters: Record<string, unknown> | undefined;

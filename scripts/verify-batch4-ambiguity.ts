@@ -1,15 +1,7 @@
 #!/usr/bin/env tsx
 
-/**
- * Batch 4 (ambiguity, identity and continuation) verification. No LLM is called: the engine runs with the LLM front
- * door off, against the live warehouse (read-only SELECTs). Every refusal / clarification asserts SQL = 0.
- *
- *   4.1  named hospitals: health-system families, DBA trade names, "hospital not found" for a contradicting place
- *   4.2  Turn 2: "CITY, ST" and two-option replies, engine side of a two-slot comparison
- *   4.3  star-rating filter without a state, ranking idioms, follow-up / zero-limit pre-flight
- *
- * Usage: pnpm exec tsx scripts/verify-batch4-ambiguity.ts
- */
+/** Batch 4 verification (no LLM, front door off, read-only live warehouse; every refusal/clarification asserts SQL = 0): named hospitals (4.1), Turn 2 replies (4.2), star-rating filter and follow-up pre-flight (4.3).
+ * Usage: pnpm exec tsx scripts/verify-batch4-ambiguity.ts */
 import "dotenv/config";
 
 import { preflightClarification } from "../supabase/functions/orchestrator/services/conversational";

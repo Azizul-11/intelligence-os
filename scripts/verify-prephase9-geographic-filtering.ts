@@ -1,24 +1,5 @@
-/**
- * Pre-Phase 9 Tier0 Task 1 - Geographic Value Filtering Verification
- *
- * Verifies county and city scope filtering for ranking/listing queries.
- * Fixes P0 silent-wrong: "ALBANY county" should return 4 facilities, not 52.
- *
- * SCOPE:
- * - Test 1: County filter - ALBANY county → 4 rows NOT 52
- * - Test 2: Dimensional grouping preserved - by county → 52 rows
- * - Test 3: City filter - Birmingham, Alabama → 9 rows NOT 100
- * - Test 4: Bare county resolution - "Best Hospital in ALBANY county" works
- * - Test 5: Collision handling - "Albany" without "county" → city prioritized
- * - Test 6: Case-insensitive - "ALBANY County" mixed case → 4 rows
- *
- * EVIDENCE STANDARDS:
- * - Real RuntimeEngine with deterministic pipeline
- * - Actual SQL execution against warehouse_hospitals
- * - Row count verification
- * - County/city value verification in returned rows
- * - Zero silent-wrong results
- */
+/** Pre-Phase 9 Tier0 Task 1: county/city scope filtering for ranking/listing (P0 silent-wrong: "ALBANY county" must return 4 facilities, not 52),
+ * with real SQL against warehouse_hospitals. */
 
 import { createClient } from "@supabase/supabase-js";
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
@@ -31,9 +12,7 @@ import { SqlExecutor } from "../packages/sql-executor/src/sql-executor";
 import { SupabaseDatabaseAdapter } from "../packages/sql-executor/src/supabase-database-adapter";
 import { env } from "./shared/env";
 
-// ============================================================================
 // TYPES
-// ============================================================================
 
 interface TestResult {
   testId: string;
@@ -54,9 +33,7 @@ interface TestResult {
   notes?: string;
 }
 
-// ============================================================================
 // SETUP
-// ============================================================================
 
 const runtime = createDomainRuntime(healthcareDomain);
 const semantic = createSemanticResolver(runtime.registry, runtime.entityProvider);
@@ -73,9 +50,7 @@ const engine = createRuntimeEngine({
   executor,
 });
 
-// ============================================================================
 // UTILITY
-// ============================================================================
 
 function log(message: string) {
   console.log(message);
@@ -95,9 +70,7 @@ function extractFacilityIds(rows: any[]): string[] {
     .filter((id) => id != null);
 }
 
-// ============================================================================
 // TEST CASES
-// ============================================================================
 
 async function test1_AlbanyCountyFilter(): Promise<TestResult> {
   const testId = "T1";

@@ -1,14 +1,5 @@
-/**
- * Phase 6.0 - First Controlled Proof
- *
- * Determines, empirically, whether the CURRENT (unmodified) semantic
- * pipeline already produces >= 2 metric candidates for a compound
- * multi-metric question, and records exact candidate data (phrase,
- * canonicalKey, confidence, start/end) so the Phase 6 implementation
- * decisions can be based on observed behavior, not assumption.
- *
- * This script does not modify any package source. It only observes.
- */
+/** Phase 6.0: observe-only (no source changes) whether the unmodified pipeline yields >= 2 metric candidates for a compound question, recording
+ * phrase/canonicalKey/confidence/start/end. */
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
@@ -25,11 +16,8 @@ const testQueries = [
   "Which hospitals have the lowest mortality and best overall rating?",
   "Which hospitals located in Texas have the best overall rating and lowest mortality?",
   "Which hospitals have the best overall rating, lowest mortality, and lowest readmission?",
-  // Graceful-fallback check: this query resolves via LexicalRewriter's
-  // existing hardcoded regex substitution ("highest rated hospitals" ->
-  // "hospital overall rating"), so the candidate's phrase never literally
-  // appears in the ORIGINAL tokens. The direction resolver should find no
-  // match and leave direction undefined (not crash, not guess wrong).
+  // Fallback check: the rewrite ("highest rated hospitals" -> "hospital overall rating") means the phrase is absent from the original tokens;
+  // direction must stay undefined, not crash or guess.
   "highest rated hospitals",
 ];
 

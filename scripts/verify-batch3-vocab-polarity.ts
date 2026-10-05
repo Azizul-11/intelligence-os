@@ -1,13 +1,7 @@
 #!/usr/bin/env tsx
 
-/**
- * Batch 3 (LLM vocabulary, polarity, benchmark, pre-check) verification. No LLM is called: the engine checks wire the
- * real hook body (`normalizeQuestion`) with a stub normalizer, against the live warehouse (read-only SELECTs).
- *
- *   3.0  deterministic pre-check on the raw question (services/normalizer-hook.ts) + the DC / last-year topic data
- *
- * Usage: pnpm exec tsx scripts/verify-batch3-vocab-polarity.ts
- */
+/** Batch 3 verification (no LLM call; stub normalizer behind the real `normalizeQuestion` hook, read-only live warehouse): deterministic pre-check (3.0) plus DC / last-year topic data.
+ * Usage: pnpm exec tsx scripts/verify-batch3-vocab-polarity.ts */
 import "dotenv/config";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";

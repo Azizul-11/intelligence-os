@@ -1,10 +1,7 @@
 import type { AliasDefinition } from "@intelligence/domain-sdk";
 
-// Batch 3: "complication(s)" names the hip/knee complications measure (COMP_HIP_KNEE), which the hip/knee concept
-// files under `mortality-rate` (see concepts/elective-primary-tha-tka.ts). The phrase is registered ONLY together with
-// a hip/knee word, exact literals generated from these lists, because a bare "complications" alias would answer
-// "pneumonia complications" with pneumonia MORTALITY: a silent substitution. The words the metric candidate spans
-// are accounted for, so the question is fully understood and never needs the LLM (which chose Readmission Rate).
+// Batch 3: "complication(s)" maps to COMP_HIP_KNEE only together with a hip/knee word (exact literals); a bare alias would answer
+// "pneumonia complications" with pneumonia MORTALITY (silent substitution).
 const HIP_KNEE_TERMS = [
   "hip replacement",
   "knee replacement",
@@ -12,10 +9,7 @@ const HIP_KNEE_TERMS = [
   "hip and knee",
   "total hip",
   "total knee",
-  // V4 fix plan (Batch 3): the concept's own CMS display name (concepts/elective-primary-tha-tka.ts), which the
-  // model writes verbatim from the prompt ("lowest Elective Primary Hip/Knee Arthroplasty complication rate") - the
-  // phrase was previously registered only next to a lay joint word, so this exact wording had no complication-rate
-  // alias and was refused as out of scope.
+  // V4 fix plan (Batch 3): the concept's CMS display name, written verbatim by the model, had no complication-rate alias and was refused.
   "elective primary hip knee arthroplasty",
 ];
 const COMPLICATION_TERMS = ["complication", "complications", "complication rate", "complication rates"];

@@ -1,18 +1,5 @@
-/**
- * LLM Integration — ownership simple-language verification.
- *
- * PrePhase 9.5 Round 2: confirms simple human ownership phrasings
- * ("non-profit", "nonprofit", "non profit", "private", "for-profit",
- * "government") all resolve to real answers. Unlike the concept fix in
- * this same round, this is NOT an LLM capability - `ownership-directory.ts`
- * (Tier0 Task 5 Part A) + the `defaultRankable` list-intent fallback
- * (Tier1 Task 5 V2 Sub-Task A) already handle every one of these
- * deterministically, confirmed live before writing this script. This
- * script exists to PROVE that (and guard against a future regression),
- * not because a new fix was needed here.
- *
- * Run: npx tsx scripts/verify-llm-ownership-simple-language.ts
- */
+/** PrePhase 9.5 Round 2: simple ownership phrasings ("non-profit", "private", "for-profit", "government") resolve deterministically via ownership-directory.ts and the defaultRankable list fallback; this guards against regression, no new fix.
+ * Run: npx tsx scripts/verify-llm-ownership-simple-language.ts */
 import "dotenv/config";
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";

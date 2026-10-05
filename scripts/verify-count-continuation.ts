@@ -1,12 +1,6 @@
 #!/usr/bin/env tsx
-/**
- * Targeted live verification of the Turn 1 (ambiguous) -> Turn 2 (clarified) continuation flow for county/city
- * hospital-count - the bug the user found live: "How many hospitals are in Cook County" -> clarified to
- * "Minnesota" -> returned ALL 3 states' Cook County counts instead of only Minnesota's, because
- * hospital-count-by-{county,city} never declared a `state` parameter to bind the user's chosen state onto.
- *
- * Usage: pnpm exec tsx scripts/verify-count-continuation.ts
- */
+/** Live check of Turn 1 (ambiguous) to Turn 2 (clarified) county/city hospital-count: "Cook County" clarified to Minnesota returned all 3 states because hospital-count-by-{county,city} declared no `state` parameter.
+ * Usage: pnpm exec tsx scripts/verify-count-continuation.ts */
 import { env } from "./shared/env";
 
 const ORCHESTRATOR_URL = `${env.supabaseUrl.replace(/\/$/, "")}/functions/v1/orchestrator`;

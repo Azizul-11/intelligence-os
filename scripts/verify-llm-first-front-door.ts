@@ -1,33 +1,5 @@
-/**
- * Phase 3.6 (LLM-First Front Door, 2026-09-18) — Layer 0.5 verification.
- *
- * Sets LLM_FIRST_FRONT_DOOR_ENABLED=true (the feature flag defaults to
- * OFF in production - see create-runtime-engine.ts's
- * isLlmFirstFrontDoorEnabled()) and exercises the LLM-wired engine
- * (real llmFallback, same adapter shape as
- * supabase/functions/orchestrator/services/domain-registry.ts) against:
- *
- * 1. New-capability cases from docs/LLM-FIRST-FRONT/
- *    04_50_PLUS_QUERIES_ANSWERABLE_AFTER_LLM_FIRST.md - a representative
- *    cross-section of the "[projected]" rows (clinical colloquialisms,
- *    city typos), now converted into real assertions against a live
- *    LLM-wired engine.
- * 2. Non-regression controls - queries that already worked deterministically
- *    before this change must return the identical shape with the flag ON.
- * 3. Ambiguity/off-topic MUST-still-refuse cases, proven with a spy
- *    executor counting real SQL calls - the Phase 8.13 invariant
- *    (`ambiguous|not_directly_answerable ⟹ SQL=0`) re-verified under the
- *    new ordering, not just assumed from the code's structure.
- *
- * 4. Layer 0.5 hardening + hidden-call leak fix (LLM call-count audit
- *    R1/R2, 2026-09-18) - sections G-K: suggestion dry-runs make ZERO
- *    LLM-fallback calls, every suggestion-pool candidate is answerable,
- *    the Houston/Houson/heart-pain frontend failures, state-code case
- *    variants, a size ceiling on the normalizer prompt, and proof that a tier
- *    measured unsafe for rewriting is never asked to rewrite.
- *
- * Run: npx tsx scripts/verify-llm-first-front-door.ts
- */
+/** Phase 3.6 Layer 0.5 verification with LLM_FIRST_FRONT_DOOR_ENABLED=true (defaults OFF in production): new-capability cases, non-regression controls, and must-refuse cases proven with a spy executor (Phase 8.13: ambiguous|not_directly_answerable => SQL=0).
+ * Sections G-K (R1/R2 hardening): suggestion dry-runs make zero LLM-fallback calls, prompt size ceiling, unsafe tiers never asked to rewrite. Run: npx tsx scripts/verify-llm-first-front-door.ts */
 process.env.LLM_FIRST_FRONT_DOOR_ENABLED = "true";
 
 import "dotenv/config";
@@ -44,10 +16,7 @@ import { ExecutionPlanMapper } from "../packages/query-planner/src/execution-pla
 import { SqlExecutor } from "../packages/sql-executor/src/sql-executor";
 import { SupabaseDatabaseAdapter } from "../packages/sql-executor/src/supabase-database-adapter";
 import { FALLBACK_CHAIN, LLMModelGateway, llmGateway } from "../packages/llm-model-gateway/src/llm-model-gateway";
-// The healthcare domain pack imports "@intelligence/llm-model-gateway", which
-// resolves to this package's built dist - NOT the src instance imported above.
-// Patching Layer 2's suggestion LLM call (section G) must target that same
-// singleton, or the patch silently never fires.
+// The domain pack imports "@intelligence/llm-model-gateway" via built dist, not this src instance; patching Layer 2's suggestion call (section G) must target that same singleton.
 import { llmGateway as distLlmGateway } from "../packages/llm-model-gateway/dist/index.js";
 import { env } from "./shared/env";
 
@@ -81,9 +50,7 @@ function makeCountingFallback() {
   return { counter, fn };
 }
 
-// Groq's free tier is capped per minute; space out real-LLM calls (paced
-// inside llmFallback) so a 429 burst is not mistaken for a behavior
-// regression (root-caused in Stage 1).
+// Groq's free tier is capped per minute; pace real-LLM calls so a 429 burst is not read as a regression.
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const pace = () => sleep(Number(process.env.VERIFY_PACE_MS ?? 4000));
 
@@ -132,11 +99,7 @@ function makeSpyEngine(spy: { callCount: number }, fallback: FallbackFn | null =
 
 let pass = 0;
 let fail = 0;
-// Free-tier LLM quota is a known, documented limit (Groq 200K tokens/day per
-// model; the other free tiers 429/503). A failure that coincides with the
-// gateway reporting "all providers unavailable" is quota, not logic - it is
-// flagged so it is never misread as a behavior regression. Those cases are
-// re-run once the paid provider is wired in.
+// Free-tier quota (Groq 200K tokens/day; others 429/503) is a known limit: a failure with "all providers unavailable" is quota, not logic; re-run once the paid provider is wired in.
 let llmUnavailableCalls = 0;
 let unavailableAtLastCheck = 0;
 let quotaFails = 0;

@@ -1,18 +1,5 @@
-/**
- * Phase 3.5 (UX hardening): the prepared context an executive summary is written from. The summary model used to get
- * the raw question and up to 20 raw rows (`facility_id`, `measure_code`, snake_case keys) and nothing else, so it
- * could only recite rows ("X has 1.8, Y has 2, ..."), miscounted anything longer than 20 rows, never mentioned the
- * filters the rows already satisfy, and could not state a count or a range without the grounding check rejecting it.
- *
- * Everything here is deterministic and read from what the answer already carries (the rows and the parameters the
- * engine executed with). The model receives:
- *  - `measure`: what the value column means, its unit and which direction is better;
- *  - `filters`: the applied filters in plain words;
- *  - `scope`: how many hospitals are shown and whether the list is a ranking;
- *  - `facts`: precomputed numbers (leader, range, ties, how many beat the national rate, state spread) - the only
- *    derived numbers it may state; the orchestrator's grounding check accepts exactly these (`summaryFactNumbers`);
- *  - `rows`: at most 10 (a ranking) or 20 (a list) rows with plain labels and title-cased names, no ids or codes.
- */
+/** Phase 3.5: the deterministic prepared context an executive summary is written from (measure, filters, scope, precomputed `facts`, at most 10/20 plain-labelled `rows`),
+ * so the model does not recite raw rows; the orchestrator grounding check accepts exactly the `summaryFactNumbers`. */
 
 import { concepts } from "../concepts";
 import { healthcareMetrics } from "../metrics";

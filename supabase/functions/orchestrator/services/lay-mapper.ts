@@ -1,22 +1,5 @@
-/**
- * Batch 5A-1: the generic layperson-language mapper. Pure and dependency-free (like normalizer-hook.ts, which calls it),
- * so the deployed function and the local harnesses share ONE implementation. It knows no domain word: everything it
- * matches comes from the vocabulary the domain hands in (`DOMAIN_CAPABILITIES.layVocabulary`), exact phrases on whole
- * words, never fuzzily.
- *
- * What it does with a question, in this order:
- *  1. corrects exact misspellings ("penumonia" -> "pneumonia", "chruch" -> "church") in place;
- *  2. finds the layperson phrase(s) ("heart problem", "trouble breathing", "good hospital", "pneumonia" + "checkup");
- *  3. drops the request's scaffolding ("can you show me", "please") and the filler that asks for nothing measurable
- *     ("checkup", "screening", "problem"), reporting the filler;
- *  4. rewrites the question to the canonical one the deterministic pipeline answers, appending everything else the
- *     user typed (a state, a city, an ownership word), so no place or ownership is ever dropped or invented;
- *  5. builds the one-line note that says what the phrase was read as, and the alternatives to offer.
- *
- * It refuses to rewrite (returns no mapping and the model / pipeline decide) when it cannot do so without guessing:
- * two phrases that map to different questions, a metric / direction / comparison word the user typed ("worst",
- * "readmissions", "vs"), or a number left over ("top 5").
- */
+/** Batch 5A-1: generic layperson-language mapper; pure so the deployed function and local harnesses share ONE implementation, and it knows no domain word (only `DOMAIN_CAPABILITIES.layVocabulary`, exact whole-word phrases).
+ * It refuses to rewrite when it would have to guess: conflicting phrases, a typed metric/direction/comparison word, or a leftover number. */
 
 export interface LayAlternateLike {
   label: string;
@@ -53,10 +36,7 @@ export interface LayVocabularyLike {
 export interface LayMapOptions {
   /** Lower-case words of the places the domain knows (state names); a leftover word outside them and the slot words must look like a proper name. */
   placeWords?: ReadonlySet<string>;
-  /**
-   * 2,000 sweep (Batch C): lower-case two-letter place codes (state codes). Accepted only as the LAST leftover word, in any
-   * case ("side effects explained nv"), and written upper-case in the rewrite, where the pipeline resolves the code.
-   */
+  /** 2,000 sweep (Batch C): lower-case state codes accepted only as the LAST leftover word, written upper-case in the rewrite. */
   placeCodes?: ReadonlySet<string>;
   /** 2,000 sweep (Batch D): lower-case names of the cities the domain knows, for a city typed in lower case before such a code. */
   cityNames?: ReadonlySet<string>;

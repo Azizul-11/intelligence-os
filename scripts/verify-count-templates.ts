@@ -1,12 +1,6 @@
 #!/usr/bin/env tsx
-/**
- * Targeted live verification: county/city hospital-count templates + the normalizer's new COUNT request shape
- * (RULE 3(g), prompt-wording.ts) - fixes "how many hospitals are in <county/city>" silently answering as a
- * hospital LIST instead of a count. See execution-strategy.ts's new hasCountyFilter/hasCityFilter branch and
- * sql/hospital-count-by-{county,city}.ts.
- *
- * Usage: pnpm exec tsx scripts/verify-count-templates.ts
- */
+/** Live check of county/city hospital-count templates and the normalizer COUNT request shape (RULE 3(g), prompt-wording.ts); "how many hospitals are in <county/city>" used to answer as a list.
+ * Usage: pnpm exec tsx scripts/verify-count-templates.ts */
 import { env } from "./shared/env";
 
 const ORCHESTRATOR_URL = `${env.supabaseUrl.replace(/\/$/, "")}/functions/v1/orchestrator`;

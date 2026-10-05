@@ -1,30 +1,5 @@
-/**
- * Tier0 Task 5: F12 Real Fix V2 — Sub-Task A (List Intent) + Sub-Task B
- * (B-full Condition-Specific Ranking) Verification Suite.
- *
- * Sub-Task A: a bare scope filter (e.g. ownership) with no metric named
- * defaults to the active Domain SDK's own declared default ranking
- * metric (MetricDefinition.defaultRankable), via a new, small, generic
- * QueryPlanner.discoverDefaultRankableMetric() - mirroring the existing
- * discoverComparableMetrics() pattern. Deliberately excludes any query
- * naming an entity that identifies a single, specific record
- * (EntityDefinition.identifiesUniqueRecord) to avoid reintroducing the
- * F8 entity-drop shape for a named-hospital bare query.
- *
- * Sub-Task B (B-full): a resolved "concept" candidate (e.g. AMI) whose
- * ConceptDefinition declares a `measureCodesByMetric` map is now
- * consumed by ExecutionPlanMapper.buildFilters() into a `measureCode`
- * filter, routed by HealthcareExecutionStrategy.selectTemplateFromPlan()
- * to 2 new SQL templates joining the per-condition detail tables
- * (warehouse_hospital_clinical_outcomes / _readmissions). Scoped to
- * "rank" operations only - a lookup-shaped query (single named
- * hospital, no ranking word) keeps using the existing single-hospital
- * lookup templates (also extended with an optional :measureCode
- * parameter, so "Mayo Clinic's AMI mortality" narrows to exactly one
- * row instead of returning every measure code undifferentiated).
- *
- * Run: npx tsx scripts/verify-prephase9-task5-f12-real-fix-b-full.ts
- */
+/** Tier0 Task 5: F12 V2. A: a bare scope filter defaults to the Domain defaultRankable metric, excluding unique-record entities (F8 shape). B-full: a
+ * concept with measureCodesByMetric becomes a measureCode filter routed to 2 new rank templates; lookups accept optional :measureCode. */
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";

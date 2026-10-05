@@ -3,37 +3,23 @@ import type { DatasetSchema } from "./dataset-schema";
 import type { DatasetSource } from "./dataset-source";
 import type { DatasetVersion } from "./dataset-version";
 
-/**
- * Represents a dataset available to the platform.
- */
+/** Represents a dataset available to the platform. */
 export interface Dataset {
-  /**
-   * Dataset identifier.
-   */
+  /** Dataset identifier. */
   id: string;
 
-  /**
-   * Dataset name.
-   */
+  /** Dataset name. */
   name: string;
 
-  /**
-   * Dataset source.
-   */
+  /** Dataset source. */
   source: DatasetSource;
 
-  /**
-   * Dataset version.
-   */
+  /** Dataset version. */
   version: DatasetVersion;
 
-  /**
-   * Dataset schema.
-   */
+  /** Dataset schema. */
   schema?: DatasetSchema;
 
-  /**
-   * Additional metadata.
-   */
+  /** Additional metadata. */
   metadata?: DatasetMetadata;
 }

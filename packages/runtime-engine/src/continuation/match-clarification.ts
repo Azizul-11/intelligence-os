@@ -1,20 +1,7 @@
 import type { ClarificationOption } from "@intelligence/contracts";
 
-/**
- * Phase 8.10 Layer 2: Deterministically match user response against offered
- * clarification options.
- * 
- * Matching logic (in priority order):
- * 1. Exact match on any identity field (e.g., facility_id)
- * 2. Case-insensitive match on location fields (city, state)
- * 3. Partial match on display label (only if unique)
- * 
- * NO fuzzy matching, NO similarity scoring, NO LLM.
- * 
- * @param userResponse User's continuation response
- * @param options Offered clarification options from pending interaction
- * @returns Matched option, or null if no unique match found
- */
+/** Phase 8.10 Layer 2: deterministically match a reply to offered clarification options, in order: exact identity field (e.g. facility_id), case-insensitive location (city, state), unique partial display label.
+ * NO fuzzy matching, similarity scoring or LLM; returns null if no unique match. */
 export function matchClarificationResponse(
   userResponse: string,
   options: ClarificationOption[]
@@ -81,12 +68,7 @@ export function matchClarificationResponse(
   return null;
 }
 
-/**
- * Batch 4: a reply that fills both slots of a comparison at once ("ABILENE
- * and GONZALES"). Each side of the "and" must match exactly one option, by
- * the same rules as matchClarificationResponse(), and the two must differ.
- * Callers decide whether a pair makes sense (only a comparison has two slots).
- */
+/** Batch 4: a reply filling both slots of a comparison ("ABILENE and GONZALES"); each side must match exactly one option by the rules above and the two must differ. Callers decide whether a pair applies. */
 export function matchClarificationPair(
   userResponse: string,
   options: ClarificationOption[]

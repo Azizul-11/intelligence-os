@@ -1,8 +1,6 @@
 #!/usr/bin/env -S pnpm exec tsx
 
-/**
- * Test local orchestrator connectivity and P1-2 capability
- */
+/** Test local orchestrator connectivity and P1-2 capability. */
 
 const ORCHESTRATOR_URL = "http://127.0.0.1:54321/functions/v1/orchestrator";
 

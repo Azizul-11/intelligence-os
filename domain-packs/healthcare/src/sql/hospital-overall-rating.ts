@@ -34,10 +34,6 @@ WHERE facility_id = :hospitalId;
 
   enabled: true,
 
-  // Phase 8.6B: this template's only filter is the requested hospital's
-  // own identity in `warehouse_hospitals` - the same table entity
-  // resolution itself uses, so a validly-resolved hospital can never
-  // actually produce zero rows here. Opted in for consistency (safe,
-  // though effectively inert for this specific template).
+  // Phase 8.6B: the only filter is the hospital identity from warehouse_hospitals, so a resolved hospital never yields zero rows; opted in for consistency (inert here).
   singleEntityRecord: true,
 };

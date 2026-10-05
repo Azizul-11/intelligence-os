@@ -1,11 +1,8 @@
 import type { MetricDefinition } from "@intelligence/domain-sdk";
 import { clinicalOutcomeCategory } from "./metric-categories";
 
-// Batch 5B-2: the 11 individual AHRQ/CMS Patient Safety Indicators plus the PSI 90 composite (concepts/psi.ts).
-// `comparable: false` is deliberate - `comparable: true` would add this metric to every metric-less multi-entity
-// comparison (discoverComparableMetrics), which needs a "-by-facility-ids" template this batch does not build.
-// `benchmarkable`/`aggregatable` are false for the same reason: no benchmark or group-aggregate template exists
-// for it, so declaring the capability without the template behind it would be a dead end.
+// Batch 5B-2: 11 PSIs plus PSI 90 (concepts/psi.ts). `comparable`, `benchmarkable` and `aggregatable` are false on purpose: the
+// "-by-facility-ids", benchmark and group-aggregate templates do not exist, so declaring them would be a dead end.
 export const patientSafetyIndicatorMetric: MetricDefinition = {
   id: "patient-safety-indicator",
 

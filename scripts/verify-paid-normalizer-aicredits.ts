@@ -1,19 +1,5 @@
-/**
- * R7 (2026-09-18) - paid LLM (AICredits) first for the question-rewrite / intent
- * role ONLY: qwen/qwen3.7-flash (reasoning off) -> qwen/qwen3-30b-a3b-instruct-2507
- * -> the unchanged free chain. The answering tier is recorded in the trace.
- * Summaries, suggestions and conversational replies never touch the paid tiers.
- *
- * Sections
- *  A. Config, wiring and secrets            (no network cost)
- *  B. Live gateway calls + latency sample   (real AICredits calls, ~INR 0.003 each)
- *  C. Engine end to end, flag ON            (real DB + real paid LLM; the frontend probes)
- *  D. State-code variants                   (deterministic + LLM-assisted)
- *  E. Stubbed-fetch proofs                  (no cost; run LAST - they touch the shared
- *                                            per-tier circuit breakers)
- *
- * Run: npx tsx scripts/verify-paid-normalizer-aicredits.ts
- */
+/** R7 (2026-09-18): paid AICredits LLM first for the question-rewrite/intent role ONLY (qwen3.7-flash -> qwen3-30b-a3b -> free chain). Section E
+ * (stubbed fetch) must run LAST: it touches the shared per-tier circuit breakers. */
 process.env.LLM_FIRST_FRONT_DOOR_ENABLED = "true";
 
 import "dotenv/config";

@@ -1,21 +1,5 @@
-/**
- * LLM Integration — clinical-concept simple-language verification.
- *
- * PrePhase 9.5 Round 2: confirms simple human phrasings for the 6
- * condition-specific concepts with a real, deterministic SQL path (AMI,
- * CABG, COPD, Hip/Knee, Heart Failure, Pneumonia) now resolve to real
- * answers via the capability-aware `normalizeMessyLanguage()` gateway -
- * these previously failed even after PrePhase 9.5 Round 1, because the
- * capability catalog had zero awareness of clinical concepts at all
- * (only top-level metrics/states/ownerships).
- *
- * `hospital acquired infections` is deliberately included as a NEGATIVE control: the warehouse has no HAI measure
- * code at all - it must keep failing honestly (`success:false`), never be forced into a fabricated answer.
- * (Batch 5B-2: "sepsis rate" no longer serves as this control - PSI_13 gave it a real measureCodesByMetric mapping,
- * see concepts/sepsis.ts.)
- *
- * Run: npx tsx scripts/verify-llm-concept-simple-language.ts
- */
+/** PrePhase 9.5 Round 2: simple phrasings for the 6 condition concepts (AMI, CABG, COPD, Hip/Knee, Heart Failure, Pneumonia) resolve via normalizeMessyLanguage().
+ * "hospital acquired infections" is a NEGATIVE control (no HAI measure code) and must keep failing with success:false; "sepsis rate" no longer works as one since Batch 5B-2 (PSI_13). Run: npx tsx scripts/verify-llm-concept-simple-language.ts */
 import "dotenv/config";
 
 import { healthcareDomain, DOMAIN_CAPABILITIES } from "../domain-packs/healthcare/src/index";

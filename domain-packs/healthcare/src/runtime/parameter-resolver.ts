@@ -6,22 +6,8 @@ import { normalizeText, STATES } from "./entity-provider";
 const SUPPORTED_STATE_CODES = new Set(STATES.values());
 
 export class HealthcareParameterResolver {
-  /**
-   * Phase 7.5.4: the "hospital" execution parameter carries the exact
-   * facility_id value(s) Phase 7.5.2's identity resolution already
-   * produced - it is a Universal-layer grouping key, not itself a SQL
-   * parameter name. No Healthcare SQL template declares a `:hospital`
-   * parameter (they declare `hospitalId` for a single facility and
-   * `facilityIds` for an explicit set - see hospital-overall-rating.ts
-   * and hospital-overall-rating-by-facility-ids.ts). This translates
-   * the resolved value(s) into whichever of those two names already
-   * matches its shape, reusing Phase 7's own `facilityIds` identity-set
-   * convention rather than inventing a new one. A single value keeps
-   * the existing scalar `hospitalId` name; more than one value (an
-   * array, per Phase 7.5.3's representation) becomes `facilityIds`.
-   * The original "hospital" entry is left in place - unused by any
-   * template, but harmless.
-   */
+  /** Phase 7.5.4: the "hospital" parameter (resolved facility_id value(s)) is a Universal grouping key, not a SQL parameter; it is translated to `hospitalId` (one value)
+   * or `facilityIds` (array), the names templates declare. The original "hospital" entry stays, unused but harmless. */
   resolve(
     entities: Record<string, unknown>,
   ): Record<string, unknown> {
@@ -37,11 +23,7 @@ export class HealthcareParameterResolver {
       }
     }
 
-    // Batch 2 (2.3): a city or county the geographic directory places in exactly ONE state names that state too.
-    // The listing template requires `states`, so "hospitals in Chicago" / "Harris County" were refused although
-    // nothing about them is ambiguous. This only fills a MISSING state, and only when every geographic value present
-    // agrees on that one state. A value that exists in several states never gets here: the plan-ambiguity gate
-    // (HealthcareExecutionStrategy.checkPlanAmbiguity) clarifies first, and no state is ever picked for it.
+    // Batch 2 (2.3): a city/county in exactly ONE state fills a MISSING state, only when all geographic values agree; multi-state values never get here (checkPlanAmbiguity clarifies first).
     if (!("state" in parameters) && !("hospital" in parameters)) {
       const derived = this.singleStateOfGeography(parameters);
 
@@ -50,26 +32,8 @@ export class HealthcareParameterResolver {
       }
     }
 
-    // Tier1 Task 5 (Phase 2): every resolved "state" value - one or many
-    // (Phase 7.5.3's "in" filter for 2+) - is mirrored onto a "states"
-    // array parameter, always wrapping a single value into a 1-element
-    // array (so `hospital-list-by-state.ts` can require "states" alone,
-    // rather than a separate scalar "state", to keep its existing "at
-    // least one state named" safety invariant intact for both the
-    // single- and multi-state shapes). "multiState" is a plain boolean
-    // flag (always set, even when no state resolved at all) a template
-    // can gate a second, array-shaped WHERE clause on.
-    //
-    // When 2+ states resolved, the original scalar "state" entry is
-    // explicitly cleared (set to undefined) rather than left as the raw
-    // array: SqlExecutor's own array-parameter rendering triggers on any
-    // runtime value that happens to be an array, regardless of a
-    // template parameter's own declared type - left as an array, it
-    // would corrupt every existing template's `UPPER(state) =
-    // UPPER(:state)` equality clause (designed for exactly one value)
-    // into invalid SQL. Every existing template's `:state` clause is
-    // otherwise completely unaffected: for a single resolved state it
-    // still receives that one scalar value exactly as before.
+    // Tier1 Task 5: every resolved "state" is mirrored to a "states" array (single value wrapped) so hospital-list-by-state can require "states"; "multiState" is always set.
+    // With 2+ states the scalar "state" is cleared: SqlExecutor renders any array value, which would corrupt every `UPPER(state) = UPPER(:state)` clause.
     if ("state" in parameters) {
       const state = parameters.state;
       const isMultiState = Array.isArray(state);
@@ -87,11 +51,7 @@ export class HealthcareParameterResolver {
     return parameters;
   }
 
-  /**
-   * The one state every present `city` / `county` value belongs to per the geographic directory, or undefined when
-   * there is none, when a value is missing from the directory, when any value spans several states, or when that one
-   * "state" is a territory.
-   */
+  /** The one state every present `city`/`county` value belongs to, or undefined when none, a value is missing, any value spans several states, or that state is a territory. */
   private singleStateOfGeography(parameters: Record<string, unknown>): string | undefined {
     const states = new Set<string>();
 

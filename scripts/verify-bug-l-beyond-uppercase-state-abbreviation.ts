@@ -1,17 +1,5 @@
-/**
- * Bug L Beyond (Phase 2, 2026-09-17) — hybrid deterministic uppercase
- * state-abbreviation verification.
- *
- * Runs against a DETERMINISTIC-ONLY engine (preprocessQuestion wired,
- * llmFallback NOT wired) to prove the 5 previously-nationwide-failing
- * compound (typo + abbreviation) cases now resolve without any LLM
- * dependency at all, plus explicit regression guards for the collision
- * risks named in state-abbreviation-preprocessor.ts's own header comment
- * (VA/veterans ownership, lowercase "in"/"or" as ordinary words) and the
- * full existing ACB + Bug L Part A/B battery.
- *
- * Run: npx tsx scripts/verify-bug-l-beyond-uppercase-state-abbreviation.ts
- */
+/** Bug L Beyond (Phase 2): deterministic-only engine (preprocessQuestion wired, no llmFallback) must resolve compound typo + uppercase state-abbreviation cases, with guards for VA/veterans and lowercase "in"/"or".
+ * Run: npx tsx scripts/verify-bug-l-beyond-uppercase-state-abbreviation.ts */
 import "dotenv/config";
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";

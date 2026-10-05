@@ -1,20 +1,7 @@
 #!/usr/bin/env tsx
 
-/**
- * Batch 5B-4 (hospital types, emergency-services and birthing-friendly flags, D4 clarification chips, "facilities")
- * verification. No live model is called: the engine runs with the real pre-check and lay vocabulary and a stubbed model
- * (`fallback`), against the live warehouse (read-only SELECTs). Every filtered answer is checked row by row against
- * the warehouse's own columns.
- *
- *   1  registry, directory, templates and prompt
- *   2  the owned catalog rows (D001-D006, D015, D075-D077, V2D060, V2E017, E069): only matching rows
- *   3  D11: unrated types are listed with the reason; nationwide lists say how many matched
- *   4  the silent-drop guard, name precedence, comparisons and listings unchanged
- *   5  Task 1: the "which communication?" chips, bare "nurse" / "doctor" / "medicine", "facilities"
- *   6  what stays refused (emergency-room waits), 0 SQL
- *
- * Usage: pnpm exec tsx scripts/verify-batch5b4-hospital-types.ts
- */
+/** Batch 5B-4 verification of hospital types, emergency-services/birthing-friendly flags, D4 chips and "facilities" (stubbed model, read-only live warehouse); filtered answers are checked row by row against warehouse columns.
+ * Usage: pnpm exec tsx scripts/verify-batch5b4-hospital-types.ts */
 import "dotenv/config";
 
 import type { SqlTemplateDefinition } from "../packages/domain-sdk/src/index";

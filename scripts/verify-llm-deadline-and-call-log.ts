@@ -1,20 +1,5 @@
-/**
- * 2026-09-19 - per-request LLM call log + wall-clock deadline for the gateway.
- *
- * Why: live, a query took 10-44 s because the un-timed summary role walked the
- * free chain tier by tier (each with retries), and nothing in the UI said which
- * LLM was slow. Two changes are proven here, with NO network and NO cost (fetch
- * is stubbed; every test builds its own tiers so circuit breakers never leak
- * between cases):
- *
- *  D. `deadlineMs` bounds the WHOLE chain traversal (a hanging tier is cut at the
- *     remaining budget, no later tier is started once it is spent) and leaves
- *     behaviour untouched when unset.
- *  L. `withLlmCallLog` returns one record per gateway call made inside it, per
- *     request (safe under concurrency), for all four roles.
- *
- * Run: npx tsx scripts/verify-llm-deadline-and-call-log.ts
- */
+/** 2026-09-19: gateway `deadlineMs` bounds the whole chain traversal (unset = unchanged), and `withLlmCallLog` returns one record per gateway call per request, for all four roles; fetch is stubbed and each test builds its own tiers.
+ * Run: npx tsx scripts/verify-llm-deadline-and-call-log.ts */
 import {
   AICREDITS_QWEN_30B_TIER,
   AICREDITS_QWEN_FLASH_TIER,

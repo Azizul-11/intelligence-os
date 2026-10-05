@@ -1,20 +1,5 @@
-/**
- * Automated dogfooding harness for
- * docs/Post LLM DogFodding/INTELLIGENCEOS_FRONTEND_LLM_RESILIENCE_TEST_SUITE.md.
- *
- * Runs every single-turn query (sections A-N) through the SAME wiring
- * production uses (isConversational -> handleConversational, or the
- * real engine with the capability-aware llmFallback hook), and writes
- * one JSON line per query to stdout: {section, id, query, cardType,
- * success, rowCount, error, answerabilityStatus, answerabilityReason,
- * topRows (first 3 rows, raw), suggestions}.
- *
- * Section L (continuation, 5 two-turn cases) is handled separately by
- * scripts/dogfood-continuation-cases.ts (needs the real HTTP
- * pendingInteractionId flow against the deployed function).
- *
- * Run: npx tsx scripts/dogfood-resilience-suite.ts > /tmp/dogfood-raw.jsonl
- */
+/** Dogfooding harness for the FRONTEND_LLM_RESILIENCE_TEST_SUITE: runs single-turn queries (sections A-N) through production wiring, one JSON line per query to stdout.
+ * Section L (continuation) lives in scripts/dogfood-continuation-cases.ts. Run: npx tsx scripts/dogfood-resilience-suite.ts > /tmp/dogfood-raw.jsonl */
 import "dotenv/config";
 
 import { healthcareDomain, DOMAIN_CAPABILITIES } from "../domain-packs/healthcare/src/index";
@@ -28,9 +13,7 @@ import { SupabaseDatabaseAdapter } from "../packages/sql-executor/src/supabase-d
 import { createClient } from "@supabase/supabase-js";
 import { llmGateway } from "../packages/llm-model-gateway/src/llm-model-gateway";
 import { env } from "./shared/env";
-// ConversationalFix (2026-09-27): was a stale, prefix-matching local copy (would have wrongly swallowed "hi show
-// me hospitals in HI") - imports the real, whole-utterance-anchored implementation instead. See
-// docs/Post Capability Expansion Work/ConversationalFIx/AUDIT_CONVERSATIONAL_INTENT_ROUTING.md.
+// ConversationalFix (2026-09-27): imports the real whole-utterance-anchored isConversational; the old prefix-matching copy swallowed "hi show me hospitals in HI".
 import { isConversational } from "../supabase/functions/orchestrator/services/conversational";
 
 const runtime = createDomainRuntime(healthcareDomain);

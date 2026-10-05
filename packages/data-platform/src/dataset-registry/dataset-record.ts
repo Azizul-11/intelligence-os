@@ -9,42 +9,26 @@ import type { DatasetOwner } from "./dataset-owner";
 import type { DatasetTag } from "./dataset-tag";
 import type { DatasetVersion } from "./dataset-version";
 
-/**
- * Represents a logical dataset registered in IntelligenceOS.
- */
+/** Represents a logical dataset registered in IntelligenceOS. */
 export interface DatasetRecord {
-  /**
-   * Platform identifier.
-   */
+  /** Platform identifier. */
   id: ID;
 
-  /**
-   * Dataset definition.
-   */
+  /** Dataset definition. */
   dataset: Dataset;
 
-  /**
-   * Dataset owner.
-   */
+  /** Dataset owner. */
   owner: DatasetOwner;
 
-  /**
-   * Dataset tags.
-   */
+  /** Dataset tags. */
   tags?: DatasetTag[];
 
-  /**
-   * Current dataset version.
-   */
+  /** Current dataset version. */
   version: DatasetVersion;
 
-  /**
-   * Additional metadata.
-   */
+  /** Additional metadata. */
   metadata?: Metadata;
 
-  /**
-   * Lifecycle timestamps.
-   */
+  /** Lifecycle timestamps. */
   timestamps?: Timestamp;
 }

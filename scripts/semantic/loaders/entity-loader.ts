@@ -6,9 +6,7 @@ import type {
   EntityDefinition as SemanticEntityDefinition,
 } from "@intelligence/contracts/semantic";
 
-/**
- * Converts Domain SDK entities into canonical Semantic entities.
- */
+/** Converts Domain SDK entities into canonical Semantic entities. */
 export function loadEntities(
   entities: readonly DomainEntityDefinition[],
   domain: string,

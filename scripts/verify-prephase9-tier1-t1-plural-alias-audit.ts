@@ -1,14 +1,5 @@
-/**
- * Pre-Phase 9 Tier1 Task 1 Audit: Plural / Morphological Variant Mapping.
- *
- * STRICTLY DIAGNOSTIC - read-only, no production writes. Runs each query
- * live through the real, unmodified in-process RuntimeEngine (identical
- * pipeline the orchestrator uses) against the remote Supabase warehouse,
- * spy-instrumented for `sqlCalls`, logging exactly which gate/answerability
- * a plural phrasing hits versus its singular control.
- *
- * Run: npx tsx scripts/verify-prephase9-tier1-t1-plural-alias-audit.ts
- */
+/** Tier1 Task 1 Audit: plural/morphological variants. DIAGNOSTIC ONLY (read-only): runs each query through the real in-process RuntimeEngine against
+ * the live warehouse, spy-instrumented for sqlCalls, logging the gate/answerability each plural hits versus its singular control. */
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";

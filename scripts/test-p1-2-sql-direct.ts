@@ -1,9 +1,6 @@
 #!/usr/bin/env -S pnpm exec tsx
 
-/**
- * P1-2 Safety Performance SQL Direct Test
- * Tests the safety-performance-ranking SQL template directly against warehouse
- */
+/** P1-2 safety-performance-ranking SQL template tested directly against the warehouse. */
 
 import { createClient } from "@supabase/supabase-js";
 

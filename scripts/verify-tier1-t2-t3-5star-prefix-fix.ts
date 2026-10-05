@@ -1,15 +1,5 @@
-/**
- * Tier1 Tasks 2 & 3 Fix Verification: 5-Star Value Filter + Prefix
- * Metric-Collision Fix.
- *
- * Live, in-process, spy-instrumented verification against the remote
- * Supabase warehouse. Supersedes the audit-only scripts
- * (verify-tier1-t2-5star-audit.ts / verify-tier1-t3-prefix-audit.ts /
- * verify-prephase9-tier1-t2-t3-audit.ts, all left frozen as pre-fix
- * reproductions) for regression purposes going forward.
- *
- * Run: npx tsx scripts/verify-tier1-t2-t3-5star-prefix-fix.ts
- */
+/** Tier1 Tasks 2 and 3 Fix: 5-star value filter and prefix metric-collision (live, spy-instrumented). Supersedes the frozen audit scripts
+ * verify-tier1-t2-5star-audit.ts, verify-tier1-t3-prefix-audit.ts and verify-prephase9-tier1-t2-t3-audit.ts. */
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";

@@ -1,6 +1,4 @@
-/**
- * Runtime configuration for the Concept Registry.
- */
+/** Runtime configuration for the Concept Registry. */
 export interface ConceptRegistryContext {
   strictMode?: boolean;
 }

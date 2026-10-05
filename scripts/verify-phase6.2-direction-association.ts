@@ -1,16 +1,5 @@
-/**
- * Phase 6.2 - Generic Direction Association Verification
- *
- * Verifies ModifierDirectionResolver correctly associates superlative
- * modifiers (best/lowest/highest/...) with the nearest metric candidate,
- * across multiple compound-query forms; that a rewrite-derived
- * (fallback) candidate still recovers its direction via RCG-020's
- * pattern-text classification rather than being left undefined; and
- * that non-metric candidates (relationships/benchmarks) never receive a
- * direction field at all.
- *
- * NO SQL execution - semantic extraction only.
- */
+/** Phase 6.2: ModifierDirectionResolver ties superlatives to the nearest metric across compound forms, fallback candidates recover direction via
+ * RCG-020, non-metric candidates get no direction; no SQL. */
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";

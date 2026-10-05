@@ -1,23 +1,6 @@
 #!/usr/bin/env -S pnpm exec tsx
-/**
- * 600-query baseline dogfooding sweep (DogfoodingV1 catalog, rows A001..J020).
- *
- * Runs every row ONCE, in catalog order, against the DEPLOYED orchestrator over HTTPS - the same wire
- * contract the frontend uses (POST {question, domain, pendingInteractionId?, continuationResponse?}).
- * That is the live production path: Layer 0 regex, Layer 0.5 LLM front door, the full Phase 8 gate stack,
- * the real warehouse. No engine code is imported, nothing is edited, nothing is deployed.
- *
- * Multi-turn: a row with `precededBy` is sent as a Layer 2 continuation of its Turn 1 (same
- * pendingInteractionId, question === continuationResponse, exactly as QueryConsole does). If Turn 1 did not
- * open a session the Turn 2 text runs standalone and is flagged `turn2.context = "no-session"`.
- *
- * This script only OBSERVES and records; expected-vs-actual scoring and the report are built offline from
- * the raw file, so scoring rules can be changed without another live run.
- *
- * Usage (repo root):
- *   pnpm exec tsx scripts/run-600-dogfooding-sweep.ts [--fresh] [--ids A001,A002] [--limit N] [--out FILE]
- * Resumes automatically from the output file unless --fresh is given.
- */
+/** 600-query baseline sweep (DogfoodingV1 rows A001..J020): runs each row once against the DEPLOYED orchestrator over HTTPS and only records results (scoring is offline); rows with `precededBy` go as Layer 2 continuations, flagged `turn2.context = "no-session"` if Turn 1 opened none.
+ * Usage: pnpm exec tsx scripts/run-600-dogfooding-sweep.ts [--fresh] [--ids A001,A002] [--limit N] [--out FILE]; resumes from the output file unless --fresh. */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 

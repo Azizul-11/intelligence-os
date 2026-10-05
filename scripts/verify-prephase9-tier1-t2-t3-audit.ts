@@ -1,14 +1,5 @@
-/**
- * Pre-Phase 9 Tier1 Tasks 2 & 3 Combined Audit: 5-Star Value Filter
- * Routing + Layer 2 Continuation Prefix Parsing.
- *
- * STRICTLY DIAGNOSTIC - read-only, no production writes. Runs each query
- * live through the real, unmodified in-process RuntimeEngine (identical
- * pipeline the orchestrator uses) against the remote Supabase warehouse,
- * spy-instrumented for `sqlCalls`.
- *
- * Run: npx tsx scripts/verify-prephase9-tier1-t2-t3-audit.ts
- */
+/** Tier1 Tasks 2 and 3 combined audit: 5-star value filter routing and Layer 2 continuation prefix parsing. DIAGNOSTIC ONLY (read-only), real
+ * in-process RuntimeEngine on the live warehouse, spy-instrumented for sqlCalls. */
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";

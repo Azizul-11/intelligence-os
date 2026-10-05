@@ -1,9 +1,6 @@
 #!/usr/bin/env tsx
 
-/**
- * P1-2 Safety Performance Live Test
- * Tests "hospitals with better safety outcomes" query
- */
+/** P1-2 safety performance live test: "hospitals with better safety outcomes". */
 
 import { env } from "./shared/env";
 

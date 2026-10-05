@@ -1,19 +1,7 @@
 #!/usr/bin/env tsx
 
-/**
- * Batch 5C (the 11 engine defects of the V2 800-query sweep) verification. No live model call: the model is stubbed (the hook's
- * `normalize` argument), so everything asserted here is deterministic and free. The engine runs against the live warehouse
- * (read-only SELECTs); a refusal never reaches it.
- *
- *   1  canonical repairs: a procedure is ranked by its mortality, a bare "Show me hospitals" means the overall rating
- *   2  the vocabulary reads a possessive ("my wife's heart checkup") with no model call
- *   3  the scope topics: telephone, bay area, symptoms of, similar to (and what must still pass)
- *   4  hospital names: "Cedars Sinai" is one facility, "Sarasota Memorial" is two campuses
- *   5  the engine: the scope check runs for a question that skips the front door, an entity's own words are not a topic, and a
- *      comparison with a name that does not exist is refused instead of asking "which measure?"
- *
- * Usage: pnpm exec tsx scripts/verify-batch5c-defects.ts
- */
+/** Batch 5C verification of the 11 engine defects from the V2 800-query sweep (model stubbed via the hook's `normalize`; read-only live warehouse; a refusal never reaches it).
+ * Usage: pnpm exec tsx scripts/verify-batch5c-defects.ts */
 import "dotenv/config";
 
 import { createClient } from "@supabase/supabase-js";

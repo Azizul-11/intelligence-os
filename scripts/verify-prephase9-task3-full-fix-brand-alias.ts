@@ -1,45 +1,5 @@
-/**
- * Tier0 Task 3 FULL FIX: Brand-Aliasing + Phase 8 Intelligent Guidance
- * Verification Suite.
- *
- * Verifies, against the live remote database, that the brand-prefix
- * expansion in domain-packs/healthcare/src/runtime/entity-provider.ts
- * (findFacilitiesByBrandPrefix / expandByBrandIfContradicted) and the
- * "Gate 6" pre-execution required-parameter check in
- * packages/runtime-engine/src/create-runtime-engine.ts generalize
- * correctly across multiple real multi-facility brand patterns found in
- * the live warehouse - not just Mayo Clinic:
- *
- * - Mayo Clinic (T1-T6): the original P0 - a bare-name contradiction now
- *   resolves to the correct, differently-suffixed facility instead of
- *   merely failing safely.
- * - Cleveland Clinic (T7-T9): a second real multi-facility brand,
- *   confirmed via live DB check to have the same shape as Mayo (a bare
- *   exact name plus several suffixed facilities elsewhere).
- * - Memorial Hospital (T10-T11): must NOT trigger brand expansion at
- *   all - its bare name is already ambiguous (12 real candidates), and
- *   expansion is deliberately gated to exactly-one-candidate names only.
- * - Baptist Hospital / Methodist Hospital (T12-T17): the master
- *   prompt's own flagged risk case - "Baptist"/"Methodist" are common
- *   words prefixing dozens of unrelated hospital systems. These prove
- *   the word-boundary fix in findFacilitiesByBrandPrefix() (a bare
- *   `startsWith` would wrongly fold "METHODIST HOSPITALS OF MEMPHIS"
- *   into "METHODIST HOSPITAL"'s brand pool - T16 specifically verifies
- *   this stays excluded) and that a broad, non-narrowing qualifier
- *   (T17, a bare state) correctly returns "ambiguous", never a silent
- *   wrong "unique".
- * - Johns Hopkins (T18): Root Cause C, deliberately untouched by this
- *   fix - still resolves to its existing, safe deferred behavior.
- *
- * Gate 6 (raw-crash-leak fix): T13 and T16 additionally assert that no
- * result's error string ever contains the raw, internal
- * "Missing required parameter" text SqlExecutor throws - proving a
- * failed identity resolution reaches the user as clean guidance, not an
- * internal string, and that Gate 6 halts before the executor even runs
- * (sqlCalls === 0) rather than merely catching a lower-level throw.
- *
- * Run: npx tsx scripts/verify-prephase9-task3-full-fix-brand-alias.ts
- */
+/** Tier0 Task 3 FULL FIX: brand-prefix expansion (entity-provider.ts) and the "Gate 6" required-parameter check across real brands (live DB).
+ * Memorial must NOT expand; T16 keeps "METHODIST HOSPITALS OF MEMPHIS" out; T13/T16 assert no raw parameter-error leak and sqlCalls === 0. */
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";

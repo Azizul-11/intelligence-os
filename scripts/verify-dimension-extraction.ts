@@ -1,6 +1,4 @@
-/**
- * Verify dimension extraction by inspecting semantic resolution directly
- */
+/** Verify dimension extraction by inspecting semantic resolution directly. */
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";

@@ -1,16 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-/**
- * Phase 8.10 Layer 2: Mark a pending interaction as consumed.
- * 
- * Uses optimistic locking to prevent race conditions: UPDATE only succeeds
- * if consumed is still FALSE. If two simultaneous requests try to consume
- * the same interaction, only the first succeeds.
- * 
- * @param supabase Supabase client
- * @param pendingInteractionId UUID of the pending interaction
- * @throws Error if interaction already consumed or update fails
- */
+/** Phase 8.10 Layer 2: marks a pending interaction consumed via optimistic locking (UPDATE only if consumed is still FALSE), so only the first of two simultaneous requests wins; throws if already consumed or the update fails. */
 export async function consumePendingInteraction(
   supabase: SupabaseClient,
   pendingInteractionId: string

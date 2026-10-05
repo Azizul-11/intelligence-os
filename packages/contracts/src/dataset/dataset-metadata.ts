@@ -1,14 +1,8 @@
-/**
- * Metadata associated with a dataset.
- */
+/** Metadata associated with a dataset. */
 export interface DatasetMetadata {
-  /**
-   * Dataset description.
-   */
+  /** Dataset description. */
   description?: string;
 
-  /**
-   * Dataset tags.
-   */
+  /** Dataset tags. */
   tags?: string[];
 }

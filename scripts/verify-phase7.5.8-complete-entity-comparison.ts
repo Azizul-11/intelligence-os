@@ -1,35 +1,5 @@
-/**
- * Phase 7.5.8 - Complete Explicit Entity Comparison Proof
- *
- * Proves that IntelligenceOS can produce a COMPLETE deterministic
- * comparison dataset for explicitly named entities across multiple
- * currently-supported deterministic metrics, aligned by canonical
- * identity - not just the single-metric two/three-entity proofs from
- * 7.5.5/7.5.6.
- *
- * This composes two independently-built, unmodified capabilities:
- *   - Phase 7.5.3/7.5.5/7.5.6: explicit multi-entity identity sets,
- *     routed to the "-by-facility-ids" template.
- *   - Phase 6/7: multi-metric ExecutionPlan.metrics[] with the
- *     secondary-metric fetch-and-align loop in create-runtime-engine.ts.
- *
- * No production code was changed for this phase - both mechanisms
- * already compose correctly, confirmed live below.
- *
- * IMPORTANT: this does NOT prove or implement metric-less "Compare A vs
- * B" (automatic metric discovery). Every query below names its metrics
- * explicitly, exactly like every prior phase's proof - the future
- * capability of inferring applicable metrics with no metric named
- * remains out of scope (see the Phase 7.5.8 report's compatibility
- * assessment for why the architecture does not block it later).
- *
- * Real entities (inspected from actual CMS data in prior phases, not
- * invented): Mayo Clinic (100151), Cleveland Clinic (360180), Duke
- * University Hospital (340030). "Greene County Hospital" is reused from
- * the 7.5.2 proof as a genuinely ambiguous real duplicate name (2
- * distinct facilities) to exercise identity-preservation under
- * ambiguity.
- */
+/** Phase 7.5.8: complete multi-metric comparison for explicitly named entities (7.5.3-7.5.6 identity sets + Phase 6/7 metrics[]); no production
+ * change. Does NOT cover metric-less "Compare A vs B". "Greene County Hospital" is a real 2-facility ambiguous name. */
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";

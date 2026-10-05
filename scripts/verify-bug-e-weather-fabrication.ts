@@ -1,29 +1,5 @@
-/**
- * Bug E (Phase 3.1, 2026-09-18) — off-topic question fabrication fix.
- *
- * Root cause: `QueryPlanner.discoverDefaultRankableMetric()` synthesized
- * a default nationwide hospital ranking whenever a bare geographic/scope
- * entity resolved with zero metrics, regardless of whether the rest of
- * the question was ever accounted for - "what's the weather in Texas?"
- * resolved only "Texas" and silently discarded "weather," returning a
- * real-looking but completely fabricated Top-10-hospitals-in-Texas
- * ranking. This is the single most severe violation of the platform's
- * own no-fabrication invariant found in this codebase's history.
- *
- * Fix: a new, purely structural `hasUnaccountedSubstantiveToken()` check
- * in `packages/query-planner/src/query-planner.ts` - refuses to default
- * whenever the original question contains a word that never became part
- * of any resolved semantic candidate AND isn't a generic English
- * question/filler word AND isn't one of the Domain SDK's own declared
- * entity ids. Zero hardcoded off-topic vocabulary anywhere - this would
- * refuse "what's the [x] in Texas?" for ANY unrecognized word `x`, not
- * just "weather".
- *
- * Run against a DETERMINISTIC-ONLY engine (no llmFallback) to prove the
- * refusal is deterministic, not a hopeful LLM catch.
- *
- * Run: npx tsx scripts/verify-bug-e-weather-fabrication.ts
- */
+/** Bug E (Phase 3.1): discoverDefaultRankableMetric() fabricated a Texas top-10 for "what's the weather in Texas?"; fixed by the structural hasUnaccountedSubstantiveToken() check in query-planner.ts, no hardcoded off-topic vocabulary. Deterministic engine (no llmFallback).
+ * Run: npx tsx scripts/verify-bug-e-weather-fabrication.ts */
 import "dotenv/config";
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";

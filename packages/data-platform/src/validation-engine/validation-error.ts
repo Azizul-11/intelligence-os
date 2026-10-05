@@ -2,37 +2,23 @@ import type { ID } from "@intelligence/contracts";
 
 import type { ValidationLevel } from "./validation-level";
 
-/**
- * Represents a single validation issue.
- */
+/** Represents a single validation issue. */
 export interface ValidationError {
-  /**
-   * Unique validation identifier.
-   */
+  /** Unique validation identifier. */
   id: ID;
 
-  /**
-   * Machine-readable error code.
-   */
+  /** Machine-readable error code. */
   code: string;
 
-  /**
-   * Human-readable message.
-   */
+  /** Human-readable message. */
   message: string;
 
-  /**
-   * Validation severity.
-   */
+  /** Validation severity. */
   level: ValidationLevel;
 
-  /**
-   * Optional field name.
-   */
+  /** Optional field name. */
   field?: string;
 
-  /**
-   * Optional row number.
-   */
+  /** Optional row number. */
   row?: number;
 }

@@ -13,9 +13,7 @@ export const aboveComparisonAliases: AliasDefinition = {
     "exceeding",
     "over",
     "outperform",
-    // Batch 3: performance wordings of the same comparison. "performing above the national average" used to leave
-    // "performing" unaccounted, so the question went to the LLM front door, which dropped the benchmark and answered a
-    // plain ranking (D084, D085, D087); "beat" had no alias at all (D088).
+    // Batch 3: performance wordings ("performing above the national average", "beat") need aliases or the question fell to the LLM (D084-D088).
     "performing above",
     "performing above the",
     "beat",

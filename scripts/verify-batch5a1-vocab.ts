@@ -1,20 +1,7 @@
 #!/usr/bin/env tsx
 
-/**
- * Batch 5A-1 (deterministic foundation) verification. No model is called: the LLM front door is wired but the stub
- * always answers `fallback`, so everything asserted here is deterministic and free. The engine runs against the live
- * warehouse (read-only SELECTs). Every refusal asserts SQL = 0 (Phase 8: ambiguous / unsupported => no SQL).
- *
- *   1  the pre-check: layperson words no longer refuse; the genuinely unanswerable topics still do
- *   2  the layperson mapper (pure): canonical question, note, filler, alternates, and every case it must NOT rewrite
- *   3  the hook: a mapped phrase never reaches the model; misspelt unsupported topics are refused as what they are
- *   4  the engine end to end: the mapped questions answer, every alternate and every scope-guidance chip is answerable
- *   5  the query planner reads the domain's filler words as data
- *   6  the scoped unaccounted-word guard
- *   7  the graceful messages
- *
- * Usage: pnpm exec tsx scripts/verify-batch5a1-vocab.ts
- */
+/** Batch 5A-1 verification (deterministic; stub model always answers `fallback`; read-only live warehouse; every refusal asserts SQL = 0 per Phase 8): pre-check, layperson mapper, hook, engine, planner filler words, unaccounted-word guard, graceful messages.
+ * Usage: pnpm exec tsx scripts/verify-batch5a1-vocab.ts */
 import "dotenv/config";
 
 import { readFileSync } from "node:fs";

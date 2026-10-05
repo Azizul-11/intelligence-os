@@ -1,12 +1,6 @@
--- =====================================================
--- IntelligenceOS
--- Phase 5.1
--- Semantic Registry
--- =====================================================
+-- IntelligenceOS Phase 5.1: Semantic Registry
 
--- -----------------------------------------------------
 -- Entity Registry
--- -----------------------------------------------------
 
 create table if not exists public.entity_registry (
 
@@ -24,9 +18,7 @@ create table if not exists public.entity_registry (
 
 );
 
--- -----------------------------------------------------
 -- Metric Registry
--- -----------------------------------------------------
 
 create table if not exists public.metric_registry (
 
@@ -52,9 +44,7 @@ create table if not exists public.metric_registry (
 
 );
 
--- -----------------------------------------------------
 -- Dimension Registry
--- -----------------------------------------------------
 
 create table if not exists public.dimension_registry (
 
@@ -70,9 +60,7 @@ create table if not exists public.dimension_registry (
 
 );
 
--- -----------------------------------------------------
 -- Category Registry
--- -----------------------------------------------------
 
 create table if not exists public.category_registry (
 
@@ -88,9 +76,7 @@ create table if not exists public.category_registry (
 
 );
 
--- -----------------------------------------------------
 -- Alias Registry
--- -----------------------------------------------------
 
 create table if not exists public.alias_registry (
 
@@ -106,9 +92,7 @@ create table if not exists public.alias_registry (
 
 );
 
--- -----------------------------------------------------
 -- Benchmark Registry
--- -----------------------------------------------------
 
 create table if not exists public.benchmark_registry (
 
@@ -124,9 +108,7 @@ create table if not exists public.benchmark_registry (
 
 );
 
--- -----------------------------------------------------
 -- Relationship Registry
--- -----------------------------------------------------
 
 create table if not exists public.relationship_registry (
 

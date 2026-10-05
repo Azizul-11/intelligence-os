@@ -1,24 +1,5 @@
-/**
- * Phase 8.5 - Capability Validation Verification
- *
- * Verifies the two additive Phase 8.5 checks in
- * packages/runtime-engine/src/create-runtime-engine.ts:
- *
- * 1. Template-not-found now carries a structured AnswerabilityResult
- *    ({status: "not_directly_answerable", reason: "capability-unavailable"})
- *    instead of only a bare error string. No SQL executes (unchanged).
- *
- * 2. A template that IS found but has `enabled === false`
- *    (SqlTemplateDefinition.enabled - a pre-existing, previously-unwired
- *    Universal contract field) is refused the same way, before parameter
- *    resolution or execution. No production Healthcare template is
- *    modified to prove this - a fixture sqlResolver stub, layered onto
- *    the real DomainRuntime, is used instead.
- *
- * Uses the real semantic + planner + runtime-engine pipeline throughout,
- * with a spy SqlExecutor to prove SQL is called (or not) for each case -
- * no SQL execution against a real database.
- */
+/** Phase 8.5: template-not-found and enabled===false templates refuse with a structured capability-unavailable AnswerabilityResult before any SQL.
+ * The disabled case uses a fixture sqlResolver stub; spy SqlExecutor, no real DB. */
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
@@ -63,9 +44,8 @@ function makeEngine(sqlCalledFlag: { called: boolean }, runtimeOverride = runtim
 }
 
 async function run() {
-  // 1 - THE FIX (template-not-found): a genuinely unsupported shape
-  // (RCG-008's own deliberately-unregistered "-unsupported" template id)
-  // must now carry a structured capability-unavailable classification.
+  // 1 - THE FIX (template-not-found): RCG-008's unregistered "-unsupported" template id must give a structured capability-unavailable
+  // classification.
   {
     const flag = { called: false };
     const engine = makeEngine(flag);
@@ -88,10 +68,8 @@ async function run() {
     );
   }
 
-  // 2 - THE FIX (disabled template): a template that resolves by id but
-  // is explicitly marked enabled:false must refuse the same way, before
-  // execution - proven with a fixture resolver, no production template
-  // touched.
+  // 2 - THE FIX (disabled template): a template with enabled:false must refuse the same way before execution (fixture resolver, no production
+  // template touched).
   {
     const fixtureRuntime = {
       ...runtime,
@@ -257,11 +235,8 @@ async function run() {
     );
   }
 
-  // 9 - Known Domain-side limitation (NOT fixed by Phase 8.5, must remain
-  // observable): length-of-stay's template is registered AND declares
-  // enabled:true in Healthcare's own data, so today's Universal
-  // mechanism does not catch it. Document the actual current behavior;
-  // do not assert it is fixed.
+  // 9 - Known Domain-side limitation (not fixed by 8.5): length-of-stay's template is registered and enabled:true, so the Universal mechanism does
+  // not catch it; document current behavior, do not assert a fix.
   {
     const flag = { called: false };
     const engine = makeEngine(flag);
@@ -270,12 +245,8 @@ async function run() {
       parameters: {},
     });
 
-    // This check documents reality: the template is found, enabled:true
-    // (Healthcare's own data, unmodified by Phase 8.5), so execution is
-    // attempted with the spy executor reporting success - the spy does
-    // not know the underlying SQL/table is broken. This is the precise,
-    // disclosed boundary between "Universal capability mechanism" (this
-    // phase) and "Domain template correctness" (not this phase).
+    // Template is found and enabled:true, so execution is attempted and the spy reports success; this is the boundary between the Universal
+    // mechanism and Domain template correctness.
     const templateReachedExecution = flag.called === true;
 
     check(

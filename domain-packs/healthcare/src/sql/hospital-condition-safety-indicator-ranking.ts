@@ -1,11 +1,7 @@
 import type { SqlTemplateDefinition } from "@intelligence/domain-sdk";
 
-// Batch 5B-2: a clone of hospital-condition-mortality-ranking.ts (same parameters, same WHERE/ORDER BY/limit shape,
-// same `:direction` convention) rather than a reuse of that template's id - the PSIs are complication and death
-// rates, not the six mortality/CABG measures the mortality template's own description and decorators describe, and
-// the units differ per code (the mortality template has none). A shared `score_unit` column keeps the summary
-// grounded (Batch 5A-2's numeric cross-check: a unit string containing "1,000" satisfies it as a substring of a row
-// value). Units are CMS/AHRQ definitions, not stored in the warehouse - verified against the CMS data dictionary.
+// Batch 5B-2: clone of hospital-condition-mortality-ranking.ts (PSIs are not the mortality measures, units differ per code); `score_unit` keeps the summary grounded
+// (a unit like "per 1,000" satisfies the 5A-2 numeric cross-check). Units are CMS/AHRQ definitions, not in the warehouse.
 export const hospitalConditionSafetyIndicatorRankingSqlTemplate: SqlTemplateDefinition = {
   id: "hospital-condition-safety-indicator-ranking",
 

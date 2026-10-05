@@ -2,9 +2,7 @@ import type { Timestamp } from "@intelligence/contracts";
 
 import type { AliasMap } from "./alias-map";
 
-/**
- * Result returned after normalization.
- */
+/** Result returned after normalization. */
 export interface NormalizationResult {
   success: boolean;
 

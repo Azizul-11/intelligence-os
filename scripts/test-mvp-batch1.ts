@@ -1,10 +1,4 @@
-/**
- * MVP Capability Expansion Batch #1 - Live Test
- * 
- * Tests 7 queries:
- * - 2 existing (regression test)
- * - 5 new capabilities
- */
+/** MVP Capability Expansion Batch #1 live test: 7 queries (2 regression, 5 new capabilities). */
 
 const ORCHESTRATOR_URL = "http://127.0.0.1:54321/functions/v1/orchestrator";
 

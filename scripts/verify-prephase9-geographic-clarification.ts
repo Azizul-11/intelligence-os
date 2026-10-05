@@ -1,15 +1,5 @@
-/**
- * Pre-Phase 9 Tier0: Geographic Clarification Restoration.
- *
- * Verifies that a geographic filter (county/city) whose value collides
- * across multiple states triggers the Phase 8.3 ambiguity/clarification
- * gate (status: "ambiguous", zero SQL) instead of the removed
- * "SQL template not found" / "Unable to create query plan" hack, and that
- * the Phase 8.10 Layer 2 two-turn continuation flow resolves it correctly
- * against the real, remote database.
- *
- * Run: npx tsx scripts/verify-prephase9-geographic-clarification.ts
- */
+/** Pre-Phase 9 Tier0: a county/city value colliding across states triggers the Phase 8.3 clarification gate ("ambiguous", zero SQL) instead of the
+ * removed "SQL template not found" hack, and the Phase 8.10 Layer 2 two-turn flow resolves it on the real DB. */
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";

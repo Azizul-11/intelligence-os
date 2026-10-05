@@ -7,12 +7,7 @@ interface SpotlightCardProps {
   className?: string;
 }
 
-/**
- * A card with a single-hue cursor-follow glow on hover (the pattern shared by
- * skiper-ui/vengeance-ui's hover-glow cards) — never a rainbow gradient, just
- * `--color-primary` at low opacity, tracked via CSS custom properties so the
- * glow itself never triggers a React re-render.
- */
+/** Card with a single-hue cursor-follow glow via CSS custom properties, so the glow never triggers a React re-render. */
 export function SpotlightCard({ children, className }: SpotlightCardProps) {
   const ref = useRef<HTMLDivElement>(null);
 

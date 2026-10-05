@@ -1,36 +1,11 @@
-/**
- * Phase 7.5.2 - Domain Entity Identity Resolution Verification
- *
- * Proves that the Healthcare Domain SDK can resolve a named hospital to
- * its canonical deterministic facility_id, honestly representing
- * ambiguity when a name maps to more than one real facility, and
- * narrowing via explicit qualifiers (state/city) only when the real
- * data justifies exactly one remaining candidate.
- *
- * Every example below is a REAL entry from the generated hospital
- * identity directory (domain-packs/healthcare/src/runtime/
- * hospital-identity-directory.ts, itself generated from the real CMS
- * source data) - nothing is invented or hand-picked as a demo fixture.
- *
- * Tests the Healthcare EntityProvider directly (not the full NL
- * semantic pipeline) - this is a domain-resolution capability proof,
- * not a comparison or multi-entity execution proof (those are later,
- * separately-scoped tasks).
- */
+/** Phase 7.5.2: the Healthcare EntityProvider resolves named hospitals to canonical facility_id, keeps real ambiguity, and narrows via state/city
+ * only when exactly one candidate remains. All examples are real entries from the generated hospital-identity-directory.ts. */
 
 import { HealthcareEntityProvider } from "../domain-packs/healthcare/src/runtime/entity-provider";
 
 const provider = new HealthcareEntityProvider();
 
-/**
- * Phase 8.3: candidate entries are now `{value, label}` objects (see
- * AmbiguousCandidate) rather than bare facility_id strings, so a
- * duplicate-name candidate set can carry a human-readable label for
- * targeted clarification. Extracts just the opaque `value` for the
- * identity assertions below, which predate and are independent of that
- * labeling change - this file verifies WHICH facilities are returned,
- * not how they are presented.
- */
+/** Phase 8.3: candidates are now {value, label}; extract the opaque value, since these assertions check WHICH facilities, not how they are presented. */
 function candidateValues(candidates: unknown[]): unknown[] {
   return candidates.map((candidate) =>
     typeof candidate === "object" && candidate !== null && "value" in candidate
@@ -146,10 +121,7 @@ function check(id: string, description: string, pass: boolean, detail: string) {
   );
 }
 
-// CASE 4 - STILL AMBIGUOUS AFTER QUALIFIER: "Memorial Hospital" has 3
-// real facilities in Texas alone (Gonzales, Seminole, Dumas) - a state
-// qualifier does not uniquely identify one. Must remain ambiguous, not
-// guess.
+// CASE 4: "Memorial Hospital" has 3 real Texas facilities, so a state qualifier must stay ambiguous, not guess.
 {
   const result = provider.resolveHospitalByQualifier("Memorial Hospital", "Texas");
 

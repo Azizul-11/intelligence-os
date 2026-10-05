@@ -1,16 +1,7 @@
 import type { SqlTemplateDefinition } from "@intelligence/domain-sdk";
 
-/**
- * Phase 8.6C companion template for `hospital-overall-rating-ranking`.
- * Measures population coverage only - never ranks, never limits.
- * `eligible_count`: hospitals matching the same non-metric scope
- * (`:state`) the ranking template itself uses. `covered_count`: of
- * those, hospitals that also have `overall_rating` present - the same
- * `IS NOT NULL` condition the ranking template applies, computed here
- * as a per-entity column count (safe: `overall_rating` is a direct
- * column on `warehouse_hospitals`, one row per hospital, so
- * `COUNT(overall_rating)` is already a correct per-entity count).
- */
+/** Phase 8.6C companion of `hospital-overall-rating-ranking`: coverage only, never ranks or limits. `eligible_count` = hospitals in the same `:state` scope,
+ * `covered_count` = those with `overall_rating IS NOT NULL` (a direct per-hospital column, so COUNT is a correct per-entity count). */
 export const hospitalOverallRatingRankingCoverageSqlTemplate: SqlTemplateDefinition = {
   id: "hospital-overall-rating-ranking-coverage",
 

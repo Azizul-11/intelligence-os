@@ -1,14 +1,5 @@
-/**
- * Phase 7: Multi-Metric Runtime Execution Verification
- *
- * Exercises the REAL end-to-end pipeline against real warehouse data:
- * Semantic -> QueryPlanner -> ExecutionPlanMapper -> RuntimeEngine ->
- * SqlExecutor -> SupabaseDatabaseAdapter -> Postgres.
- *
- * No mocked runtime. Uses the same credential pattern as the existing
- * ingest/semantic scripts (scripts/shared/supabase.ts, env-driven,
- * service-role key from .env - never hardcoded).
- */
+/** Phase 7: multi-metric execution through the real pipeline (Semantic -> RuntimeEngine -> Postgres), no mocks; service-role key comes from .env via
+ * scripts/shared/supabase.ts. */
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";

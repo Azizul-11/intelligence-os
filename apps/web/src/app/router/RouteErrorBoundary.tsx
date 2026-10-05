@@ -1,12 +1,7 @@
 import { useEffect } from "react";
 import { isRouteErrorResponse, useRouteError } from "react-router-dom";
 
-// A lazy route chunk can fail to fetch for two real reasons: the user's
-// connection dropped mid-navigation, or a new deploy shipped while their tab
-// was open (the old HTML references a chunk hash that no longer exists on
-// the server). Both look identical to this error. A fresh page load fixes
-// the second case immediately and is harmless for the first, so it's tried
-// once per short window before falling back to a visible error.
+// A lazy chunk fetch fails on dropped connection or a new deploy (stale chunk hash); a fresh reload fixes the latter, so retry once per short window before showing the error.
 const RELOAD_FLAG_KEY = "chunk-load-retried-at";
 const RELOAD_WINDOW_MS = 10_000;
 

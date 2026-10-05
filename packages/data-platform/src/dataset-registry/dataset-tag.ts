@@ -1,6 +1,4 @@
-/**
- * High-level categorization of a dataset.
- */
+/** High-level categorization of a dataset. */
 export type DatasetTag =
   | "healthcare"
   | "education"

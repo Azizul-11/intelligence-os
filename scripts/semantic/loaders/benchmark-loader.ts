@@ -6,9 +6,7 @@ import type {
   BenchmarkDefinition as SemanticBenchmarkDefinition,
 } from "@intelligence/contracts/semantic";
 
-/**
- * Converts Domain SDK benchmarks into canonical Semantic benchmarks.
- */
+/** Converts Domain SDK benchmarks into canonical Semantic benchmarks. */
 export function loadBenchmarks(
   benchmarks: readonly DomainBenchmarkDefinition[],
   domain: string,

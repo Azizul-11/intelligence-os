@@ -1,6 +1,4 @@
-/**
- * Defines ownership of a dataset.
- */
+/** Defines ownership of a dataset. */
 export type DatasetOwner =
   | "government"
   | "enterprise"

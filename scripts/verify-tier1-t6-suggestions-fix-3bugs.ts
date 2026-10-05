@@ -1,22 +1,5 @@
-/**
- * Tier1 Task 6 Regression Fix Verification: 3 bugs found by live
- * frontend dogfooding after Batch 26 (docs/Frontend test/PrePhase 9
- * tier1-t6.md):
- *   Bug 1 - clicking an identity-ambiguous suggestion chip failed to
- *           match ("I couldn't match your response to one of the
- *           offered options") because the suggestion text was the full
- *           original question + a location qualifier, not a token
- *           matchClarificationResponse() can actually match.
- *   Bug 2 - suggestions were repetitive (always "Mortality Rate" depth
- *           probe, always "non-profit" ownership pivot, always the same
- *           3 fallback strings regardless of question content).
- *   Bug 3 - suggestion dry-run validation executed a full, real SQL
- *           query per candidate (3-4x the SQL cost of the original
- *           request), a genuine production-latency regression.
- *
- * Live, in-process, against the remote Supabase warehouse.
- * Run: npx tsx scripts/verify-tier1-t6-suggestions-fix-3bugs.ts
- */
+/** Tier1 Task 6 regression fix for 3 live-dogfooding bugs (docs/Frontend test/PrePhase 9 tier1-t6.md): ambiguous suggestion chips not matching
+ * matchClarificationResponse(), repetitive suggestions, and a full real SQL run per suggestion dry-run. */
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";

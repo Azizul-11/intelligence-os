@@ -1,8 +1,4 @@
-/**
- * Phase 5 Pre-Commit Audit - Runtime Verification
- * 
- * Test Phase 5 ExecutionPlan across multiple query patterns
- */
+/** Phase 5 pre-commit audit: runs ExecutionPlan across multiple query patterns. */
 
 const ORCHESTRATOR_URL = "http://127.0.0.1:54321/functions/v1/orchestrator";
 

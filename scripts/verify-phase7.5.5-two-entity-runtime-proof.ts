@@ -1,25 +1,5 @@
-/**
- * Phase 7.5.5 - Two-Entity Runtime Proof
- *
- * Proves a REAL end-to-end explicit two-entity comparison, not isolated
- * parameter construction (that was already covered by 7.5.2-7.5.4):
- *
- *   Natural language -> SemanticResolver -> QueryPlanner ->
- *   ExecutionPlanMapper -> HealthcareExecutionStrategy (template
- *   selection + parameter resolution) -> SqlExecutor ->
- *   SupabaseDatabaseAdapter -> real Postgres warehouse -> two distinct
- *   real rows.
- *
- * Test entities were selected by inspecting the actual generated
- * hospital-identity-directory.ts data (Phase 7.5.2), not invented:
- * "Mayo Clinic" (facility_id 100151, FL) and "Cleveland Clinic"
- * (facility_id 360180, OH) each appear exactly once in the real CMS
- * dataset, so both resolve unambiguously.
- *
- * No mocked runtime, no LLM-generated identity, no LLM-generated SQL,
- * no LLM-generated result - every value below comes from the real
- * warehouse.
- */
+/** Phase 7.5.5: real end-to-end two-entity comparison against the warehouse (no mocks, no LLM identity/SQL/result). Mayo Clinic (100151, FL) and
+ * Cleveland Clinic (360180, OH) each appear exactly once in CMS data. */
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";

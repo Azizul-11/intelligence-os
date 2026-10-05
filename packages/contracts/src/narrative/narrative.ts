@@ -1,21 +1,13 @@
 import type { Evidence } from "./evidence";
 
-/**
- * Represents a human-readable explanation derived from deterministic data.
- */
+/** Represents a human-readable explanation derived from deterministic data. */
 export interface Narrative {
-  /**
-   * Narrative identifier.
-   */
+  /** Narrative identifier. */
   id: string;
 
-  /**
-   * Narrative text.
-   */
+  /** Narrative text. */
   text: string;
 
-  /**
-   * Supporting evidence.
-   */
+  /** Supporting evidence. */
   evidence?: Evidence[];
 }

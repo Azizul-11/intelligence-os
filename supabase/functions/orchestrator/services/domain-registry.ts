@@ -63,46 +63,17 @@ export function getRuntimeEngine(): RuntimeEngine {
     planner,
     executionPlanMapper: new ExecutionPlanMapper(),
     executor,
-    // Bug L Beyond (Phase 2): deterministic, case-sensitive US state
-    // abbreviation expansion (e.g. "goverment hospital in CA" ->
-    // "goverment hospital in California") - runs BEFORE Layer 1, so the
-    // already-deterministic ownership-typo fix and this fix compose
-    // into a fully deterministic resolution for the compound case that
-    // previously depended on the LLM gateway's own (less reliable
-    // across its multi-vendor fallback chain) abbreviation expansion.
-    // See state-abbreviation-preprocessor.ts's own header comment for
-    // why this is deliberately narrow (case-sensitive, "VA" excluded).
-    // Batch 5A-1: a misspelling that is also a place name ("hart" = Hart County) is corrected before resolution reads
-    // it as the place; the case-sensitive state abbreviations are expanded as before.
+    // Bug L Beyond (Phase 2): deterministic, case-sensitive state-abbreviation expansion ("hospital in CA" -> "California") before Layer 1
+    // (see state-abbreviation-preprocessor.ts; "VA" excluded). Batch 5A-1: a misspelling that is also a place name ("hart") is corrected first.
     preprocessQuestion: (question: string) => expandUppercaseStateAbbreviations(correctPlaceCollidingTypos(question)),
-    // LLM Integration Layer 1: the only place Universal Core's optional
-    // llmFallback hook is ever supplied - packages/runtime-engine itself
-    // stays 100% LLM-unaware. Maps the gateway's richer
-    // {status, canonical_question, reason} shape down to the narrow
-    // {canonicalQuestion} | {clarification} | null the hook actually
-    // needs. PrePhase 9.5: "need_clarification" (the LLM declining to
-    // guess a missing scope, e.g. a state, rather than inventing one)
-    // is surfaced as a clarification instead of being treated the same
-    // as "fallback" (silently give up, keep the original raw error).
-    //
-    // R7: `meta` carries which tier answered (provider/model/attempts/
-    // latency/tiers tried) onto the "llm-normalization" trace entry. Universal
-    // Core records it verbatim and never reads it; a result with only `meta`
-    // (no usable answer) is traced as "unavailable", exactly like `null`.
-    // Batch 1 (Step 1.3): the mapping lives in normalizer-hook.ts (shared with
-    // the local-live harness); a decline that names `unsupported_terms` is now
-    // a binding refusal instead of being discarded.
-    // Batch 3: a raw question that names an unsupported topic is refused here before the model is called.
+    // LLM Layer 1: the only place Universal Core's optional llmFallback hook is supplied (runtime-engine stays LLM-unaware); mapping lives in normalizer-hook.ts.
+    // PrePhase 9.5: "need_clarification" surfaces as a clarification; R7: `meta` is traced verbatim; Batch 1/3: unsupported terms (model-reported or raw-question) are a binding refusal.
     llmFallback: async (question: string) =>
       normalizeQuestion(question, DOMAIN_CAPABILITIES, (text) => llmGateway.normalizeMessyLanguage(text, DOMAIN_CAPABILITIES)),
     // Batch 5C: the same deterministic scope check, for the questions that skip the front door (a named hospital, a chip).
     unsupportedPrecheck: (question: string) => precheckUnsupported(question, DOMAIN_CAPABILITIES),
-    // ConversationalFix (2026-09-27): replaces closed-whitelist-regex expansion for informal small talk the front
-    // door's own regex (services/conversational.ts) doesn't recognize ("bro", "what's up", a typo'd "tell me
-    // somthing") - see AUDIT_CONVERSATIONAL_INTENT_ROUTING.md. A cheap free-tier classification first; only a
-    // confident "conversational" verdict reuses the existing handleConversational() onboarding reply (unchanged
-    // since Layer 0's regex branch in chat.ts). Anything else - "data_request", a timeout, every provider down -
-    // returns undefined and the paid normalizer above runs exactly as it already does today.
+    // ConversationalFix (2026-09-27): cheap free-tier classification for small talk the front-door regex misses (see AUDIT_CONVERSATIONAL_INTENT_ROUTING.md);
+    // only a confident "conversational" verdict reuses handleConversational(), anything else returns undefined and the paid normalizer runs as before.
     conversationalCheck: async (question: string) => {
       const intent = await llmGateway.classifyConversationalIntent(question, DOMAIN_CAPABILITIES);
       return intent === "conversational" ? llmGateway.handleConversational(question, DOMAIN_CAPABILITIES) : undefined;
@@ -113,20 +84,12 @@ export function getRuntimeEngine(): RuntimeEngine {
 }
 
 
-/**
- * PrePhase 9.5: the healthcare Domain SDK's own capability manifest -
- * used by chat.ts's Layer 0 conversational router so its onboarding
- * answer/example chips come from the same domain-owned catalog Layer 1
- * already uses, never a second, independently-maintained list.
- */
+/** PrePhase 9.5: the Domain SDK capability manifest, so chat.ts's Layer 0 onboarding answer/chips share Layer 1's single domain-owned catalog. */
 export function getDomainCapabilities() {
   return DOMAIN_CAPABILITIES;
 }
 
-/**
- * Get domain metrics for display name lookup.
- * Phase 8.10 Layer 2: Used by guidance Turn 1 to map capability IDs to display names.
- */
+/** Domain metrics for display-name lookup (Phase 8.10 Layer 2 guidance Turn 1 maps capability IDs to names). */
 export function getDomainMetrics(): readonly any[] {
   // Ensure runtime is initialized
   if (!domainRuntime) {
@@ -135,12 +98,8 @@ export function getDomainMetrics(): readonly any[] {
   return domainRuntime?.domain?.metrics || [];
 }
 
-/**
- * Batch 5A-1 (D5): the domain's one-sentence description of an answer it knows how to describe better than the rows do
- * (today: "384 hospitals nationwide hold a 5-star overall rating, displaying the first 10 alphabetically"). The
- * SQL and the wording live in the domain pack; this only supplies the shared executor. `undefined` when there is
- * nothing to say or the count failed - the answer never depends on it.
- */
+/** Batch 5A-1 (D5): the domain's one-sentence description of an answer ("384 hospitals nationwide hold a 5-star rating, ...");
+ * SQL and wording live in the domain pack, this is the shared executor. `undefined` when nothing to say or the count failed. */
 export async function describeResultNote(
   rows: readonly Record<string, unknown>[],
   parameters: Record<string, unknown> | undefined,
@@ -157,11 +116,8 @@ export async function describeResultNote(
   }
 }
 
-/**
- * Phase 3.5: the domain's prepared summary context for an answer (what the rows measure, the applied filters,
- * precomputed facts, plain-labelled rows), plus the numbers and names the grounding check must accept because the
- * context states them. Built by the domain pack; this only forwards the answer's rows and parameters.
- */
+/** Phase 3.5: the domain pack's prepared summary context plus the numbers/names the grounding check must accept;
+ * this only forwards the answer's rows and parameters. */
 export function prepareSummaryContext(
   rows: readonly Record<string, unknown>[],
   parameters: Record<string, unknown> | undefined,
@@ -171,17 +127,8 @@ export function prepareSummaryContext(
   return { context, factNumbers: summaryFactNumbers(context), vocabulary: summaryVocabulary(context) };
 }
 
-/**
- * Tier0 Task 2 (F8): direct, deterministic single-hospital rating lookup
- * by facility_id - used by the hospital-ranking clarification's "lookup"
- * Turn 2 (see reconstruct-hospital-choice.ts). Deliberately bypasses the
- * full NL semantic pipeline: re-typing a hospital's own stored name and
- * re-resolving it is not guaranteed to round-trip to the same facility
- * (see reconstruct-hospital-choice.ts's own comment), whereas the
- * facility_id captured at Turn 1 is unambiguous already. Reuses the
- * existing, already-registered `hospital-overall-rating` template
- * verbatim - no new SQL template.
- */
+/** Tier0 Task 2 (F8): direct single-hospital rating lookup by facility_id for the ranking clarification's "lookup" Turn 2 (see reconstruct-hospital-choice.ts);
+ * bypasses NL resolution because re-typing a name may not round-trip to the same facility; reuses the `hospital-overall-rating` template. */
 export async function lookupHospitalOverallRating(facilityId: string) {
   if (!domainRuntime || !sharedExecutor) {
     getRuntimeEngine();

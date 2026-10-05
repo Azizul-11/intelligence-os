@@ -2,17 +2,11 @@ import type { ID } from "@intelligence/contracts";
 
 import type { FlattenedField } from "./flattened-field";
 
-/**
- * Universal flattened record.
- */
+/** Universal flattened record. */
 export interface FlattenedRecord {
-  /**
-   * Record identifier.
-   */
+  /** Record identifier. */
   id: ID;
 
-  /**
-   * Flattened fields.
-   */
+  /** Flattened fields. */
   fields: FlattenedField[];
 }

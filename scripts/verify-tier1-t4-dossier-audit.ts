@@ -1,12 +1,5 @@
-/**
- * Pre-Phase 9 Tier1 Task 4 Audit: Single-Hospital Cross-Table Dossier
- * Generation + 2-3 Hospital Compare + Same-Name Clarification.
- *
- * STRICTLY DIAGNOSTIC - read-only, no production writes. Live, in-process,
- * spy-instrumented against the remote Supabase warehouse.
- *
- * Run: npx tsx scripts/verify-tier1-t4-dossier-audit.ts
- */
+/** Tier1 Task 4 Audit: single-hospital cross-table dossier, 2-3 hospital compare and same-name clarification. DIAGNOSTIC ONLY (read-only), live and
+ * spy-instrumented. */
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";

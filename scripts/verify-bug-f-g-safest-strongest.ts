@@ -1,34 +1,5 @@
-/**
- * Bugs F/G (Phase 3.3, 2026-09-18) - "safest"/"strongest" superlatives
- * silently returning an unranked, wrong-metric result.
- *
- * Bug F root cause: "safest" never resolved to any metric alias (unlike
- * "good safety"/"safety score"/etc.) - "safest hospitals in Texas" left
- * only the non-rankable "hospital-list" metric candidate, silently
- * returning an unranked 100-row list instead of ranking by
- * safety-performance's own safety_score.
- * Fix: registered "safest" as a literal alias in
- * domain-packs/healthcare/src/aliases/safety-performance.ts (same
- * plain phrase-to-canonical-id mechanism every other alias in that
- * file already uses - "safest" is not a registered MODIFIER, so it
- * survives phrase extraction and needs no LexicalRewriter change).
- *
- * Bug G root cause: "strongest" was missing from Universal Core's
- * RANKING_KEYWORDS (packages/query-planner/src/query-intent-detector.ts)
- * - a query also containing "compare"/"vs" succeeds deterministically
- * via COMPARISON_KEYWORDS before Layer 1's LLM rewrite (which does
- * normalize "strongest" -> "best") ever gets a chance to run.
- * Fix: added "strongest" to RANKING_KEYWORDS. Deliberately did NOT also
- * add "strong" (suggested in the Round 6 audit's own fix plan) - a real
- * collision was found ("STRONG MEMORIAL HOSPITAL" in
- * hospital-identity-directory.ts), the same class of regression as
- * gotcha 3 (good/great vs "Good Samaritan"/"Great River").
- *
- * Run against a DETERMINISTIC-ONLY engine (no llmFallback) to prove
- * both fixes work with zero LLM dependency.
- *
- * Run: npx tsx scripts/verify-bug-f-g-safest-strongest.ts
- */
+/** Bugs F/G (Phase 3.3): "safest" had no metric alias (now in aliases/safety-performance.ts) and "strongest" was missing from RANKING_KEYWORDS; "strong" deliberately not added (collides with "STRONG MEMORIAL HOSPITAL", like gotcha 3 good/great). Deterministic engine (no llmFallback).
+ * Run: npx tsx scripts/verify-bug-f-g-safest-strongest.ts */
 import "dotenv/config";
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";

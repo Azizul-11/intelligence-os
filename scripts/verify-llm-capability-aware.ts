@@ -1,14 +1,5 @@
-/**
- * LLM Integration — capability-aware Layer 1 verification.
- *
- * Confirms the exact real-world typo/near-miss failures found by live
- * dogfooding (docs/Frontend test/PrePhase 9 LLM.md) are now resolved by
- * the capability-aware normalizeMessyLanguage() prompt + the broadened
- * Layer 1 trigger in create-runtime-engine.ts (which now fires on ANY
- * non-ambiguous failure, not just the bare zero-candidate dead end).
- *
- * Run: npx tsx scripts/verify-llm-capability-aware.ts
- */
+/** Capability-aware Layer 1 verification: live-dogfooding typo/near-miss failures (docs/Frontend test/PrePhase 9 LLM.md) now resolve via normalizeMessyLanguage() and the broadened Layer 1 trigger (any non-ambiguous failure) in create-runtime-engine.ts.
+ * Run: npx tsx scripts/verify-llm-capability-aware.ts */
 import "dotenv/config";
 
 import { healthcareDomain, DOMAIN_CAPABILITIES } from "../domain-packs/healthcare/src/index";

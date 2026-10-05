@@ -1,13 +1,7 @@
 import type { AliasDefinition } from "@intelligence/domain-sdk";
 
-// Batch 5B-2: composite "<condition> rate(s)" phrases, the same pattern as mortality-rate.ts's own
-// HIP_KNEE_COMPLICATION_ALIASES - a formally-worded question ("pressure ulcer rate", "postoperative sepsis rates")
-// is fully accounted for without the model: the words this metric candidate spans overlap the concept's own alias
-// (aliases/psi.ts, aliases/sepsis.ts), the same overlap the hip/knee precedent already proves works. The composite
-// is registered under the METRIC (this file), never folded into the concept's own alias text, so the concept and
-// the metric remain two separate, independently-resolved candidates for the two-part measureCodesByMetric lookup.
-// Kept in step with the concept aliases actually registered (aliases/psi.ts, aliases/sepsis.ts) - a composite term
-// with no matching concept alias would be dead weight (a metric candidate with no concept candidate to pair with).
+// Batch 5B-2: composite "<condition> rate(s)" metric aliases overlap the concept aliases (psi.ts, sepsis.ts), registered under the METRIC, never folded into
+// concept text, so both stay separate candidates for measureCodesByMetric. Keep in step with registered concept aliases or they are dead weight.
 const PSI_CONDITION_TERMS = [
   "pressure ulcer",
   "pressure ulcers",

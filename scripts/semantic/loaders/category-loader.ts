@@ -6,9 +6,7 @@ import type {
   CategoryDefinition as SemanticCategoryDefinition,
 } from "@intelligence/contracts/semantic";
 
-/**
- * Converts Domain SDK categories into canonical Semantic categories.
- */
+/** Converts Domain SDK categories into canonical Semantic categories. */
 export function loadCategories(
   categories: readonly DomainCategoryDefinition[],
   domain: string,

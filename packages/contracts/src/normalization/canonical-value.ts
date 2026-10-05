@@ -1,19 +1,11 @@
-/**
- * Represents the canonical representation of a platform value.
- */
+/** Represents the canonical representation of a platform value. */
 export interface CanonicalValue {
-  /**
-   * Canonical identifier.
-   */
+  /** Canonical identifier. */
   id: string;
 
-  /**
-   * Canonical display value.
-   */
+  /** Canonical display value. */
   value: string;
 
-  /**
-   * Optional description.
-   */
+  /** Optional description. */
   description?: string;
 }

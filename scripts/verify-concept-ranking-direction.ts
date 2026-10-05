@@ -1,21 +1,5 @@
-/**
- * PrePhase 9.5 Round 3 — concept ranking direction verification.
- *
- * Confirms condition-specific mortality/readmission rankings
- * (hospital-condition-mortality-ranking.ts / hospital-condition-
- * readmission-ranking.ts) return LOWEST (best) score/ratio first, not
- * highest (worst) - live dogfooding found the opposite: "heart attack
- * death rate" returned a 17.1% (worst) score first instead of the
- * actual best (6.7%, NYU LANGONE). Root cause: Universal Core's
- * direction lexicon buckets "lowest"/"worst" into the same generic
- * "asc" signal (see modifier-direction-lexicon.ts), and the old
- * template CASE resolved that ambiguity backwards for the far more
- * common "lowest/best" case. Fixed by making the ORDER BY
- * unconditionally ascending (lowest first) for these 2 templates - see
- * their own description fields for the full root-cause writeup.
- *
- * Run: npx tsx scripts/verify-concept-ranking-direction.ts
- */
+/** PrePhase 9.5 Round 3: condition mortality/readmission rankings must return the LOWEST (best) score first; the direction lexicon buckets "lowest"/"worst" as "asc", so the 2 templates now ORDER BY ascending unconditionally.
+ * Run: npx tsx scripts/verify-concept-ranking-direction.ts */
 import "dotenv/config";
 
 import { healthcareDomain, DOMAIN_CAPABILITIES } from "../domain-packs/healthcare/src/index";

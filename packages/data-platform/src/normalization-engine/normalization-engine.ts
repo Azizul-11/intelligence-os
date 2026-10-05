@@ -1,9 +1,7 @@
 import type { NormalizationContext } from "./normalization-context";
 import type { NormalizationResult } from "./normalization-result";
 
-/**
- * Normalization Engine contract.
- */
+/** Normalization Engine contract. */
 export interface NormalizationEngine {
   normalizeFields(
     context: NormalizationContext,

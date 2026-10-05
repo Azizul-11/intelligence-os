@@ -1,7 +1,4 @@
-/**
- * Single dimension extraction test
- * Check Supabase logs for semantic extraction
- */
+/** Single dimension extraction test; check Supabase logs for semantic extraction. */
 
 const ORCHESTRATOR_URL = "http://127.0.0.1:54321/functions/v1/orchestrator";
 

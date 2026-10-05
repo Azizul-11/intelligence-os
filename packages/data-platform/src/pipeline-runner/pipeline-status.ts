@@ -1,6 +1,4 @@
-/**
- * Current pipeline execution status.
- */
+/** Current pipeline execution status. */
 export type PipelineStatus =
   | "pending"
   | "running"

@@ -1,24 +1,5 @@
-/**
- * PrePhase 9.5 Round 3 — ownership+state crowd-out verification.
- *
- * Confirms a scope filter (ownership) combined with a state and NO
- * explicit ranking word now defaults to a ranked top-10 view instead of
- * silently dumping the state's full (up to 100-row) hospital list -
- * live dogfooding found "non-profit hospitals in California" returning
- * 100 unranked rows. Root cause: the phrase "hospitals in" resolves to
- * Healthcare's own non-rankable "Hospital List" metric, which prevented
- * `QueryPlanner`'s existing `discoverDefaultRankableMetric` fallback
- * (already working for a bare "non-profit hospitals", no state) from
- * ever running. Fixed via the new, domain-agnostic
- * `EntityCategory.isGeographicScope` contract flag: default-ranking
- * discovery now also fires whenever the only resolved metric is
- * non-rankable AND a non-geographic scope entity (e.g. ownership) is
- * also present - a PURE geographic list ("hospitals in Texas",
- * "hospitals in Birmingham Alabama") has no such entity and is
- * confirmed unaffected below.
- *
- * Run: npx tsx scripts/verify-ownership-state-crowdout.ts
- */
+/** PrePhase 9.5 R3: ownership+state with no ranking word must default to a ranked top-10, not 100 unranked rows ("hospitals in" hit the non-rankable
+ * Hospital List metric, so discoverDefaultRankableMetric never ran; fixed via EntityCategory.isGeographicScope). */
 import "dotenv/config";
 
 import { healthcareDomain, DOMAIN_CAPABILITIES } from "../domain-packs/healthcare/src/index";

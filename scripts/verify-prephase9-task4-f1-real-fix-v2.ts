@@ -1,19 +1,5 @@
-/**
- * Tier0 Task 4: F1 Benchmark Word-Order — REAL FIX V2 (Option A+)
- * Verification Suite.
- *
- * V1 (Option A) closed the P0 silent-wrong by refusing honestly
- * whenever a benchmark alias's own words were present but not
- * contiguous. V2 (Option A+) additionally registers known metric-gap
- * phrasings ("national mortality average", "national readmission
- * average", ...) as their own literal, contiguous aliases in
- * national-average.ts (Domain data only) - so these specific, common
- * phrasings now resolve directly to `national-average` and succeed,
- * while V1's `detectSubsumedBenchmarkRisk` safety net remains
- * unchanged and still catches any UNREGISTERED gap word.
- *
- * Run: npx tsx scripts/verify-prephase9-task4-f1-real-fix-v2.ts
- */
+/** Tier0 Task 4: F1 REAL FIX V2 (Option A+): common gap phrasings ("national mortality average", ...) are registered as literal aliases in
+ * national-average.ts and succeed; V1 detectSubsumedBenchmarkRisk still catches UNREGISTERED gap words. */
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";

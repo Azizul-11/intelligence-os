@@ -1,6 +1,4 @@
-/**
- * Describes the structural type of a metric.
- */
+/** Describes the structural type of a metric. */
 export enum MetricKind {
   NUMBER = "number",
   PERCENTAGE = "percentage",

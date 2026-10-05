@@ -1,8 +1,4 @@
 import type { DomainPack } from "@intelligence/domain-sdk";
-// import {
-//   SemanticRegistryBuilder,
-//   type SemanticRegistry,
-// } from "@intelligence/semantic";
 
 import {
   Normalizer,

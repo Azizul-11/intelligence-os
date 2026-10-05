@@ -1,13 +1,4 @@
-/**
- * LLM Integration Layer 0 (Conversational Front-Door Router) — verification.
- *
- * Confirms (a) the regex classifier correctly identifies conversational
- * vs analytical input, and (b) the gateway's own handleConversational()
- * produces a warm onboarding answer + real, dry-run-validated example
- * suggestions - live, against the real deployed capability catalog.
- *
- * Run: npx tsx scripts/verify-llm-layer0-conversational.ts
- */
+/** Layer 0 verification: regex classifier separates conversational from analytical input, and handleConversational() gives an onboarding answer with dry-run-validated suggestions (live catalog). Run: npx tsx scripts/verify-llm-layer0-conversational.ts */
 import "dotenv/config";
 
 import { healthcareDomain, DOMAIN_CAPABILITIES } from "../domain-packs/healthcare/src/index";
@@ -21,10 +12,7 @@ import { SupabaseDatabaseAdapter } from "../packages/sql-executor/src/supabase-d
 import { createClient } from "@supabase/supabase-js";
 import { llmGateway } from "../packages/llm-model-gateway/src/llm-model-gateway";
 import { env } from "./shared/env";
-// ConversationalFix (2026-09-27): was a stale, prefix-matching local copy of chat.ts's classifier (would have
-// wrongly swallowed "hi show me hospitals in HI") - imports the real, whole-utterance-anchored implementation
-// instead, the same one verify-batch1-word-drop-guards.ts already tests. See
-// docs/Post Capability Expansion Work/ConversationalFIx/AUDIT_CONVERSATIONAL_INTENT_ROUTING.md.
+// ConversationalFix (2026-09-27): imports the real whole-utterance-anchored classifier; the old prefix-matching copy swallowed "hi show me hospitals in HI".
 import { isConversational } from "../supabase/functions/orchestrator/services/conversational";
 
 const runtime = createDomainRuntime(healthcareDomain);

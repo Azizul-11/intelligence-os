@@ -1,18 +1,5 @@
-/**
- * Phase 8.6A - Universal Temporal Semantic Foundation Verification
- *
- * Verifies the single additive Phase 8.6A mechanism: a literal point-
- * year value (e.g. "2021") is now recognized as a TemporalCandidate,
- * kept entirely separate from `matches`/`SemanticCandidate` - a literal
- * year has no Domain-registered definition and is never looked up in
- * any registry (packages/semantic/src/temporal/temporal-resolver.ts).
- *
- * 8.6A introduces NO new answerability/runtime gate - every query here
- * is expected to resolve/execute (or fail to resolve) EXACTLY as it did
- * before this change. What is being proven is the presence/absence of
- * `semanticResult.temporalCandidates`, not any change in `success`,
- * `answerability`, or `sqlCalled`.
- */
+/** Phase 8.6A: a literal point-year ("2021") becomes a TemporalCandidate, kept separate from matches/SemanticCandidate and never looked up in a
+ * registry. No new gate: only the presence of temporalCandidates is proven, not success/answerability/sqlCalled changes. */
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
@@ -101,10 +88,8 @@ async function run() {
     );
   }
 
-  // 3 - HARD REGRESSION: "by year" must remain a dimension-typed
-  // candidate in `matches`, unchanged, with NO temporal literal
-  // candidate - and the existing capability-unavailable refusal must
-  // remain byte-for-byte identical (RCG-008 + Phase 8.5, untouched).
+  // 3 - HARD REGRESSION: "by year" stays a dimension candidate in matches with no temporal candidate, and the capability-unavailable refusal is
+  // byte-identical (RCG-008 + 8.5).
   {
     const semanticResult = semantic.resolve("best hospitals by year");
 
@@ -174,11 +159,8 @@ async function run() {
     );
   }
 
-  // 6 - OUT OF SCOPE, SAFELY: a range expression must not be
-  // misinterpreted as a single point-year filter. Both boundary years
-  // may each independently surface as their own point-year candidate
-  // (honest, unconnected literals) - what must NOT happen is the
-  // implementation inventing any combined "range" meaning.
+  // 6 - OUT OF SCOPE: a range must not become a single point-year filter; both boundary years may surface as separate literals but no combined range
+  // meaning may be invented.
   {
     const semanticResult = semantic.resolve("hospital mortality between 2021 and 2023");
 
@@ -193,9 +175,7 @@ async function run() {
     );
   }
 
-  // 7 - OUT OF SCOPE, SAFELY: "last year" must not invent a temporal
-  // value - no year literal exists in the text at all, so nothing
-  // should be produced.
+  // 7 - OUT OF SCOPE: "last year" has no year literal, so nothing may be produced.
   {
     const semanticResult = semantic.resolve("hospital mortality last year");
 
@@ -209,11 +189,8 @@ async function run() {
     );
   }
 
-  // 8 - OUT OF SCOPE, SAFELY: "before 2021" - the literal "2021" token
-  // is recognized as a plain point-year candidate (the same honest,
-  // context-free recognition as every other case), but 8.6A does not,
-  // and must not, attach any "before"/relational meaning to it - there
-  // is no `operator`/relation field on TemporalCandidate at all.
+  // 8 - OUT OF SCOPE: "before 2021" yields a plain point-year candidate; no before/relational meaning is attached (TemporalCandidate has no operator
+  // field).
   {
     const semanticResult = semantic.resolve("hospital mortality before 2021");
 

@@ -1,12 +1,5 @@
-/**
- * Audit Round 6 — targeted live evidence for the NEW bugs reported
- * (entity-resolution dossier failures, silent-wrong pneumonia comparison,
- * Ohio no-ranking-word, public ownership alias) plus reconfirmation of
- * yesterday's still-open bugs (safest, strongest). Read-only audit - no
- * code changes made based on this script's output.
- *
- * Run: npx tsx scripts/audit-round6-new-findings.ts
- */
+/** Audit Round 6: read-only live evidence for new bugs (dossier failures, pneumonia comparison, Ohio, ownership alias) and open bugs (safest, strongest).
+ * Run: npx tsx scripts/audit-round6-new-findings.ts */
 import "dotenv/config";
 
 import { healthcareDomain, DOMAIN_CAPABILITIES } from "../domain-packs/healthcare/src/index";

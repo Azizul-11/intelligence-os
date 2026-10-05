@@ -1,17 +1,5 @@
-/**
- * 2026-09-19 - name grounding for Layer 3 summaries (supabase/functions/orchestrator/services/summary-grounding.ts).
- *
- * The numeric cross-check in chat.ts cannot see a hospital that is not in the
- * table. Live, both summaries shown on the frontend named hospitals that were
- * not in their tables and passed it. This proves the new check rejects exactly
- * those, and does not reject grounded phrasing. No network, no cost.
- *
- *  P. The two summaries and tables pasted from the frontend (verbatim).
- *  A. Grounded phrasing that must NOT be rejected.
- *  R. Invented names that must be rejected (incl. the documented safe-side limit).
- *
- * Run: npx tsx scripts/verify-summary-grounding.ts
- */
+/** 2026-09-19: name grounding for Layer 3 summaries (summary-grounding.ts); the chat.ts numeric check misses hospitals absent from the table. P =
+ * frontend cases verbatim, A = grounded (must pass), R = invented names (must reject). No network. */
 import { findUngroundedNames } from "../supabase/functions/orchestrator/services/summary-grounding";
 import { DOMAIN_CAPABILITIES } from "../domain-packs/healthcare/src/runtime/capability-catalog";
 

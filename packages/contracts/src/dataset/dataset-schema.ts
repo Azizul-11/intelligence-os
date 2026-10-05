@@ -1,14 +1,8 @@
-/**
- * Describes the structure of a dataset.
- */
+/** Describes the structure of a dataset. */
 export interface DatasetSchema {
-  /**
-   * Schema name.
-   */
+  /** Schema name. */
   name: string;
 
-  /**
-   * Schema version.
-   */
+  /** Schema version. */
   version?: string;
 }

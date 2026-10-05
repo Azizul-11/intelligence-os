@@ -1,29 +1,5 @@
-/**
- * Pre-Phase 9 Tier0 Task 1 - Generates the Healthcare geographic directory.
- *
- * Reads distinct cities from the existing hospital-identity-directory.ts
- * (city data already present per facility) and distinct counties from the
- * CMS source CSV, then emits a plain TypeScript data module containing
- * COUNTIES and CITIES Maps with canonical values and associated states.
- *
- * Why reuse existing hospital-identity-directory.ts for cities:
- * - City data already extracted and normalized in hospital identity records
- * - Avoids duplicate CSV parsing and normalization logic
- * - Single source of truth: hospital-identity-directory.ts
- *
- * Why extract counties from CMS CSV:
- * - County data was recently added to hospital-identity-directory.ts
- * - Need distinct county list with state associations
- * - Same deterministic source: CMS Hospital_General_Information.csv
- *
- * Collision handling:
- * - "albany" exists as both city (Albany, NY/GA) and county (Albany County, NY)
- * - Suffix matching: "albany county" → county, bare "albany" → city (prioritized)
- * - This is resolved at resolve() time in entity-provider.ts
- *
- * This script is run manually, once (or whenever source data changes);
- * its output is committed as a real source file.
- */
+/** Pre-Phase 9 Tier0 Task 1: generates the geographic directory (COUNTIES/CITIES Maps) from hospital-identity-directory.ts (cities) and the CMS CSV (counties).
+ * Bare "albany" resolves to city, "albany county" to county (in entity-provider.ts). Run manually when source data changes; output is committed. */
 
 import { readFileSync, writeFileSync } from "fs";
 import { parse } from "csv-parse/sync";
@@ -38,9 +14,7 @@ interface CmsRow {
   "County/Parish": string;
 }
 
-/**
- * Generic text normalization - matches entity-provider.ts normalizeText()
- */
+/** Generic text normalization; must match entity-provider.ts normalizeText(). */
 function normalizeText(value: string): string {
   return value
     .trim()

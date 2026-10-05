@@ -1,11 +1,7 @@
 import type { ConceptDefinition } from "@intelligence/domain-sdk";
 
-// Batch 5B-2: the 11 individual AHRQ/CMS Patient Safety Indicators the warehouse holds, plus the PSI 90 composite.
-// PSI_05 and PSI_07 do not exist in this warehouse (5B audit section 2.2) and stay unregistered/unsupported.
-// Every code maps only to the "patient-safety-indicator" metric - never to "mortality-rate", even PSI_04 (a death
-// rate among a surgical population): filing a complication/death-after-complication rate under Mortality Rate would
-// mislabel it the way the pre-existing COMP_HIP_KNEE precedent already mislabels a complication rate as a
-// "Mortality Rate for Elective Primary Hip/Knee Arthroplasty" - not a mistake to repeat.
+// Batch 5B-2: 11 PSIs plus PSI 90; PSI_05 and PSI_07 are not in the warehouse. All map only to patient-safety-indicator, never mortality-rate (even PSI_04),
+// to avoid mislabelling like the COMP_HIP_KNEE precedent.
 
 export const pressureUlcer: ConceptDefinition = {
   id: "pressure-ulcer",

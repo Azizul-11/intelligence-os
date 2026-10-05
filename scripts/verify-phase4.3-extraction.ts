@@ -1,9 +1,4 @@
-/**
- * Phase 4.3 Category Semantic Extraction Verification
- *
- * Tests category alias resolution using the Healthcare Domain SDK.
- * NO SQL execution - semantic extraction only.
- */
+/** Phase 4.3 category alias resolution via the Healthcare Domain SDK; no SQL execution. */
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";

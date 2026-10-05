@@ -1,28 +1,5 @@
-/**
- * Phase 8.7 - Answerability Classification / Unclassified Failure
- * Closure Verification
- *
- * Phase 8.7's entire approved implementation scope is two generic
- * fallbacks added to `createRuntimeEngine()`
- * (packages/runtime-engine/src/create-runtime-engine.ts): any
- * `success: false` result that would otherwise reach the caller with
- * no `AnswerabilityResult` at all (a raw primary-executor failure, or
- * either of the two Phase 7 secondary-metric bespoke failure returns)
- * now receives `{status: "not_directly_answerable"}` - no reason,
- * since none of the existing six reason values accurately describes a
- * generic executor-level rejection. Every path that already attached a
- * specific answerability (identity-ambiguous, candidate-inconsistent,
- * semantic-incomplete, plan-incomplete, capability-unavailable,
- * data-unavailable) is completely unmodified.
- *
- * Tests 1-7, 10, 11 use the REAL semantic + planner + runtime-engine
- * pipeline against the REAL remote warehouse (SupabaseDatabaseAdapter)
- * - real runtime evidence, not manufactured. Tests 8-9 use a
- * controlled spy executor to deterministically force a primary or
- * secondary execution failure that real data cannot reliably
- * reproduce on demand - clearly labeled controlled failure injection,
- * never presented as production evidence.
- */
+/** Phase 8.7: two generic fallbacks give any success:false result lacking an AnswerabilityResult {status: "not_directly_answerable"} with no reason.
+ * Tests 1-7, 10, 11 use the real warehouse; 8-9 are controlled spy failure injection, not production evidence. */
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
@@ -151,15 +128,8 @@ async function run() {
     });
   }
 
-  // 7 - MAYO / ROCHESTER SAFETY + PRIMARY FAILURE FALLBACK (real, naturally-occurring)
-  //
-  // This is the exact real query the Phase 8.7 audit used to discover
-  // the gap: the entity resolves to `not_found` (Qualifier Identity
-  // Safety's Fix 1 correctly refusing to guess Jacksonville), is
-  // dropped, and the plan proceeds without a hospital filter, causing
-  // a genuine, naturally-occurring primary-executor failure ("Missing
-  // required parameter: hospitalId") - real runtime evidence, not
-  // injected.
+  // 7 - MAYO / ROCHESTER SAFETY + PRIMARY FAILURE FALLBACK (real): the entity resolves not_found (Fix 1 refuses to guess Jacksonville), is dropped,
+  // and the plan hits the real "Missing required parameter: hospitalId" executor failure.
   {
     const engine = makeRealEngine();
     const result = await engine.execute({
@@ -181,13 +151,8 @@ async function run() {
     );
   }
 
-  // 8 - PRIMARY EXECUTOR FAILURE FALLBACK (controlled failure injection)
-  //
-  // A spy executor deterministically returns a failed SqlExecutionResult
-  // for the primary template, regardless of query - forcing gate 9 in
-  // the Section 6 gate list (create-runtime-engine.ts's
-  // `if (!primaryResult.success)`) without depending on any specific
-  // real query shape. Controlled, not real warehouse evidence.
+  // 8 - PRIMARY EXECUTOR FAILURE FALLBACK (controlled injection): a spy returns a failed result for the primary template, forcing gate 9 (`if
+  // (!primaryResult.success)`) regardless of query.
   {
     const spyExecutor = {
       async execute() {
@@ -209,13 +174,8 @@ async function run() {
     );
   }
 
-  // 9 - SECONDARY EXECUTOR FAILURE FALLBACK (controlled failure injection)
-  //
-  // A spy executor succeeds for the primary ranking template but fails
-  // specifically for the secondary metric's `-by-facility-ids`
-  // template, exercising Phase 7's secondary-metric mechanism without
-  // depending on real data producing a secondary-only failure.
-  // Controlled, not real warehouse evidence.
+  // 9 - SECONDARY EXECUTOR FAILURE FALLBACK (controlled injection): the spy succeeds for the primary ranking template but fails the secondary
+  // "-by-facility-ids" template.
   {
     const spyExecutor = {
       async execute(template: { id: string }) {
@@ -247,9 +207,7 @@ async function run() {
     );
   }
 
-  // 10 - EXISTING REASON PRESERVATION (real, re-checks tests 5 and 6
-  // are not somehow overwritten by the new generic fallback logic -
-  // both gates return long before reaching either fallback location).
+  // 10 - EXISTING REASON PRESERVATION (real): tests 5 and 6 are not overwritten, since both gates return before either fallback.
   {
     const engine = makeRealEngine();
     const capabilityResult = await engine.execute({ question: "emergency department visits by hospital", parameters: {} });

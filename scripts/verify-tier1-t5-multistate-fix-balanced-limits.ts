@@ -1,28 +1,5 @@
-/**
- * Pre-Phase 9 Tier1 Task 5 Balanced Limits Fix Verification: Restore
- * Sanity — Top N Per State Partitioning — Production-Grade.
- *
- * SUPERSEDES the same-day true-raw / no-limit fix
- * (verify-tier1-t5-multistate-fix-true-raw.ts): dumping every matching
- * row (3182 for a bare nationwide ranking, 497/666 for multi-state) is
- * a real payload/UX problem, not the correct end state. This is the
- * authoritative post-fix verification for the final, production-grade
- * behavior:
- *   - Single-state / nationwide ranking: top 10 (unchanged from before
- *     Task 5 ever touched these templates).
- *   - Multi-state ranking: top 5 PER named state (ROW_NUMBER() OVER
- *     PARTITION BY state), so every requested state gets fair,
- *     balanced representation instead of one state's tied hospitals
- *     crowding out another's.
- *   - Single-state listing (hospital-list-by-state.ts): sensible
- *     ceiling of 100 (unchanged).
- *   - Multi-state listing: up to 50 PER named state (same partitioning
- *     mechanism), so an alphabetically-earlier state with more
- *     hospitals can't crowd another state out of the ceiling entirely.
- *
- * Live, in-process, spy-instrumented against the remote Supabase warehouse.
- * Run: npx tsx scripts/verify-tier1-t5-multistate-fix-balanced-limits.ts
- */
+/** Tier1 Task 5 balanced limits (authoritative; SUPERSEDES true-raw): ranking top 10 (single/nationwide) or top 5 PER state; listing 100 (single
+ * state) or 50 PER state, via ROW_NUMBER() OVER PARTITION BY state so no state crowds out another. */
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";

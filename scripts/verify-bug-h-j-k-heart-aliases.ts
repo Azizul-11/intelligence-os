@@ -1,44 +1,5 @@
-/**
- * Phase 3 Task 3.4 + 3.5 (combined, 2026-09-18) - remaining low-priority
- * items from the Round 6 audit.
- *
- * Bug H ("California public hospitals and their Patient Experience
- * scores" -> "does not include a ranking term"): investigated directly,
- * NOT a currently-reproducing bug. `patient-experience.ts` already
- * declares `rankable: true`, and the same generic "rankable metric +
- * state, no ranking word -> ranked top-10 by default direction"
- * mechanism already confirmed working for Hospital Overall Rating
- * (Round 6 audit's own note) is confirmed here to be fully generic -
- * it already covers Patient Experience, Readmission Rate, and Mortality
- * Rate identically. No code change made or needed - same "reconfirmed
- * already working" verdict as Bug I in the Round 6 audit.
- *
- * Heart aliases ("show me hospital for heart issue"): investigated, NOT
- * fixed by design. "Heart issue" is genuinely ambiguous between 2
- * distinct registered concepts with different measure codes -
- * acute-myocardial-infarction (AMI, "heart attack") and heart-failure
- * (HF/CHF) - silently picking one would be exactly the class of
- * silent-wrong-data bug this campaign has fixed elsewhere (Bug D), not
- * a fix. The current behavior - an honest refusal, already softened to
- * a friendly response via chat.ts's pre-existing
- * `BLUNT_FAILURE_MESSAGES` ("Unable to resolve question." was already
- * in that set before this task) plus real suggestion chips - is the
- * correct, non-fabricating behavior for a genuinely ambiguous phrase.
- * Documented as a deliberate non-fix, not a currently-reproducing bug
- * needing a code change.
- *
- * Huston typo (the one real, safely-scoped fix in this task): "Huston"
- * is a common one-letter-dropped misspelling of "Houston" - confirmed
- * via grep that "huston" is not itself a registered city/county
- * anywhere in geographic-directory.ts. Fixed with a new
- * `healthcareMisspellingRewrites` lexical-rewrite rule (NOT a hand-edit
- * to geographic-directory.ts, which is machine-generated and would lose
- * a hand-edit on the next regeneration).
- *
- * Run against a DETERMINISTIC-ONLY engine (no llmFallback).
- *
- * Run: npx tsx scripts/verify-bug-h-j-k-heart-aliases.ts
- */
+/** Phase 3 Tasks 3.4/3.5: Bug H is not reproducing (generic rankable-metric default already works); "heart issue" is deliberately NOT fixed (ambiguous between AMI and heart-failure, so an honest refusal); "Huston" fixed via healthcareMisspellingRewrites (geographic-directory.ts is machine-generated). Deterministic engine (no llmFallback).
+ * Run: npx tsx scripts/verify-bug-h-j-k-heart-aliases.ts */
 import "dotenv/config";
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";

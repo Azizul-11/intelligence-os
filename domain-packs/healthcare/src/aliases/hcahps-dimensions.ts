@@ -1,15 +1,7 @@
 import type { AliasDefinition } from "@intelligence/domain-sdk";
 
-// Batch 5B-3: aliases for the HCAHPS survey dimensions (concepts/hcahps-dimensions.ts).
-// - Concept aliases name the dimension. The first one is the display name (the one the prompt shows).
-// - A dimension alone names no metric, so a bare phrase ("cleanest hospitals") is completed by a lay-vocabulary group
-//   (runtime/lay-vocabulary.ts); formally worded questions ("nurse communication scores", "highest scores for
-//   cleanliness", "discharge information ranking") are completed by the composite metric aliases below - the same
-//   hip/knee overlap pattern as aliases/patient-safety-indicator.ts: the metric text is a strict superset of a concept
-//   alias, never the identical text (an identical metric+concept alias broke resolution in 5B-2).
-// - Nothing with the word "doctors" is registered: "doctors" is a pre-check topic (prices or individual doctors), so
-//   such a phrase would be refused before it is ever resolved. "Doctor Communication" (singular) is safe.
-// - "sanitary" (D9) is aliased here and is also a lay group with an interpretation note.
+// Batch 5B-3: HCAHPS dimension aliases; first concept alias is the display name. Metric aliases are strict supersets of a concept alias, never identical (broke 5B-2).
+// Nothing with "doctors" is registered: it is a pre-check topic and would be refused before resolving ("Doctor Communication" singular is safe).
 
 const concept = (id: string, aliases: string[]): AliasDefinition => ({
   id,

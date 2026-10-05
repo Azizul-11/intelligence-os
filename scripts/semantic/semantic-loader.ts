@@ -26,9 +26,7 @@ async function main() {
 
   const domain = healthcareDomain.manifest.metadata.id;
 
-  //
   // Load
-  //
 
   const entities = loadEntities(
     healthcareDomain.entities,
@@ -65,9 +63,7 @@ async function main() {
     domain,
   );
 
-  //
   // Validate
-  //
 
   const validation = validateSemanticRegistry({
     entities,
@@ -85,9 +81,7 @@ async function main() {
     throw new Error("Semantic validation failed.");
   }
 
-  //
   // Insert
-  //
 
   await insertEntities(entities);
 
@@ -103,9 +97,7 @@ async function main() {
 
   await insertRelationships(relationships);
 
-  //
   // Report
-  //
 
   const report = createSemanticReport(
     {

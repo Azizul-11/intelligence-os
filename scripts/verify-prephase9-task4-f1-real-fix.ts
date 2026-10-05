@@ -1,28 +1,5 @@
-/**
- * Tier0 Task 4: F1 Benchmark Word-Order — REAL FIX Verification Suite
- * (V1 - Option A: generic subsumed-alias refusal).
- *
- * P1 and GROUPA-2 updated by V2 (Option A+, see
- * verify-prephase9-task4-f1-real-fix-v2.ts): "national mortality
- * average" is now registered as its own literal, contiguous alias in
- * national-average.ts, so this specific phrasing succeeds directly
- * instead of hitting V1's `detectSubsumedBenchmarkRisk` safety net.
- * That safety net itself is UNCHANGED and still active - it now only
- * fires for a genuinely unregistered gap word (see V2's own
- * GF22-ARBITRARY-GAP-STILL-REFUSES). This is the same "deliberate,
- * documented test-assertion reversal" pattern used for Task 3's own
- * test 6/11 - the underlying safety property (never silently use the
- * wrong benchmark) is unweakened, only the specific query's outcome
- * changed because the Domain now recognizes it directly.
- *
- * Verifies, against the live remote database, Option A: a
- * domain-declared `genericFallbackOf` on `AliasDefinition`, consumed by
- * `detectSubsumedBenchmarkRisk()`
- * (packages/query-planner/src/candidate-consistency.ts) and wired as a
- * new pre-planning gate in `create-runtime-engine.ts`.
- *
- * Run: npx tsx scripts/verify-prephase9-task4-f1-real-fix.ts
- */
+/** Tier0 Task 4: F1 REAL FIX V1 (Option A): AliasDefinition.genericFallbackOf consumed by detectSubsumedBenchmarkRisk() as a pre-planning gate (live
+ * DB). P1/GROUPA-2 were updated by V2 (literal alias now succeeds); the safety net is unweakened. */
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";

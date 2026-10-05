@@ -1,17 +1,5 @@
-/**
- * Phase 7.5.3 - Generic Multi-Entity Representation Verification
- *
- * Proves, using domain-neutral fixtures only (no hospital names, no
- * facility IDs), that the Universal query-planner layer can now carry
- * multiple independently resolved entities of the same type through
- * QueryPlan.parameters and ExecutionPlan.filters without one silently
- * overwriting another - while leaving single-entity behavior byte-for-
- * byte unchanged.
- *
- * Exercises the REAL EntityParameterResolver, ExecutionPlanMapper, and
- * EntityResolver classes directly with hand-built fixtures - this is a
- * Universal Core contract/logic test, not a Healthcare capability test.
- */
+/** Phase 7.5.3: with domain-neutral fixtures, the real EntityParameterResolver/ExecutionPlanMapper/EntityResolver carry multiple same-type entities
+ * without overwriting, and single-entity behavior is byte-for-byte unchanged. */
 
 import type { SemanticCandidate } from "../packages/semantic/src/candidate/SemanticCandidate";
 import type { EntityDefinition, EntityProvider, EntityResolutionResult } from "../packages/domain-sdk/src/index";

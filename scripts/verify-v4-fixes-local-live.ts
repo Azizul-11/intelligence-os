@@ -1,15 +1,6 @@
 #!/usr/bin/env tsx
-/**
- * V4 fix plan (Batches 1-4) targeted live verification: the WORKING-TREE engine wired exactly like
- * services/domain-registry.ts (Layer 0.5 on, paid normalizer first, the same normalizeQuestion hook and
- * unsupportedPrecheck) against the LIVE warehouse (SELECT-only) and the LIVE model, for the combined row set in
- * --file (the 104 target rows from the four QUERIES_TO_FIX.json files, plus every sentinel row the four
- * BATCH_SPEC.md files name). Serial, --pause ms between rows (default 1200). Output: one JSONL record per row in
- * the sweep's own shape, so score2000.py scores it unchanged (v4 rows already route to score_v3; v1 rows carry
- * their own v3 flag untouched).
- *
- * Usage: pnpm exec tsx scripts/verify-v4-fixes-local-live.ts --file <path> --out <path> [--pause 1200] [--fresh]
- */
+/** V4 Batches 1-4 live check of the working-tree engine wired like services/domain-registry.ts (SELECT-only, live model), one JSONL record per row.
+ * Usage: pnpm exec tsx scripts/verify-v4-fixes-local-live.ts --file <path> --out <path> [--pause 1200] [--fresh] */
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "fs";
 import { createClient } from "@supabase/supabase-js";
 import { env } from "./shared/env";

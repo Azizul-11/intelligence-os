@@ -50,10 +50,6 @@ ORDER BY measure_code;
 
   enabled: true,
 
-  // Phase 8.6B: this template's only filter is the requested hospital's
-  // own identity, and a non-empty result is exclusively that hospital's
-  // own measures - a zero-row result genuinely means this hospital has
-  // no clinical-outcomes data, not merely that some other filter
-  // matched nothing.
+  // Phase 8.6B: the only filter is the hospital identity, so a zero-row result genuinely means no clinical-outcomes data, not another filter matching nothing.
   singleEntityRecord: true,
 };

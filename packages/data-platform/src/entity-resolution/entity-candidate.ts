@@ -1,29 +1,16 @@
 import type { ID, Metadata } from "@intelligence/contracts";
 
-/**
- * Represents a possible entity discovered during ingestion.
- *
- * This is a candidate only.
- * It has not yet been resolved against the platform.
- */
+/** A possible entity discovered during ingestion; not yet resolved against the platform. */
 export interface EntityCandidate {
-  /**
-   * Candidate identifier.
-   */
+  /** Candidate identifier. */
   id: ID;
 
-  /**
-   * Display name.
-   */
+  /** Display name. */
   name: string;
 
-  /**
-   * Optional external identifier.
-   */
+  /** Optional external identifier. */
   externalId?: string;
 
-  /**
-   * Additional metadata.
-   */
+  /** Additional metadata. */
   metadata?: Metadata;
 }

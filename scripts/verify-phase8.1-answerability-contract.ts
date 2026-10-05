@@ -1,18 +1,5 @@
-/**
- * Phase 8.1 - Minimal Validation / Answerability Contract Verification
- *
- * Verifies, at the semantic-resolution layer (no SQL execution):
- * - a genuinely ambiguous entity mention (a real duplicate hospital name)
- *   is now preserved as SemanticResolutionResult.identityAmbiguities,
- *   distinct from a phrase that was never understood at all;
- * - an explicit qualifier ("<name> in <state>") still resolves the same
- *   ambiguous name to exactly one canonical identity, unaffected;
- * - existing regression behavior (RCG-010 direction contradiction, F5
- *   negation gate, ordinary single-metric resolution) is unchanged.
- *
- * NO SQL execution - semantic extraction only. Live runtime/SQL-safety
- * evidence is captured separately (see PHASE_8_1_IMPLEMENTATION_REPORT.md).
- */
+/** Phase 8.1: a real duplicate hospital name is preserved as identityAmbiguities (distinct from never-understood phrases), qualifiers still resolve
+ * uniquely, and RCG-010/F5 regressions are unchanged; no SQL. */
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
@@ -34,10 +21,7 @@ function check(id: string, description: string, pass: boolean, detail: string) {
   results.push({ id, description, pass, detail });
 }
 
-// A1 - Duplicate/same-name entity: "Greene County Hospital" is a real,
-// confirmed duplicate in the CMS data (Alabama + Mississippi facilities).
-// Must NOT silently disappear - must surface as identityAmbiguities with
-// both candidate facility_ids, and must NOT produce a "hospital" candidate.
+// A1: "Greene County Hospital" is a real AL+MS duplicate; it must surface as identityAmbiguities with both facility_ids and no "hospital" candidate.
 {
   const result = semantic.resolve("Greene County Hospital overall rating");
   const ambiguities = result.identityAmbiguities ?? [];

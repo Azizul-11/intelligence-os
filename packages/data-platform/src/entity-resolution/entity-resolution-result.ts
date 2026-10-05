@@ -2,27 +2,17 @@ import type { Timestamp } from "@intelligence/contracts";
 
 import type { EntityMatch } from "./entity-match";
 
-/**
- * Result of entity resolution.
- */
+/** Result of entity resolution. */
 export interface EntityResolutionResult {
-  /**
-   * Resolution status.
-   */
+  /** Resolution status. */
   success: boolean;
 
-  /**
-   * Matches discovered.
-   */
+  /** Matches discovered. */
   matches: EntityMatch[];
 
-  /**
-   * Total entities resolved.
-   */
+  /** Total entities resolved. */
   resolved: number;
 
-  /**
-   * Processing timestamps.
-   */
+  /** Processing timestamps. */
   timestamps?: Timestamp;
 }

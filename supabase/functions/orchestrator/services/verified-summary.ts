@@ -3,23 +3,12 @@ import { findUngroundedNames, mentionsIdentifier } from "./summary-grounding.ts"
 import { getDomainCapabilities, prepareSummaryContext } from "./domain-registry.ts";
 import { llmGateway } from "@intelligence/llm-model-gateway";
 
-/**
- * Relocated from handlers/chat.ts (2026-09-27, post-clarification summary fix) so services/continuation.ts can call
- * it too without a circular import (chat.ts already imports continuation.ts). Behavior is unchanged from the
- * original chat.ts code - this is a pure move, not a rewrite.
- *
- * The summary is decoration: the rows are already the answer. On the free chain it took 10-44 s whenever the first
- * tiers were rate-limited (live, 2026-09-19), so the whole call gets a hard budget and a late summary is simply left
- * out - the same outcome as one the numeric cross-check rejects.
- */
+/** Relocated from handlers/chat.ts (2026-09-27) so continuation.ts can call it without a circular import; behavior unchanged.
+ * The summary is decoration (the rows are the answer): free-chain calls took 10-44 s when rate-limited (live, 2026-09-19), so the call has a hard budget and a late summary is left out. */
 const SUMMARY_DEADLINE_MS = 3500;
 
-/**
- * Phase 3.5: the summary is written from a prepared context (what the rows measure, the filters applied, precomputed
- * facts, plain-labelled rows - the domain builds it) and still passes the same guards: no code or column name, every
- * number present in the rows or in the context's facts, every name grounded. A rejected summary is not shown, and its
- * text and reason are kept (response metadata and the persisted trace) so a drop can be read instead of guessed.
- */
+/** Phase 3.5: the summary is written from the domain's prepared context and passes the same guards (no code/column name, every number in the rows or facts, every name grounded).
+ * A rejected summary is not shown; its text and reason are kept (response metadata, persisted trace). */
 export interface VerifiedSummary {
   summary?: string;
   rejected?: { reason: string; text: string };

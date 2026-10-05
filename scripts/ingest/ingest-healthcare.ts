@@ -1,10 +1,4 @@
-/**
- * IntelligenceOS
- *
- * Phase 3.11 — First Real ETL
- *
- * First end-to-end ETL pipeline for the Healthcare Domain SDK.
- */
+/** IntelligenceOS Phase 3.11: first end-to-end ETL pipeline for the Healthcare Domain SDK. */
 
 import { registerDataset } from "./pipeline/register";
 import fs from "node:fs";
@@ -49,9 +43,7 @@ async function main() {
   console.log("Starting Raw File Registration...");
   console.log("");
 
-  // -----------------------------------------------------
   // Locate the raw dataset
-  // -----------------------------------------------------
 
   const datasetPath = path.resolve(
     "data",

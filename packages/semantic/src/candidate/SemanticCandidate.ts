@@ -22,81 +22,38 @@ export type SemanticDefinition =
 
 
 export interface SemanticCandidate {
-  /**
-   * Original phrase extracted from the query.
-   */
+  /** Original phrase extracted from the query. */
   phrase: string;
 
-  /**
-   * Canonical registry key.
-   */
+  /** Canonical registry key. */
   canonicalKey: string;
 
-  /**
-   * Semantic classification.
-   */
+  /** Semantic classification. */
   semanticType: SemanticType;
 
-  /**
- * Full semantic definition loaded from the registry.
- */
+  /** Full semantic definition loaded from the registry. */
 definition: SemanticDefinition;
 
-  /**
-   * Confidence score.
-   * 0.0 - 1.0
-   */
+  /** Confidence score, 0.0 - 1.0. */
   confidence: number;
 
-  /**
-   * Phrase start token index.
-   */
+  /** Phrase start token index. */
   start: number;
 
-  /**
-   * Phrase end token index.
-   */
+  /** Phrase end token index. */
   end: number;
 
   resolvedValue?: unknown;
 
-  /**
-   * Ranking direction implied by a nearby superlative modifier
-   * ("highest", "lowest", ...), when one could be associated with this
-   * candidate. Only meaningful for metric-typed candidates. Generic,
-   * domain-agnostic — populated by ModifierDirectionResolver.
-   */
+  /** Ranking direction from a nearby superlative modifier; metric-typed candidates only, set by ModifierDirectionResolver. */
   direction?: "asc" | "desc";
 
-  /**
-   * Batch 3 (D1): which kind of modifier word `direction` came from - a
-   * "performance" word ("best", "worst": the word itself says which end is
-   * good) or a "magnitude" word ("highest", "lowest": it names the number).
-   * Generic, domain-agnostic - populated with `direction` by
-   * ModifierDirectionResolver; the planner combines it with the metric's
-   * `lowerIsBetter` to normalize the ExecutionPlan direction.
-   */
+  /** Batch 3 (D1): whether `direction` came from a "performance" word (best/worst) or a "magnitude" word (highest/lowest); the planner combines it with `lowerIsBetter`. */
   directionBasis?: "performance" | "magnitude";
 
-  /**
-   * True when this candidate's phrase was introduced by a domain's
-   * declared generic-ranking-idiom rewrite rule (see
-   * LexicalRewriteRule) rather than appearing verbatim in the user's
-   * original text - i.e. it represents a fallback/default meaning
-   * supplied in the absence of anything more specific, not an explicit
-   * user request. Generic, domain-agnostic — populated by
-   * SemanticPipeline from LexicalRewriter's applied-replacements record.
-   * Only meaningful for metric-typed candidates.
-   */
+  /** True when the phrase came from a domain generic-ranking-idiom rewrite rule, not the user's text (a default meaning); metric-typed only, set by SemanticPipeline. */
   isFallback?: boolean;
 
-  /**
-   * Batch 4: the text of the lexical rewrite rule(s) that introduced this
-   * candidate's phrase (e.g. "hospital comes out on top" for the phrase
-   * "hospital overall rating"). The rule itself is the domain's declaration
-   * that it understands those words, so they count as accounted for. Generic,
-   * domain-agnostic - populated by SemanticPipeline from LexicalRewriter's
-   * applied-replacements record, read by QueryPlanner.
-   */
+  /** Batch 4: text of the rewrite rule(s) that introduced this phrase; counts as accounted-for wording, read by QueryPlanner. */
   consumedText?: string;
 }

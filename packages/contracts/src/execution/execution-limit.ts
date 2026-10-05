@@ -1,17 +1,8 @@
-/**
- * Universal execution limit.
- *
- * Represents the maximum number of results to return.
- * Domain-agnostic representation of result limiting.
- */
+/** Universal maximum number of results to return. */
 export interface ExecutionLimit {
-  /**
-   * Maximum number of records to return.
-   */
+  /** Maximum number of records to return. */
   value: number;
 
-  /**
-   * Optional offset for pagination.
-   */
+  /** Optional offset for pagination. */
   offset?: number;
 }

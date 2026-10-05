@@ -1,21 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PendingInteraction } from "@intelligence/contracts";
 
-/**
- * Phase 8.10 Layer 2: Retrieve and validate a pending interaction.
- * 
- * Enforces lifecycle checks:
- * - Must exist
- * - Must not be consumed
- * - Must not be expired
- * - If user_id present, must match requestUserId
- * 
- * @param supabase Supabase client
- * @param pendingInteractionId UUID of the pending interaction
- * @param requestUserId Optional user ID from the request (for optional binding)
- * @returns Valid pending interaction
- * @throws Error if interaction not found, consumed, expired, or unauthorized
- */
+/** Phase 8.10 Layer 2: retrieves a pending interaction, throwing unless it exists, is unconsumed and unexpired, and (if it has a user_id) matches requestUserId. */
 export async function retrievePendingInteraction(
   supabase: SupabaseClient,
   pendingInteractionId: string,

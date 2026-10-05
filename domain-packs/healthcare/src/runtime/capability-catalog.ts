@@ -40,11 +40,7 @@ export interface CapabilityCatalog {
   exampleAnswerableQuestions: string[];
   /** Illustrative only - what the platform is explicitly NOT for, so the LLM never tries to force-fit an off-topic question into a metric. */
   nonAnswerableExamples: string[];
-  /**
-   * Batch 5A-1: the domain's layperson vocabulary (runtime/lay-vocabulary.ts). The orchestrator's generic mapper turns
-   * a layperson phrase ("heart problem", "trouble breathing") into the canonical question the pipeline answers, before
-   * any model is called; the same data is quoted into the normalizer prompt.
-   */
+  /** Batch 5A-1: layperson vocabulary (lay-vocabulary.ts); the orchestrator maps lay phrases to canonical questions before any model call and quotes it in the normalizer prompt. */
   layVocabulary?: LayVocabulary;
   /** Batch 5A-1: for a topic the platform does not answer, what to say and which answerable questions to offer instead. */
   scopeGuidance?: ScopeGuidance[];
@@ -56,20 +52,12 @@ export interface CapabilityCatalog {
   prompts?: PromptWording;
   /** Batch 5A-2: what a canonical question the model wrote that the pipeline cannot rank means here (lay-vocabulary.ts). */
   canonicalRepairs?: CanonicalRepair[];
-  /**
-   * 2,000 sweep (Batch E): unsupported topics as regular expressions. A year: the data is one CMS release, so "in 2019",
-   * "since 2020" or "in 2030" asks for a period it does not hold (every catalog row naming a year expects a refusal). A
-   * numeric threshold ("below 15%", "between 80% and 90%"): the rankings compare hospitals, they do not filter by value.
-   */
+  /** 2,000 sweep (Batch E): unsupported topics as regexes: a year (data is one CMS release) and a numeric threshold (rankings do not filter by value). */
   unsupportedPatterns?: string[];
   /** 2,000 sweep (Batch D): a word that alone is ambiguous; a question using it is clarified, whatever the model wrote. */
   ambiguousTerms?: AmbiguousTerm[];
-  /**
-   * Batch Normalizer Enhancement: a topic keyed here is a refusal only when the question ALSO contains one of these
-   * companion words. "years ago" alone is a narrative connector ("my grandpa had bypass surgery years ago and now
-   * needs another one"); only a comparison word ("better", "changed", "trend"...) turns it into a real, unanswerable
-   * historical-snapshot request ("was the rating better five years ago?" - the only two catalog rows that need it).
-   */
+  /** Batch Normalizer Enhancement: a topic keyed here refuses only with a companion word; "years ago" alone is narrative, with "better"/"changed"/"trend" it is a real
+   * unanswerable historical request. */
   unsupportedTopicRequires?: Record<string, string[]>;
 }
 
@@ -79,32 +67,19 @@ const METRIC_DISPLAY_NAME_BY_ID = new Map(healthcareMetrics.map((m) => [m.id, m.
 const CONCEPTS_WITH_REAL_MEASURES = concepts.filter((c) => c.measureCodesByMetric);
 const CONCEPTS_WITHOUT_MEASURES = concepts.filter((c) => !c.measureCodesByMetric);
 
-/**
- * Batch 1 (D2): what the platform does not answer today. Lower-case exact phrases, matched on word boundaries, never
- * fuzzily. A phrase that becomes a registered alias drops out automatically. Also drives a deterministic pre-check
- * on the raw question (Batch 3). Batch 5A-1 narrowed this to what's really unanswerable - layperson wording moved
- * to the layperson vocabulary (lay-vocabulary.ts) instead.
- */
+/** Batch 1 (D2): unanswerable topics as lower-case exact phrases on word boundaries, never fuzzy; a phrase that becomes an alias drops out.
+ * Also drives the deterministic pre-check (Batch 3); layperson wording moved to lay-vocabulary.ts (5A-1). */
 const KNOWN_UNSUPPORTED_TOPICS = [
   "hospital acquired infection", "hospital acquired infections",
-  // Batch 5B-2: the 11 individual PSIs, the PSI 90 composite and postoperative sepsis are registered
-  // (concepts/psi.ts, concepts/sepsis.ts); PSI_05 and PSI_07 do not exist in the warehouse and stay refused, as
-  // does any measure the sepsis word implies but the data does not have (a mortality or a survival rate).
+  // Batch 5B-2: PSIs and postoperative sepsis are registered; PSI_05/PSI_07 and sepsis mortality/survival (no such data) stay refused.
   "psi 5", "psi 05", "psi 7", "psi 07",
   "sepsis mortality", "sepsis survival", "sepsis recovery",
-  // Batch 5B-1: stroke and hospital-wide mortality are registered (concepts/stroke.ts, concepts/hospital-wide-mortality.ts);
-  // only the measure the warehouse does not have stays refused, as its own longer literal (the pre-check reports only
-  // the longest matching topic, so "stroke mortality" no longer matches these but "stroke readmission" still does).
+  // Batch 5B-1: stroke and hospital-wide mortality are registered; only "stroke readmission" stays refused, as a longer literal (pre-check reports the longest match).
   "stroke readmission", "stroke complications", "hospital wide readmission",
-  // Batch 5B-3: the 8 patient-survey dimensions and the summary star are registered (concepts/hcahps-dimensions.ts);
-  // only what the survey data does not hold stays refused: staff responsiveness (H_COMP_3) and care transition
-  // (H_COMP_7) have 0 rows, and single survey items ("nurses listen carefully") are deferred (D3).
+  // Batch 5B-3: 8 survey dimensions and summary star are registered; H_COMP_3/H_COMP_7 (0 rows) and single survey items (D3) stay refused.
   "staff responsiveness", "responsiveness", "care transition", "care transitions", "listen carefully",
-  // Batch 5B-4: hospital types, emergency services and birthing-friendly are registered
-  // (runtime/hospital-attribute-directory.ts); the emergency-department topics below (waits, volumes) stay refused.
-  // Batch 5B-1: physician, tribal, military and church-owned ownership sub-labels are registered
-  // (runtime/ownership-directory.ts) - the Batch 4 hold on this and on DC ("deferred to post-baseline capability
-  // expansion") is lifted for this batch.
+  // Batch 5B-4: hospital types, emergency services and birthing-friendly are registered (hospital-attribute-directory.ts); ED waits/volumes stay refused.
+  // Batch 5B-1: physician, tribal, military and church-owned sub-labels are registered (ownership-directory.ts); the Batch 4 hold on them and on DC is lifted.
   "address", "phone number", "phone numbers", "telephone", "patient records", "poem",
   // Batch 5C: a region (the platform searches by state, county or city), medical knowledge, and peer similarity.
   "bay area", "symptoms of", "symptom of", "similar to",
@@ -120,30 +95,21 @@ const KNOWN_UNSUPPORTED_TOPICS = [
   // Batch E: schooling, not a hospital measure ("the best university to study nursing near Mayo Clinic"). Not "university":
   // university hospitals are hospitals.
   "study nursing", "nursing school", "nursing schools",
-  // Batch E: what no table holds, which the model answered with a neighbouring measure (central line infections as
-  // accidental puncture, wrong-site surgery as PSI 15, pain management as communication about medicines) or dropped
-  // ("best cancer hospitals in Texas" answered as the overall rating). Checked against the 2,000 catalog: every question
-  // containing one expects a refusal.
+  // Batch E: topics no table holds, which the model answered with a neighbouring measure or dropped (central line infections, wrong-site surgery, cancer hospitals);
+  // every such question in the 2,000 catalog expects a refusal.
   "central line", "central line infections", "clabsi", "c diff", "mrsa", "wrong site surgery", "wrong site",
   "parking", "pain management", "how busy", "weight loss surgery", "bariatric", "cancer hospital", "cancer hospitals",
   "cancer care", "cancer treatment", "oncology", "dental", "dentist", "patients admitted", "yesterday", "medicaid",
   "insurance", "medical records", "rehab", "rehabilitation",
-  // Batch 5B-5: DC ("dc", "d.c.", "district of columbia", refused since Batch 3) and the territories are registered
-  // jurisdictions now (runtime/entity-provider.ts STATES).
-  // V4 fix plan (Batch 1): organ transplants and pediatric surgery are not registered concepts (no measure the
-  // warehouse holds names them); refusing them at the pre-check, before any model call, is what already happens for
-  // "cancer care" and "weight loss surgery" above. Added because the unaccounted-word guard's new limit-count
-  // tolerance (this batch) would otherwise have let a stacked "top N"/"top five" carry a question with one of these
-  // words past the guard undetected, into a wrong answer instead of the refusal it already got today by coincidence.
+  // Batch 5B-5: DC and territories are registered jurisdictions (entity-provider.ts STATES).
+  // V4 fix plan (Batch 1): organ transplants and pediatric surgery stay pre-check refusals so the limit-count tolerance cannot let them through into a wrong answer.
   "transplant", "pediatric surgery", "kids surgery",
 ];
 
 /** Batch A2: phrases where a topic word isn't actually the topic (e.g. "doctors explain things" is the doctor communication score, not a request for clinician info). */
 const UNSUPPORTED_TOPIC_EXCEPTIONS: Record<string, string[]> = {
   since: ["since my", "since our", "since his", "since her", "since their", "since i", "since we", "since he", "since she", "since they", "since your"],
-  // Batch Normalizer Enhancement: "doctors actually explain" (an adverb between "doctors" and the verb) and "doctors
-  // listen"/"doctors treat" (two verbs the earlier list did not cover) were still refused - the Doctor Communication
-  // survey item, not a request for clinician-level information.
+  // Batch Normalizer Enhancement: "doctors actually explain/listen/treat" are the Doctor Communication survey item, not clinician-level requests.
   doctors: [
     "doctors explain", "doctors who explain", "doctors that explain", "doctors actually explain", "doctors really explain",
     "doctors communicate", "doctors who communicate", "doctors that communicate",

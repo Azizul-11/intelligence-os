@@ -1,41 +1,5 @@
-/**
- * Tier0 Task 6 Audit: Disambiguation Turn-2 Context Drop.
- *
- * STRICTLY DIAGNOSTIC — this script performs no production writes to
- * source or schema. It replicates the real two-turn continuation flow
- * exactly, in-process, by:
- *
- *   1. Calling the real in-process RuntimeEngine for Turn 1 (identical to
- *      chat.ts's `executeRuntime`), then reproducing chat.ts's own
- *      `offeredOptions` construction (handlers/chat.ts lines ~66-79)
- *      verbatim, so `offeredOptions` here has the exact shape production
- *      builds (facility_id, hospital_name, city, state, displayLabel).
- *   2. Persisting a real `pending_interactions` row via the actual,
- *      unmodified `createPendingInteraction` (same table, same lifecycle,
- *      same 5-minute TTL production uses) — this is the same mechanism
- *      chat.ts itself relies on, not a mock.
- *   3. Retrieving it via the real `retrievePendingInteraction`, matching
- *      the user's Turn 2 reply via the real `matchClarificationResponse`,
- *      and reconstructing Turn 2's question via the exact same logic
- *      `continuation.ts` runs (reproduced inline below because
- *      `continuation.ts` itself is a Deno-only edge function file that
- *      cannot be imported into this Node/tsx script — the reconstruction
- *      logic is otherwise byte-for-byte identical, and every deterministic
- *      helper it calls — matchClarificationResponse,
- *      reconstructClarificationRequest, reconstructHospitalChoice — is the
- *      real, unmodified `@intelligence/runtime-engine` export, not a copy).
- *   4. Executing Turn 2's reconstructed question through the same
- *      in-process RuntimeEngine, and — if it fails — reproducing
- *      `lookupHospitalOverallRating`'s exact fallback (a direct
- *      `hospital-overall-rating` template execution by facility_id, the
- *      same template/executor already used for Turn 1) to show precisely
- *      what production would return.
- *   5. Consuming the pending interaction afterward (real, same as
- *      production) so no row is left dangling.
- *
- * No production TypeScript file, SQL template, or migration is modified by
- * this script. Run: npx tsx scripts/verify-prephase9-task6-continuation-context-audit.ts
- */
+/** Tier0 Task 6 Audit: Turn-2 context drop in disambiguation. DIAGNOSTIC ONLY; replays the two-turn flow in-process with real pending_interactions
+ * and runtime-engine helpers; continuation.ts logic is reproduced inline (Deno-only, not importable). */
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";

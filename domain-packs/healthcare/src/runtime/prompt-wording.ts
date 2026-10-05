@@ -1,24 +1,12 @@
-/**
- * Batch 5A-2: the domain's own words for the prompts the LLM gateway assembles. The gateway (packages/llm-model-gateway) owns
- * the structure and the output contract and names no domain, entity or example; every sentence about hospitals, ownership,
- * states, conditions or this platform lives here and is only quoted back. Moved verbatim from the gateway, so the prompts a
- * healthcare question sees are unchanged by the move (checked byte for byte when it was made).
- *
- * The plain-wording rule (RULE 4) and its examples are generated from the layperson vocabulary (lay-vocabulary.ts), so the
- * model and the deterministic mapper read a phrase the same way.
- */
+/** Batch 5A-2: the domain's own words for the LLM gateway prompts (the gateway owns structure and output contract and names no domain); moved verbatim, prompts unchanged.
+ * The plain-wording rule (RULE 4) is generated from lay-vocabulary.ts so the model and the deterministic mapper read phrases alike. */
 import type { PromptWording } from "@intelligence/llm-model-gateway";
 
 import { LAY_PROMPT_RULES } from "./lay-vocabulary";
 import { hcahpsDimensionConcepts } from "../concepts/hcahps-dimensions";
 
-/**
- * Batch Normalizer Enhancement: audit evidence (docs/Post Capability Expansion Work/NORMALIZER_MODEL_UPGRADE_AUDIT.md
- * §0.3) showed the model refuses colloquial survey wording ("less noise", "clean bathrooms", "get some sleep") when
- * these dimensions are named only by their clinical display name. A short everyday hint per dimension, tested in that
- * audit's probe (flash 22 -> 27 of 30 semantic/slot questions, no regression on any other model), fixes it for free -
- * no model swap needed. Keyed by concept id, not displayName, so a renamed dimension keeps its hint.
- */
+/** Batch Normalizer Enhancement: everyday hints per survey dimension fix colloquial wording the model refused (NORMALIZER_MODEL_UPGRADE_AUDIT.md 0.3);
+ * keyed by concept id, not displayName, so a rename keeps its hint. */
 const SURVEY_TOPIC_HINTS: Readonly<Record<string, string>> = {
   "hcahps-cleanliness": "clean rooms and bathrooms, sanitary, germaphobe-friendly",
   "hcahps-nurse-communication": "nurses listen, explain clearly, treat you with respect",
@@ -62,12 +50,8 @@ export const HEALTHCARE_PROMPT_WORDING: PromptWording = {
       "RULE 6 - REPORT WHAT IS NOT SUPPORTED (a report only: it never changes status, canonical_question or any other rule):",
       "Fill unsupported_terms with the user's EXACT words (copied from the question) for anything they ask FOR that is outside METRICS, CONDITIONS, SURVEY TOPICS, HOSPITAL TYPES, FLAGS, OWNERSHIPS, STATES, US places and hospital names: a condition or measure that is not listed, a symptom (except the plain wording in RULE 4), a hospital attribute or service (emergency-room wait times, staff responsiveness), a time window (a year, \"since 2020\"). Never list comparison words, hospital names, typos or informal wording of a LISTED thing, filler, or code fragments. Choose status and canonical_question exactly as the other rules say; when nothing is unsupported, unsupported_terms is [].",
     ],
-    // Batch Normalizer Enhancement: the 15 few-shot format examples that lived here are removed. The audit
-    // (docs/Post Capability Expansion Work/NORMALIZER_MODEL_UPGRADE_AUDIT.md §4.2) found every model equal or better
-    // WITHOUT them (flash 44/48 lean vs an average 39.5/48 across the two full-prompt runs) - they were added for
-    // free-tier models that pattern-matched on examples (the R2 comment in llm-model-gateway.ts), which this chain no
-    // longer uses. The output contract (the JSON shape) and every rule (RULE 1-6, including the refusal boundaries in
-    // RULE 5/6) are untouched; only the worked examples are gone.
+    // Batch Normalizer Enhancement: the 15 few-shot examples were removed; the audit (NORMALIZER_MODEL_UPGRADE_AUDIT.md 4.2) found every model equal or better without them.
+    // The output contract and RULE 1-6 are unchanged.
     examples: [],
   },
   suggestionPhrasing: [
@@ -89,9 +73,7 @@ export const HEALTHCARE_PROMPT_WORDING: PromptWording = {
     "select or invent anything outside the given pool.",
     "Return a JSON array of exactly {count} rephrased strings, each corresponding to one selected pool item.",
   ],
-  // Phase 3.5: an executive summary written from a prepared context (runtime/summary-context.ts) - the measure, its
-  // direction and unit, the applied filters, precomputed facts and plain-labelled rows - instead of 1-2 sentences
-  // restating raw rows. The grounding check accepts numbers from `rows` and `context.facts` only.
+  // Phase 3.5: executive summary written from a prepared context (summary-context.ts); the grounding check accepts numbers from `rows` and `context.facts` only.
   summary: [
     "You write the answer summary for a US hospital-quality analytics product; the reader is a busy executive.",
     "The input is JSON: question, context {kind, measure, filters, scope, facts, alreadyShown} and rows.",

@@ -11,10 +11,7 @@ interface Span {
   end: number;
 }
 
-/**
- * Batch 3 (D1): a modifier's direction plus which kind of word it was
- * (see PERFORMANCE_MODIFIERS): a performance word or a magnitude word.
- */
+/** Batch 3 (D1): a modifier's direction plus its kind (performance or magnitude). */
 export interface ResolvedDirection {
   direction: Direction;
   basis: DirectionBasis;
@@ -34,22 +31,7 @@ function classifyModifier(word: string): ResolvedDirection | undefined {
   return { direction, basis: PERFORMANCE_MODIFIERS.has(word) ? "performance" : "magnitude" };
 }
 
-/**
- * Associates a candidate phrase with the nearest English superlative
- * modifier token ("highest", "lowest", "best", ...), by plain token-index
- * distance — no regex, no domain vocabulary.
- *
- * Operates over the ORIGINAL (pre-rewrite) token sequence, since the
- * pipeline's LexicalRewriter strips modifier words before phrase
- * extraction runs. The candidate's own phrase is located within that
- * original sequence via a literal, sequential subsequence search (not a
- * regex) — this also means a candidate whose phrase only exists after a
- * lexical rewrite (e.g. a hardcoded Healthcare phrase substitution) will
- * simply not be found, and this resolver returns `undefined`, leaving the
- * caller to fall back to whatever direction signal it already has.
- *
- * Generic, domain-agnostic: usable unchanged by any Domain SDK.
- */
+/** Associates a candidate phrase with the nearest superlative modifier by token distance over the ORIGINAL (pre-rewrite) tokens; a phrase that exists only after a rewrite is not found and yields `undefined`. */
 export class ModifierDirectionResolver {
   resolve(
     originalTokens: readonly string[],
@@ -96,10 +78,7 @@ export class ModifierDirectionResolver {
     return classifyModifier(modifierWord);
   }
 
-  /**
-   * Finds the first contiguous occurrence of `words` within `tokens`.
-   * Plain sequential array comparison — no regex.
-   */
+  /** First contiguous occurrence of `words` within `tokens` (no regex). */
   private findSpan(
     tokens: readonly string[],
     words: readonly string[],
@@ -122,12 +101,7 @@ export class ModifierDirectionResolver {
     return undefined;
   }
 
-  /**
-   * Finds the modifier token index nearest to `span` by absolute token
-   * distance. On an exact tie, prefers the modifier preceding the span
-   * (English convention: a superlative modifier typically precedes the
-   * noun phrase it modifies, e.g. "best rating", "lowest mortality").
-   */
+  /** Nearest modifier index to `span` by token distance; on a tie prefers the preceding modifier. */
   private findNearestModifier(
     modifierTokenIndices: readonly number[],
     span: Span,
@@ -161,20 +135,7 @@ export class ModifierDirectionResolver {
     return best?.index;
   }
 
-  /**
-   * Classifies a direction directly from a piece of arbitrary text (e.g.
-   * a domain's lexical-rewrite rule pattern, such as "worst hospitals")
-   * by checking whether any of its words is a recognized superlative
-   * modifier - no span or token-distance logic, no candidate-phrase
-   * search.
-   *
-   * Used when a candidate's own phrase cannot be located in the
-   * original text at all - a fallback/rewrite-derived candidate, whose
-   * phrase only exists after the rewrite ran (see RCG-020) - so the
-   * ordinary resolve() method's span-based approach can never apply.
-   * Generic, domain-agnostic: the caller supplies arbitrary text: this
-   * method never inspects domain or metric identity.
-   */
+  /** Classifies direction from arbitrary text (e.g. a rewrite rule pattern) with no span search; used when a rewrite-derived candidate's phrase is absent from the original text (RCG-020). */
   resolveFromText(text: string): Direction | undefined {
     return this.resolveFromTextDetailed(text)?.direction;
   }
@@ -194,32 +155,7 @@ export class ModifierDirectionResolver {
     return undefined;
   }
 
-  /**
-   * RCG-010: detects a genuine direction contradiction - both an
-   * ascending and a descending modifier present among the given
-   * indices - as distinct from a legitimate "from X to Y" range/order
-   * expression (e.g. "rank hospitals from best to worst"), which is
-   * not a contradiction and must be left alone.
-   *
-   * Domain-agnostic and candidate-agnostic: only ever inspects the
-   * existing generic ASCENDING_MODIFIERS/DESCENDING_MODIFIERS sets and
-   * the ordinary English words "from"/"to" - never a domain-specific
-   * word, never a regex. Callers are responsible for first confirming
-   * this check should even apply (see SemanticPipeline: only when the
-   * query names exactly one distinct metric - a genuine cross-metric
-   * query, e.g. "highest rating and lowest mortality", legitimately
-   * carries an ascending and a descending modifier for two DIFFERENT
-   * candidates, which is not a contradiction and must never reach this
-   * method at all).
-   *
-   * The range/order exemption is intentionally narrow: exactly one
-   * ascending and one descending modifier, with "from" immediately
-   * preceding whichever comes first in the text and "to" immediately
-   * preceding whichever comes second. Any other shape (three or more
-   * conflicting modifiers, or two conflicting modifiers not connected
-   * by "from ... to ...") is reported as a contradiction rather than
-   * guessed at.
-   */
+  /** RCG-010: detects a genuine ascending-vs-descending contradiction; exactly one of each joined as "from X to Y" is a legitimate range and exempt, any other shape is reported. Callers apply it only when the query names one distinct metric. */
   detectContradiction(
     originalTokens: readonly string[],
     modifierTokenIndices: readonly number[],

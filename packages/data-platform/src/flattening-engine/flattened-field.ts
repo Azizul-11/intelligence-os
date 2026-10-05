@@ -1,14 +1,8 @@
-/**
- * Represents one flattened field.
- */
+/** Represents one flattened field. */
 export interface FlattenedField {
-  /**
-   * Canonical field name.
-   */
+  /** Canonical field name. */
   name: string;
 
-  /**
-   * Flattened value.
-   */
+  /** Flattened value. */
   value: unknown;
 }

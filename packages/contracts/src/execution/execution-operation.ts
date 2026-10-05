@@ -1,9 +1,4 @@
-/**
- * Universal execution operations.
- *
- * Represents the high-level intent of what the execution should accomplish.
- * Independent of SQL, domain-specific logic, or implementation details.
- */
+/** Universal high-level execution intent, independent of SQL and domain logic. */
 export type ExecutionOperation =
   | "lookup" // Retrieve specific records
   | "rank" // Order records by a metric

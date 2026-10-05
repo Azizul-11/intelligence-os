@@ -1,25 +1,5 @@
-/**
- * Pre-Phase 9 Tier1 Task 5 UI/UX Gap Fix Verification: True Raw / No
- * Limit (removes the ranking/list templates' hardcoded LIMIT, which
- * previously crowd-out one state's hospitals entirely from a
- * multi-state ranking result once a wide tie existed at the requested
- * rating).
- *
- * SUPERSEDED (2026-09-12, same day): "true raw / no limit" turned out to
- * be the wrong end-state on its own - dumping every matching row (3182
- * for a bare nationwide ranking) is a real payload/UX problem, not a
- * fix. The Tier1 T5 balanced-limits fix (ROW_NUMBER() OVER PARTITION BY
- * state) is the actual final behavior - see
- * verify-tier1-t5-multistate-fix-balanced-limits.ts for the
- * authoritative post-fix suite. Assertions below are updated to check
- * "both states present, no crowd-out" against the new balanced counts
- * rather than the old true-raw exact-DB-count numbers, so this script
- * still has a purpose (proving no crowd-out) without asserting a
- * behavior that's no longer correct.
- *
- * Live, in-process, spy-instrumented against the remote Supabase warehouse.
- * Run: npx tsx scripts/verify-tier1-t5-multistate-fix-true-raw.ts
- */
+/** Tier1 Task 5 true-raw / no-limit fix, SUPERSEDED (2026-09-12) by verify-tier1-t5-multistate-fix-balanced-limits.ts (dumping every row was a
+ * payload/UX problem). Assertions now only check "both states present, no crowd-out". */
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";

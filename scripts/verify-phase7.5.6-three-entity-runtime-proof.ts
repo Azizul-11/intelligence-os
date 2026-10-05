@@ -1,27 +1,5 @@
-/**
- * Phase 7.5.6 - Three-Entity Runtime Proof
- *
- * Proves that the explicit entity comparison capability established in
- * Phase 7.5.5 is genuinely N-ary, not a hidden two-entity special case.
- * No production code was changed for this phase - the exact same
- * implementation that handled [A, B] in 7.5.5 is exercised here with
- * [A, B, C], unmodified.
- *
- * Real end-to-end path exercised, no stage bypassed:
- *   Natural language -> SemanticResolver -> QueryPlanner ->
- *   ExecutionPlanMapper -> HealthcareExecutionStrategy (template
- *   selection + parameter resolution) -> SqlExecutor ->
- *   SupabaseDatabaseAdapter -> real Postgres warehouse -> three rows.
- *
- * Test entities were selected by inspecting the actual generated
- * hospital-identity-directory.ts data (Phase 7.5.2), not invented:
- * "Mayo Clinic" (facility_id 100151, FL), "Cleveland Clinic"
- * (facility_id 360180, OH), and "Duke University Hospital" (facility_id
- * 340030, NC) each appear exactly once in the real CMS dataset, so all
- * three resolve unambiguously - and none of the three names contains
- * another entity's name or a state name as a substring, avoiding any
- * incidental overlapping-phrase match.
- */
+/** Phase 7.5.6: the 7.5.5 mechanism is N-ary, with no production change, via the real end-to-end path. Mayo (100151), Cleveland (360180), Duke
+ * (340030) are each unique and none contains another's name or a state name as a substring. */
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";

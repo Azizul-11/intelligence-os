@@ -23,10 +23,7 @@ export interface SubsumedBenchmarkRisk {
   fallbackPhrase: string;
 }
 
-/**
- * Detects the risk above. Scoped to queries with a `relationship` candidate, mirroring hasRelationshipWithoutBenchmark().
- * Only flags when the more specific alias's candidate is ENTIRELY ABSENT - if both resolve, buildBenchmark()'s "longer span wins" already handles it.
- */
+/** Detects the risk above, scoped to queries with a `relationship` candidate; flags only when the more specific alias's candidate is ENTIRELY ABSENT (if both resolve, buildBenchmark()'s longer-span-wins handles it). */
 export function detectSubsumedBenchmarkRisk(
   candidates: readonly SemanticCandidate[],
   normalizedQuery: string,

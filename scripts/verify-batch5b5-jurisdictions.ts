@@ -1,19 +1,7 @@
 #!/usr/bin/env tsx
 
-/**
- * Batch 5B-5 (jurisdictions: DC and the five US territories) verification. No live model is called: the engine runs
- * with the real pre-check, preprocessor and vocabulary and a stubbed model (`fallback`), against the live warehouse
- * (read-only SELECTs). Every answer is checked against the warehouse's own row counts.
- *
- *   1  registry: STATES, display names, catalog, pre-check, prompt, the uppercase-only codes (D7)
- *   2  the 8 owned catalog rows and the other spellings: every row in the jurisdiction, exact counts
- *   3  Washington: "Washington DC" is DC, "Washington" stays Washington state (no clarification)
- *   4  cities, counties and rankings inside a territory; San Juan County still clarifies
- *   5  negative controls: not a US jurisdiction -> refused, 0 SQL
- *   6  watch: named hospitals, comparisons, the state picker
- *
- * Usage: pnpm exec tsx scripts/verify-batch5b5-jurisdictions.ts
- */
+/** Batch 5B-5 verification of DC and the five US territories (stubbed model, read-only live warehouse); answers are checked against warehouse row counts; non-US jurisdictions are refused with 0 SQL.
+ * Usage: pnpm exec tsx scripts/verify-batch5b5-jurisdictions.ts */
 import "dotenv/config";
 
 import type { SqlTemplateDefinition } from "../packages/domain-sdk/src/index";

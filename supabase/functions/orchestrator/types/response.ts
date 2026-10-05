@@ -12,47 +12,23 @@ export interface ChatResponse {
 
   error?: string;
 
-  /**
-   * Phase 8.10 Layer 2: If present, this response requires user follow-up
-   * (clarification or guidance choice). The client should send the next
-   * request with this ID in ChatRequest.pendingInteractionId.
-   */
+  /** Phase 8.10 Layer 2: this response needs follow-up; the client sends the next request with this ID in ChatRequest.pendingInteractionId. */
   pendingInteractionId?: string;
 
-  /**
-   * Phase 8.10 Layer 2: Type of pending interaction, if applicable.
-   * - "clarification": User must disambiguate an ambiguous entity
-   * - "guidance": User may select an alternative capability
-   */
+  /** Phase 8.10 Layer 2: "clarification" (disambiguate an entity) or "guidance" (pick an alternative capability). */
   interactionKind?: "clarification" | "guidance";
 
-  /**
-   * Tier0 Task 2 (F8) Phase 2: this request's PhaseGateTracker id -
-   * correlates with the `phase_execution_trace` row(s) persisted for it,
-   * so a client can fetch the full gate-by-gate trace for this specific
-   * response. Always present (a fresh UUID is generated even when
-   * tracing/persistence itself fails, so the field's presence never
-   * implies persistence succeeded).
-   */
+  /** Tier0 Task 2 (F8) Phase 2: this request's PhaseGateTracker id, correlating with the `phase_execution_trace` row(s).
+   * Always present (a UUID is generated even if persistence fails), so presence does not imply it was persisted. */
   requestId?: string;
 
-  /**
-   * Phase 8.1/8.13: which gate this response stopped at, surfaced
-   * directly to the client (not just used internally to decide the
-   * pending_interactions flow) - the frontend link (Tier0 Task 2 Phase 2)
-   * renders this alongside the phase pipeline.
-   */
+  /** Phase 8.1/8.13: which gate this response stopped at, shown by the frontend next to the phase pipeline (Tier0 Task 2 Phase 2). */
   answerability?: {
     status: string;
     reason?: string;
   };
 
-  /**
-   * Tier0 Task 2 (F8) Phase 2: the ordered gate trace for this exact
-   * response (same data persisted to `phase_execution_trace`, returned
-   * directly too so the frontend pipeline view needs no separate
-   * round-trip). Always present.
-   */
+  /** Tier0 Task 2 (F8) Phase 2: ordered gate trace, same data as `phase_execution_trace`, returned directly so the pipeline view needs no extra round-trip. Always present. */
   trace?: {
     phase: string;
     timestamp: number;
@@ -63,22 +39,11 @@ export interface ChatResponse {
     detail?: Record<string, string | number | boolean>;
   }[];
 
-  /**
-   * Tier1 Task 6: 2-3 already-verified-answerable follow-up/recovery
-   * question texts, forwarded verbatim from RuntimeResult.suggestions -
-   * present on every response (success, clarification, guidance, or
-   * plain failure). See packages/runtime-engine/src/runtime-result.ts
-   * for the full contract doc comment.
-   */
+  /** Tier1 Task 6: 2-3 verified-answerable follow-up questions, verbatim from RuntimeResult.suggestions (see runtime-result.ts); on every response. */
   suggestions?: string[];
 
-  /**
-   * Every LLM gateway call made while serving this request, in completion
-   * order. `provider: "none"` means every tier failed or the call's deadline
-   * ran out. A role that is absent was not called at all (e.g. no
-   * "normalizer" when the deterministic layers already understood the
-   * question).
-   */
+  /** Every LLM gateway call for this request, in completion order. `provider: "none"` means every tier failed or the deadline ran out;
+   * an absent role was not called. */
   llmCalls?: {
     role: "normalizer" | "summary" | "suggestions" | "conversational" | "intent";
     provider: string;
@@ -90,15 +55,7 @@ export interface ChatResponse {
     fallbackUsed: boolean;
   }[];
 
-  /**
-   * LLM Integration Layer 3 (Executive Answer Synthesis): an optional
-   * 1-2 sentence natural-language summary of `answer`'s own rows,
-   * attached ONLY after chat.ts's deterministic numeric cross-check
-   * confirms every number in the summary literally appears in the rows
-   * it summarizes. Never replaces `answer` (the full row JSON is always
-   * populated independently of whether this field is present) - a
-   * rejected/failed/timed-out summary simply leaves this field absent,
-   * degrading to exactly the pre-Layer-3 response shape.
-   */
+  /** LLM Layer 3: optional 1-2 sentence summary of `answer`'s rows, attached only after chat.ts's numeric cross-check passes.
+   * Never replaces `answer`; a rejected/failed/timed-out summary leaves this absent. */
   summary?: string;
 }

@@ -1,19 +1,7 @@
 #!/usr/bin/env tsx
 
-/**
- * Batch 5A-2 (permissive translator prompt, prompt domain purity, intent-aware refusals) verification. No live model
- * call: the model is stubbed (the hook's `normalize` argument, or `globalThis.fetch` for the prompt captures), so
- * everything asserted here is deterministic and free. The engine runs against the live warehouse (read-only SELECTs).
- *
- *   1  gateway purity: no domain word in the gateway's code, and none in any of its prompts for a catalog from another domain
- *   2  the healthcare prompts: the gateway quotes the domain's own words, the output contract, the size budget
- *   3  the vocabulary additions (vague requests, plain lung phrases)
- *   4  the hook: `unsupported` behaves as the old `fallback`; `closest` becomes the one-tap alternates
- *   5  the pure message helpers (what the model dropped, identifiers in a summary, the intent-aware refusal)
- *   6  the engine end to end: a model decline keeps 0 SQL and carries its reading, a rewrite keeps what was dropped
- *
- * Usage: pnpm exec tsx scripts/verify-batch5a2-permissive-mapper.ts
- */
+/** Batch 5A-2 verification (model stubbed via the hook's `normalize` or `globalThis.fetch`; read-only live warehouse): gateway domain purity, healthcare prompts, vocabulary additions, `unsupported`/`closest` hook handling, message helpers, engine end to end (decline keeps 0 SQL).
+ * Usage: pnpm exec tsx scripts/verify-batch5a2-permissive-mapper.ts */
 import "dotenv/config";
 
 import { readFileSync } from "node:fs";

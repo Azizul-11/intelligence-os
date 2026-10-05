@@ -1,6 +1,4 @@
-/**
- * Describes the semantic type of a relationship.
- */
+/** Describes the semantic type of a relationship. */
 export enum RelationshipType {
   BelongsTo = "belongs_to",
   LocatedIn = "located_in",

@@ -1,12 +1,5 @@
-/**
- * Universal execution grouping.
- *
- * Represents how results should be grouped or aggregated.
- * Typically corresponds to dimensions in analytics queries.
- */
+/** Universal grouping/aggregation of results, typically analytics dimensions. */
 export interface ExecutionGrouping {
-  /**
-   * Dimensions to group by.
-   */
+  /** Dimensions to group by. */
   dimensions: string[];
 }

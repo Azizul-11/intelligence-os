@@ -1,6 +1,4 @@
-/**
- * Canonical platform field.
- */
+/** Canonical platform field. */
 export interface CanonicalField {
   name: string;
 

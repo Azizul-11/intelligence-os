@@ -1,11 +1,4 @@
-/**
- * Diagnose N3 Query Failure
- * 
- * Query: "hospitals with best patient satisfaction"
- * Issue: "Unable to create query plan."
- * 
- * Trace the complete semantic → QueryPlan path.
- */
+/** Diagnose N3: "hospitals with best patient satisfaction" fails with "Unable to create query plan."; traces semantic to QueryPlan. */
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";

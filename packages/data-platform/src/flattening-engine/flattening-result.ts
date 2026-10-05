@@ -2,27 +2,17 @@ import type { Timestamp } from "@intelligence/contracts";
 
 import type { FlattenedRecord } from "./flattened-record";
 
-/**
- * Result returned by the Flattening Engine.
- */
+/** Result returned by the Flattening Engine. */
 export interface FlatteningResult {
-  /**
-   * Processing status.
-   */
+  /** Processing status. */
   success: boolean;
 
-  /**
-   * Flattened records.
-   */
+  /** Flattened records. */
   records: FlattenedRecord[];
 
-  /**
-   * Number of generated rows.
-   */
+  /** Number of generated rows. */
   rowCount: number;
 
-  /**
-   * Processing timestamps.
-   */
+  /** Processing timestamps. */
   timestamps?: Timestamp;
 }

@@ -1,12 +1,8 @@
-// import { healthcareDomain } from "@intelligence/healthcare-domain";
-// import { createDomainRuntime } from "@intelligence/domain-runtime";
-// import { createSemanticResolver } from "@intelligence/semantic";
+// Commented out: imports of healthcareDomain, createDomainRuntime, createSemanticResolver.
 
 // const runtime = createDomainRuntime(healthcareDomain);
 
-// console.log("======================================");
-// console.log("Healthcare Domain Runtime Verification");
-// console.log("======================================");
+// Commented out: banner log "Healthcare Domain Runtime Verification".
 
 // console.log("\nRuntime created successfully.");
 
@@ -15,84 +11,15 @@
 // let passed = 0;
 // let failed = 0;
 
-// const testCases = [
-//   {
-//     query: "heart attack",
-//     expected: {
-//       resolved: true,
-//       semanticType: "concept",
-//       canonicalKey: "acute-myocardial-infarction",
-//       sqlFound: false,
-//     },
-//   },
-//   {
-//     query: "AMI",
-//     expected: {
-//       resolved: true,
-//       semanticType: "concept",
-//       canonicalKey: "acute-myocardial-infarction",
-//       sqlFound: false,
-//     },
-//   },
-//   {
-//     query: "patient satisfaction",
-//     expected: {
-//       resolved: true,
-//       semanticType: "concept",
-//       canonicalKey: "patient-satisfaction",
-//       sqlFound: false,
-//     },
-//   },
-//   {
-//     query: "readmission",
-//     expected: {
-//       resolved: true,
-//       semanticType: "metric",
-//       canonicalKey: "readmission-rate",
-//       sqlFound: true,
-//     },
-//   },
-//   {
-//     query: "hospital rating",
-//     expected: {
-//       resolved: true,
-//       semanticType: "metric",
-//       canonicalKey: "hospital-overall-rating",
-//       sqlFound: true,
-//     },
-//   },
-//   {
-//     query: "Texas hospital",
-//     expected: {
-//       resolved: true,
-//       semanticType: "entity",
-//       canonicalKey: "hospital",
-//       sqlFound: false,
-//     },
-//   },
-//   {
-//     query: "banana pizza",
-//     expected: {
-//       resolved: false,
-//       semanticType: null,
-//       canonicalKey: null,
-//       sqlFound: false,
-//     },
-//   },
-// ];
+// Commented out: testCases for heart attack, AMI, patient satisfaction, readmission, hospital rating, Texas hospital, banana pizza (unresolved).
 
-// for (const query of queries) {
-//   console.log("\n--------------------------------------");
-//   console.log(`Query: ${query}`);
+// Commented out: per-query loop header logging.
 
 // const result = resolver.resolve(query);
 
 // console.dir(result, { depth: null });
 
-// if (!result.resolved || !result.canonicalKey) {
-//   console.log("SQL: Not Resolved");
-//   continue;
-// }
+// Commented out: skip SQL lookup when the query did not resolve.
 
 // const sql = runtime.sqlResolver.resolve(result.canonicalKey);
 

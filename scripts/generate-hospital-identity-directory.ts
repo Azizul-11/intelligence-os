@@ -1,29 +1,5 @@
-/**
- * Phase 7.5.2 - Generates the Healthcare hospital identity directory.
- *
- * Reads the real, deterministic CMS source data (the same file already
- * ingested into the warehouse) and emits a plain TypeScript data module
- * containing every hospital's facility_id, name, state, and city.
- *
- * Why a generated static module rather than a runtime CSV/DB read:
- * - EntityProvider.resolve() is a synchronous Universal interface; a
- *   live DB call here would require changing that interface, which this
- *   task is explicitly scoped not to do.
- * - The Healthcare domain pack is bundled (esbuild, platform=neutral)
- *   into supabase/functions/orchestrator's deployed edge function; that
- *   deployment target has no access to data/raw/*.csv at runtime, so a
- *   runtime file read would not work in production, only in local dev.
- * - The data volume (~5,500 rows, a few hundred KB as a TS literal) is
- *   well within normal bounds for a bundled module - orders of
- *   magnitude smaller than raw source files already present in this
- *   repository - so this is not "too large" for the existing
- *   synchronous, in-memory EntityProvider pattern (the same pattern
- *   already used, at smaller scale, for the 50-entry state lookup).
- *
- * This script is run manually, once (or whenever the source CMS data
- * changes); its output is committed as a real source file, exactly like
- * every other Healthcare domain-pack file.
- */
+/** Phase 7.5.2: generates the hospital identity directory (facility_id, name, state, city) from the CMS CSV as a static TS module.
+ * Static because EntityProvider.resolve() is synchronous and the edge bundle has no runtime access to data/raw/*.csv. Run manually when CMS data changes; output is committed. */
 
 import { readFileSync, writeFileSync } from "fs";
 import { parse } from "csv-parse/sync";

@@ -1,21 +1,5 @@
-/**
- * Master LLM Audit (2026-09-15) — per-method temperature + normalizeMessyLanguage
- * prompt robustness verification.
- *
- * Confirms:
- * 1. normalizeMessyLanguage is now far more consistent run-to-run at temperature 0.1
- *    (previously 0.9 shared across all methods, confirmed non-deterministic for the
- *    same "goverment hospital in CA" input in the prior Bug L investigation).
- * 2. "goverment hospital in CA" preserves BOTH the ownership filter AND the state
- *    filter in the LLM's own rewrite (previously observed dropping one or the other).
- * 3. "hospital in CA" (bare geographic list, no metric) rewrites to a real answerable
- *    question instead of the "I couldn't quite match that" dead end.
- * 4. Bug L's own already-fixed deterministic cases (good safety/saftey, spelled-out
- *    state ownership typo) are unaffected.
- *
- * This calls the LLM gateway directly (real network calls, free-tier quota) - run
- * sparingly. Run: npx tsx scripts/verify-master-llm-audit-temperature-and-prompt.ts
- */
+/** Master LLM Audit (2026-09-15): normalizeMessyLanguage at temperature 0.1 is consistent run-to-run, "goverment hospital in CA" keeps both ownership and state filters, bare "hospital in CA" rewrites to an answerable question, Bug L deterministic cases unaffected.
+ * Real network calls on free-tier quota: run sparingly. Run: npx tsx scripts/verify-master-llm-audit-temperature-and-prompt.ts */
 import "dotenv/config";
 import { llmGateway } from "../packages/llm-model-gateway/src/llm-model-gateway";
 import { DOMAIN_CAPABILITIES } from "../domain-packs/healthcare/src/index";

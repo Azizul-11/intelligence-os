@@ -1,18 +1,7 @@
 #!/usr/bin/env tsx
 
-/**
- * Phase 3.5 (UX hardening: executive summaries and suggestions) verification. No live model is called: the engine runs
- * with the real pre-check, vocabulary and a stubbed model (`fallback`); the suggestion hook is the domain's own
- * deterministic pool (the model only selects and rewords from it), captured with the exact context the engine passes,
- * and the engine's own dry-run validation decides which chips survive - as in production. Warehouse: SELECT-only.
- *
- *   1  summary context: measure and direction, filters, facts, plain rows (no ids, codes or snake_case)
- *   2  grounding: fact numbers accepted, bullets read as sentences, invented names still rejected; notes + bullets layout
- *   3  suggestions: no "Hospital List", direction words, 5B capabilities in the pool, every chip answerable as written
- *   4  clarification options (all 4 San Juan County states), military (DoD) listed with the reason, Phase 8 (0 SQL)
- *
- * Usage: pnpm exec tsx scripts/verify-phase35-ux.ts
- */
+/** Phase 3.5 UX hardening (summaries and suggestions): stubbed model, real pre-check/vocabulary, domain's deterministic suggestion pool, engine
+ * dry-run decides surviving chips; warehouse SELECT-only. Usage: pnpm exec tsx scripts/verify-phase35-ux.ts */
 import "dotenv/config";
 
 import type { SuggestionContext } from "../packages/domain-sdk/src/index";

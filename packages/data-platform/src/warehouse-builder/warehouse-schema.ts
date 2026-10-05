@@ -1,6 +1,4 @@
-/**
- * Warehouse schema definition.
- */
+/** Warehouse schema definition. */
 export interface WarehouseSchema {
   version: string;
 

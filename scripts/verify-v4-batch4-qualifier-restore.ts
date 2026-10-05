@@ -1,16 +1,6 @@
 #!/usr/bin/env tsx
-/**
- * V4 fix plan (Batch 4) verification: the qualifier-restore mechanism in create-runtime-engine.ts (the
- * `request.rewrittenFrom` branch right after the unaccounted-word guard). Drives that contract point directly -
- * `engine.execute({ question: <rewritten text>, rewrittenFrom: <raw text> })`, exactly the shape the front door's own
- * recursive call already builds - rather than through a scripted `llmFallback`, because Batch 1's own change makes
- * some of these raw questions "fully understood" on the deterministic first pass now (the new "acute hospitals" type
- * key resolves them without ever reaching the front door), which would test Batch 1, not Batch 4. No LLM call, no
- * network beyond the live warehouse (read-only SELECTs) - the same harness shape as
- * scripts/verify-batch1-word-drop-guards.ts.
- *
- * Usage: pnpm exec tsx scripts/verify-v4-batch4-qualifier-restore.ts
- */
+/** V4 Batch 4: qualifier-restore branch (`request.rewrittenFrom`) in create-runtime-engine.ts, driven via engine.execute({ question, rewrittenFrom })
+ * since Batch 1 makes these resolve first pass. No LLM; live SELECTs. Usage: pnpm exec tsx scripts/verify-v4-batch4-qualifier-restore.ts */
 import "dotenv/config";
 import { createClient } from "@supabase/supabase-js";
 

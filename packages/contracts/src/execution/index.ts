@@ -1,12 +1,4 @@
-/**
- * Universal Execution Contracts
- *
- * Phase 5.1: Establishes the ExecutionPlan contract as the bridge between
- * semantic understanding and deterministic execution.
- *
- * These contracts are domain-agnostic and represent execution structure
- * independent of SQL, Healthcare, or any specific implementation.
- */
+/** Universal Execution Contracts (Phase 5.1): ExecutionPlan bridges semantic understanding and deterministic execution, domain-agnostic. */
 
 export * from "./execution-plan";
 export * from "./execution-plan-metric";

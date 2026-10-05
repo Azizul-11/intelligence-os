@@ -1,6 +1,4 @@
--- Phase 8.10 Layer 2: Bounded conversational continuation state
--- Purpose: Store pending clarification/guidance interactions for two-turn flows
--- Scope: Minimal state for reconstruction only, NOT general conversation memory
+-- Phase 8.10 Layer 2: bounded state for two-turn clarification/guidance flows; minimal state for reconstruction only, NOT general conversation memory.
 
 CREATE TABLE pending_interactions (
   -- Primary identifier
@@ -22,9 +20,7 @@ CREATE TABLE pending_interactions (
   -- Guidance: { unavailableCapabilityId, requestedOperation, scope }
   pending_target JSONB NOT NULL,
   
-  -- Offered options for deterministic matching
-  -- Clarification: [{ facility_id, hospital_name, city, state, displayLabel }, ...]
-  -- Guidance: [{ capabilityId, displayName }, ...]
+  -- Offered options for deterministic matching: clarification [{ facility_id, hospital_name, city, state, displayLabel }], guidance [{ capabilityId, displayName }]
   offered_options JSONB NOT NULL,
   
   -- Lifecycle management

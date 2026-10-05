@@ -1,29 +1,5 @@
-/**
- * Phase 6.3 / 6.4 - ExecutionPlan.metrics[] Verification
- *
- * Runs the REAL end-to-end planning pipeline (semantic resolution ->
- * QueryPlanner.createPlan -> ExecutionPlanMapper.map) and asserts on the
- * resulting ExecutionPlan, per the Phase 6 verification requirements:
- * TEST 1 (single metric, backward compatible), TEST 2 (two metrics),
- * TEST 3 (reverse order), TEST 4 (state filter + two metrics),
- * TEST 5 (three metrics), TEST 6 (duplicate phrase dedup).
- *
- * TEST 7 (existing Phase 5 regression suite) is covered separately by
- * re-running scripts/verify-phase5.2-execution-mapping.ts unmodified
- * (see the accompanying implementation report for that evidence).
- *
- * NOTE ON QUERY PHRASING: per the reviewed decision recorded in
- * docs/PHASE_6.0_FIRST_CONTROLLED_PROOF.md, the task's literal example
- * phrasing ("best ratings") does not resolve against current Healthcare
- * alias data (only singular "rating" forms are registered) - that gap is
- * deliberately deferred, not fixed, in this phase. Tests below use the
- * adjusted phrasing ("best overall rating") confirmed clean in that
- * report's addendum, and TEST 4 uses "hospitals located in Texas" to
- * avoid a separate, pre-existing, unrelated alias collision ("hospitals
- * in" is itself a registered alias for an unrelated metric).
- *
- * NO SQL execution - planning only.
- */
+/** Phase 6.3/6.4: ExecutionPlan.metrics[] via the real planning pipeline. Queries use "best overall rating" and "hospitals located in Texas" to avoid
+ * known deferred gaps (plural "ratings", "hospitals in" alias collision). No SQL. */
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";

@@ -1,17 +1,5 @@
-/**
- * Tier0 Task 2: F8 Remediation via Clarification Gate — Verification Suite.
- *
- * Verifies the hospital-ranking clarification (HealthcareExecutionStrategy
- * .checkPlanAmbiguity's new branch) end to end against the live remote
- * database, including a real Turn 1 -> Turn 2 continuation round-trip
- * (replicating exactly what chat.ts/continuation.ts do, since those files
- * are Deno-only and not directly importable here - see
- * reconstruct-hospital-choice.ts, which both this script and the real
- * continuation.ts call identically), plus geographic/comparison
- * regression guards.
- *
- * Run: npx tsx scripts/verify-prephase9-f8-clarification.ts
- */
+/** Tier0 Task 2: F8 hospital-ranking clarification (HealthcareExecutionStrategy.checkPlanAmbiguity) on the live DB, incl. a Turn 1 -> Turn 2
+ * round-trip replicating chat.ts/continuation.ts (Deno-only, not importable), plus regression guards. */
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";

@@ -1,7 +1,4 @@
-/**
- * Raw CSV row exactly as received from CMS.
- * Every field is a string because CSV parsing occurs before normalization.
- */
+/** Raw CSV row as received from CMS; all fields are strings because parsing precedes normalization. */
 export interface RawHcahpsRow {
   facilityId: string;
   facilityName: string;
@@ -34,9 +31,7 @@ export interface RawHcahpsRow {
   reportingEndDate: string;
 }
 
-/**
- * Normalized record after cleaning and type conversion.
- */
+/** Normalized record after cleaning and type conversion. */
 export interface NormalizedHcahpsRecord {
   facilityId: string;
 
@@ -62,9 +57,7 @@ export interface NormalizedHcahpsRecord {
   reportingEndDate: Date;
 }
 
-/**
- * Final warehouse row ready for insertion.
- */
+/** Final warehouse row ready for insertion. */
 export interface WarehouseHospitalHcahpsRow {
   facility_id: string;
 

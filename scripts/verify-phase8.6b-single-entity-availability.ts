@@ -1,25 +1,5 @@
-/**
- * Phase 8.6B - Deterministic Entity + Metric Data Availability
- * Verification
- *
- * Verifies the single additive Phase 8.6B mechanism in
- * packages/runtime-engine/src/create-runtime-engine.ts: a POST-HOC
- * reclassification of an already-successfully-executed, zero-row
- * result as `{status: "not_directly_answerable", reason:
- * "data-unavailable"}`, ONLY when all five locked conditions hold
- * (success, rowCount===0, operation==="lookup", exactly one resolved
- * entity, template.singleEntityRecord===true). No new SQL query is
- * added - the real primary query already executes; this only
- * reinterprets its own real result.
- *
- * Uses the real semantic + planner + runtime-engine pipeline
- * throughout. Tests 1-2 and 9 execute against the REAL remote
- * warehouse (via SupabaseDatabaseAdapter) since the data-unavailable
- * proof requires a genuinely executed, genuinely empty result - a
- * mocked/spy executor cannot prove this. Tests 3-8 use a spy executor
- * (no real database dependency) since they only need to prove the
- * mechanism does NOT fire for non-qualifying shapes.
- */
+/** Phase 8.6B: post-hoc reclassification of a successful zero-row result as data-unavailable ONLY if rowCount===0, operation==="lookup", one resolved
+ * entity and template.singleEntityRecord. Tests 1-2, 9 use the real warehouse; 3-8 use a spy to prove non-firing. */
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
@@ -103,10 +83,7 @@ async function run() {
     );
   }
 
-  // 2 - THE FIX: Mountain View Hospital (AL) genuinely has zero
-  // clinical-outcomes rows. Real execution against the real remote
-  // warehouse - SQL DOES execute (this is post-hoc reclassification,
-  // not a capability-unavailable-style prevention).
+  // 2 - THE FIX: Mountain View Hospital (AL) has zero clinical-outcomes rows; real execution, SQL runs (post-hoc reclassification, not prevention).
   {
     const engine = makeRealEngine();
     const result = await engine.execute({
@@ -128,10 +105,7 @@ async function run() {
     );
   }
 
-  // 3 - LIST REGRESSION: "hospitals in Wyoming" must never be
-  // reclassified regardless of row count - no entity is the record's
-  // own subject here, it's an enumeration. Spy executor (no real DB
-  // dependency needed to prove non-triggering).
+  // 3 - LIST REGRESSION: "hospitals in Wyoming" is an enumeration and is never reclassified; spy executor.
   {
     const flag = { called: false };
     const engine = makeSpyEngine(flag);
@@ -240,9 +214,7 @@ async function run() {
     );
   }
 
-  // 8 - MULTI-ENTITY REGRESSION: an explicit two-entity comparison
-  // (Phase 7.5's own mechanism, "-by-facility-ids" path) must never be
-  // reclassified by 8.6B - more than one resolved entity candidate.
+  // 8 - MULTI-ENTITY REGRESSION: an explicit two-entity comparison ("-by-facility-ids") is never reclassified by 8.6B.
   {
     const flag = { called: false };
     const engine = makeSpyEngine(flag);
@@ -261,10 +233,8 @@ async function run() {
     );
   }
 
-  // 9 - KNOWN BROKEN DOMAIN TEMPLATES REMAIN UNTOUCHED: length-of-stay
-  // and emergency-department-visits still fail with their own
-  // pre-existing, undisturbed error - NOT opted into
-  // singleEntityRecord, NOT reclassified, NOT fixed.
+  // 9 - Known-broken length-of-stay and emergency-department-visits templates keep their own pre-existing failure (not opted into
+  // singleEntityRecord, not reclassified, not fixed).
   {
     const engine = makeRealEngine();
     const result = await engine.execute({
@@ -272,11 +242,7 @@ async function run() {
       parameters: {},
     });
 
-    // Known, disclosed, pre-existing behavior (Phase 8.5 report): the
-    // template is found/enabled and proceeds toward execution; this
-    // check only proves it was NOT reclassified as data-unavailable by
-    // 8.6B - the actual failure mode (if any) is unrelated and
-    // untouched.
+    // Known pre-existing behavior (8.5 report): this only proves it was NOT reclassified as data-unavailable; the actual failure mode is unrelated.
     const notReclassifiedAsDataUnavailable = result.answerability?.reason !== "data-unavailable";
 
     check(

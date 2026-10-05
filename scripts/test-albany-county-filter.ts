@@ -1,14 +1,5 @@
-/**
- * Test script to reproduce ALBANY county filter issue
- * 
- * Tests 6 queries:
- * 1. "Best Hospital in ALBANY county" - Expected: fail or 1-4 rows
- * 2. "Best Hospital in New York ALBANY county" - Expected: fail or 1-4 rows
- * 3. "Show me hospital in ALBANY county" - Expected: fail or 1-4 rows
- * 4. "Show me the highest-rated hospitals in ALBANY county" - Expected: FAIL (ALBANY county exists in NY and WY; no state given, so cross-state collision guard rejects rather than silently mixing both states' facilities)
- * 5. "Show me the highest-rated hospitals in New York for ALBANY county" - Expected: 3 rows (of the county's 4 facilities, one - Capital District Psych Center - has a null overall_rating and is correctly excluded)
- * 6. "Show me the highest-rated hospitals in New York by county" - Expected: 52 rows (CORRECT)
- */
+/** Reproduces the ALBANY county filter issue across 6 queries; ALBANY county exists in NY and WY, so with no state the cross-state collision guard must FAIL.
+ * With a state, results are 1-4 rows or 3 rows (NY ALBANY); "in New York by county" must return 52 rows. */
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";

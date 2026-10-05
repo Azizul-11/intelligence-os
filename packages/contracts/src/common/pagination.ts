@@ -1,6 +1,4 @@
-/**
- * Pagination metadata.
- */
+/** Pagination metadata. */
 export interface Pagination {
   page: number;
   pageSize: number;

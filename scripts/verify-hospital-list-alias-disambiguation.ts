@@ -1,23 +1,5 @@
-/**
- * Semantic disambiguation fix: "hospitals in <place>" alias collision.
- *
- * Root cause: "hospitals in" is a registered alias for the hospital-list
- * metric (rankable: false). Because phrase extraction is exhaustive, this
- * bigram matched inside any sentence containing it - including ranking
- * queries like "Which hospitals in Texas have the best overall rating and
- * lowest mortality?" - producing a spurious extra metric with no ranking
- * template, which failed the whole request under Phase 7's strict
- * failure semantics.
- *
- * Fix: QueryPlanner now excludes non-rankable metric candidates from a
- * "ranking"-intent plan ONLY when at least one other candidate in the
- * same query IS rankable (MetricDefinition.rankable, already-existing,
- * domain-agnostic metadata). A standalone non-rankable query is
- * completely unaffected.
- *
- * Exercises the real pipeline: Semantic -> QueryPlanner -> ExecutionPlanMapper.
- * No SQL execution - planning only, matching the scope of this fix.
- */
+/** "hospitals in <place>" alias collision: the hospital-list alias (rankable: false) matched inside ranking queries and failed them under Phase 7 strict semantics; QueryPlanner now drops non-rankable candidates from ranking plans only when another candidate is rankable.
+ * Planning only (Semantic -> QueryPlanner -> ExecutionPlanMapper), no SQL. */
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";

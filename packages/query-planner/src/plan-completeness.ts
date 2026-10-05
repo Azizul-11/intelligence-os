@@ -1,7 +1,4 @@
-/**
- * Detects a resolved semantic candidate that never made it into the ExecutionPlan (silent-wrong shape, F12/F13). Detection only, never corrects.
- * `plannedSemantic` is QueryPlanner's own filtered collections; relationship-typed candidates aren't checked (scope limit).
- */
+/** Detects a resolved semantic candidate missing from the ExecutionPlan (silent-wrong shape, F12/F13); detection only. Relationship-typed candidates are not checked. */
 import type { SemanticCandidate } from "@intelligence/semantic";
 import type { EntityDefinition, ConceptDefinition } from "@intelligence/domain-sdk";
 import type { ExecutionPlan } from "@intelligence/contracts";

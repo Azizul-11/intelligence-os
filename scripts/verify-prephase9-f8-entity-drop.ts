@@ -1,14 +1,5 @@
-/**
- * Pre-Phase 9 Task 2: F8 Entity-Drop on Ranking Intent — Audit Reproduction.
- *
- * READ-ONLY reproduction script (Part A.4 of the F8 master prompt). Does
- * not assert pass/fail yet - this is audit evidence, not a regression gate.
- * Reports the actual current ExecutionPlan/SQL/row-count/answerability for
- * each query shape so the product design decision can be made from ground
- * truth, not from potentially-stale historical docs.
- *
- * Run: npx tsx scripts/verify-prephase9-f8-entity-drop.ts
- */
+/** Pre-Phase 9 Task 2: READ-ONLY audit reproduction of F8 entity-drop on ranking intent (no assertions); reports current
+ * ExecutionPlan/SQL/row-count/answerability per query shape. */
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";

@@ -16,66 +16,18 @@ export interface SemanticResolutionResult {
 
   matches: SemanticCandidate[];
 
-  /**
-   * RCG-010: a natural-language disclosure of a detected direction
-   * contradiction (e.g. "best and worst" both applied to the same
-   * metric), set only when SemanticPipeline detects one. Domain-
-   * agnostic - never contains a domain-specific noun, only the user's
-   * own modifier words. Absent for every ordinary, unambiguous query.
-   */
+  /** RCG-010: natural-language disclosure of a detected direction contradiction ("best and worst"); absent otherwise. */
   ambiguityError?: string;
 
-  /**
-   * F5 safety gate: true when the query contains a recognized negation/
-   * exclusion marker (see NEGATORS in analyzer/lexicon.ts) anywhere in
-   * the original text. Detection only - this never identifies WHAT is
-   * negated or attempts to represent negation in any candidate or
-   * filter. Callers must treat this as a signal to refuse the request
-   * honestly rather than execute it, since no downstream mechanism can
-   * safely represent negation/exclusion today. Absent (not merely
-   * false) for every query with no negation marker present.
-   */
+  /** F5 safety gate: true when a negation/exclusion marker (NEGATORS) appears; detection only, callers must refuse since negation cannot be represented. Absent (not false) when none. */
   unsupportedNegation?: boolean;
 
-  /**
-   * Phase 8.1: entity mentions that a Domain SDK's EntityProvider resolved
-   * as `status: "ambiguous"` (more than one legitimate candidate identity,
-   * none silently chosen) rather than `"unique"` or `"not_found"`. Reuses
-   * the existing, already-generic EntityResolutionResult shape verbatim -
-   * no new domain-agnostic type was introduced for this.
-   *
-   * Before Phase 8.1, this information was discarded at the exact point
-   * SemanticPipeline.resolve() decided whether to build a SemanticCandidate
-   * for a phrase (an ambiguous and a not-found entity were treated
-   * identically - both simply produced no candidate). This field preserves
-   * the distinction without changing that underlying behavior: an ambiguous
-   * mention still never produces a SemanticCandidate and is never guessed.
-   * Absent (not merely an empty array) when no entity mention in the query
-   * was ambiguous.
-   */
+  /** Phase 8.1: entity mentions the EntityProvider resolved as "ambiguous"; they still never produce a SemanticCandidate and are never guessed. Absent (not empty) when none. */
   identityAmbiguities?: EntityResolutionResult[];
 
-  /**
-   * Batch 4: entity mentions the Domain SDK recognised by name but reported
-   * `not_found` because the place the user attached to them holds none of
-   * the candidates ("Memorial Hospital in Alabama": no such hospital there),
-   * with no resolved entity of the same type left over the mention. Nothing
-   * is left to ask about - the request names something that does not exist.
-   * Absent (not merely an empty array) when there is none.
-   */
+  /** Batch 4: entity mentions recognised by name but `not_found` in the attached place ("Memorial Hospital in Alabama"), so the request names something nonexistent. Absent (not empty) when none. */
   identityNotFound?: { entityId: string; phrase: string }[];
 
-  /**
-   * Phase 8.6A: literal point-year values recognized in the query (e.g.
-   * "2021"), kept entirely separate from `matches`/`SemanticCandidate` -
-   * a literal year has no Domain-registered `SemanticDefinition` and is
-   * never looked up in any registry. Absent (not merely an empty array)
-   * when no recognizable literal year is present. Structurally distinct
-   * from a "year"/"by year" grouping request, which continues to
-   * surface only as an ordinary `dimension`-typed entry in `matches`
-   * (see TemporalResolver). Diagnostic only: no gate in RuntimeEngine
-   * consumes this yet - reserved for a future Phase 8.6B data-
-   * availability mechanism.
-   */
+  /** Phase 8.6A: literal point-year values (e.g. "2021"), separate from `matches` and never registry-looked-up; diagnostic only, no RuntimeEngine gate uses it yet (reserved for 8.6B). Absent (not empty) when none. */
   temporalCandidates?: TemporalCandidate[];
 }

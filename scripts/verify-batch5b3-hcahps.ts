@@ -1,18 +1,7 @@
 #!/usr/bin/env tsx
 
-/**
- * Batch 5B-3 (granular HCAHPS patient-survey dimensions) verification. No live model is called: the engine runs with
- * the real pre-check and lay vocabulary and a stubbed model (`fallback`, or a scripted reply where a check needs one),
- * against the live warehouse (read-only SELECTs).
- *
- *   1  registry and prompt: 9 concepts, topics, the SURVEY TOPICS rule, CONDITIONS unchanged
- *   2  the owned catalog rows: dimension, higher-is-better order, star rating; the composite is unchanged
- *   3  direction, routing siblings (listing phrase, multi-state compare)
- *   4  D4 clarification (0 SQL), D9 note, canonical repairs
- *   5  Phase 8: what stays refused, 0 SQL
- *
- * Usage: pnpm exec tsx scripts/verify-batch5b3-hcahps.ts
- */
+/** Batch 5B-3 verification of granular HCAHPS survey dimensions (real pre-check and lay vocabulary, stubbed model, read-only live warehouse); Phase 8 refusals assert 0 SQL.
+ * Usage: pnpm exec tsx scripts/verify-batch5b3-hcahps.ts */
 import "dotenv/config";
 
 import { healthcareDomain, DOMAIN_CAPABILITIES } from "../domain-packs/healthcare/src/index";

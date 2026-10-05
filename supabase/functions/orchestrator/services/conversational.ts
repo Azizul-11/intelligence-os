@@ -1,16 +1,5 @@
-/**
- * LLM Integration Layer 0 classifier (Batch 1, Step 1.1): pure and dependency-free so
- * it can be unit-tested under tsx as well as run in the Deno edge function.
- *
- * A message is conversational only when the WHOLE utterance is a greeting, a
- * meta/capability question, or thanks / goodbye - optionally a greeting followed by a
- * meta question ("hey what can you help me with?"), with trailing punctuation and a few
- * politeness words. The previous patterns matched a PREFIX (`^(hi|...)\b`, `^(help|...)\b`),
- * so any request that merely started with such a word was swallowed and answered with the
- * onboarding text instead of reaching the pipeline: "hi show me hospitals in HI",
- * "help me find the safest hospitals in Texas", "what is this hospital's rating".
- * Those are analytical requests and must fall through.
- */
+/** LLM Layer 0 classifier (Batch 1, Step 1.1): pure, tsx- and Deno-runnable. Conversational only when the WHOLE utterance is a greeting, meta/capability question or thanks/goodbye;
+ * the old prefix patterns swallowed real requests ("hi show me hospitals in HI", "help me find the safest hospitals in Texas"), which must reach the pipeline. */
 const GREETING = "(?:hi|hello|hey|hiya|howdy|greetings|yo)(?:\\s+(?:there|everyone|everybody|all|team|folks|again))?";
 
 const META =

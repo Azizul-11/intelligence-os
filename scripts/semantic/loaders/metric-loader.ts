@@ -6,9 +6,7 @@ import type {
   MetricDefinition as SemanticMetricDefinition,
 } from "@intelligence/contracts/semantic";
 
-/**
- * Converts Domain SDK metrics into canonical Semantic metrics.
- */
+/** Converts Domain SDK metrics into canonical Semantic metrics. */
 export function loadMetrics(
   metrics: readonly DomainMetricDefinition[],
   domain: string,

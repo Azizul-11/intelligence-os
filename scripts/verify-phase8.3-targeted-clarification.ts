@@ -1,18 +1,5 @@
-/**
- * Phase 8.3 - Ambiguity Detection & Targeted Clarification Verification
- *
- * Verifies that the existing Phase 8.1 identity-ambiguity gate now
- * produces a TARGETED clarification (naming the ambiguous mention and
- * its real candidate labels) instead of a fixed generic sentence, using
- * real Healthcare data throughout - no invented/fabricated test data.
- *
- * Also verifies, at the wiring level (spy SqlExecutor, same methodology
- * as Phase 8.2's WIRING tests), that SQL still never executes for an
- * ambiguous request and still executes normally for an unambiguous one.
- *
- * NO SQL execution against a real database - the wiring tests use a spy
- * executor; all other checks are semantic/planning-only.
- */
+/** Phase 8.3: the Phase 8.1 ambiguity gate gives a TARGETED clarification (mention + real candidate labels) from real Healthcare data; wiring tests
+ * use a spy executor (zero SQL when ambiguous, normal when unambiguous); no real-DB SQL. */
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
@@ -103,9 +90,7 @@ const semantic = createSemanticResolver(runtime.registry, runtime.entityProvider
   );
 }
 
-// 5 - Mixed ambiguous + unambiguous request: the whole request remains
-// blocked (approved Section 4.A scope decision - not reopened here),
-// and the clarification still targets only the actually-ambiguous
+// 5 - Mixed ambiguous + unambiguous: the whole request stays blocked (approved Section 4.A) and the clarification targets only the ambiguous
 // mention.
 {
   const result = semantic.resolve("Compare Northwest Medical Center and Mayo Clinic overall rating");

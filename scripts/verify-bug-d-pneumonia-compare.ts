@@ -1,28 +1,5 @@
-/**
- * Bug D (Phase 3.2, 2026-09-18) — condition-specific `compare` operation
- * silently returning generic data verification.
- *
- * Root cause: `HealthcareExecutionStrategy.selectTemplateFromPlan()`'s
- * `operation === "compare" && explicitStateSet` branch (Tier1 Task 5
- * Phase 3, multi-state comparison routing) had no `measureCodeFilter`
- * check, unlike the sibling `operation === "rank"` branch just above it -
- * "Compare Readmission Rates for Pneumonia in Florida vs Georgia" fell
- * through to the generic `readmission-rate-ranking` template, which has
- * no `measureCode` parameter and silently returned generic readmission
- * counts instead of the pneumonia-specific `READM-30-PN-HRRP` measure -
- * `success:true`, no error, genuinely wrong data.
- *
- * Fix: the same `measureCodeFilter` check the "rank" branch already has,
- * added to the "compare" + multi-state branch too, reusing the exact
- * same 2 condition-specific template ids (already multi-state-capable
- * via Tier1 Task 5's own `states`/`multiState` parameters) - zero new
- * templates, zero new mechanism, zero hardcoded condition/state names.
- *
- * Run against a DETERMINISTIC-ONLY engine (no llmFallback) to prove the
- * fix works without any LLM dependency.
- *
- * Run: npx tsx scripts/verify-bug-d-pneumonia-compare.ts
- */
+/** Bug D (Phase 3.2): the `compare` + explicit-state branch of selectTemplateFromPlan() lacked the measureCodeFilter check the `rank` branch has, so condition compares silently fell to the generic readmission template; fixed by reusing the 2 condition templates. Deterministic engine (no llmFallback).
+ * Run: npx tsx scripts/verify-bug-d-pneumonia-compare.ts */
 import "dotenv/config";
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";

@@ -1,11 +1,4 @@
-/**
- * Pre-Phase 9 Tier1 Task 2 Audit: 5-Star Value Filter Routing.
- *
- * STRICTLY DIAGNOSTIC - read-only, no production writes. Live, in-process,
- * spy-instrumented against the remote Supabase warehouse.
- *
- * Run: npx tsx scripts/verify-tier1-t2-5star-audit.ts
- */
+/** Tier1 Task 2 Audit: 5-star value filter routing. DIAGNOSTIC ONLY (read-only), live and spy-instrumented. */
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";

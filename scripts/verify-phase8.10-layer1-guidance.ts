@@ -1,10 +1,4 @@
-/**
- * Phase 8.10 Layer 1: Deterministic Guidance Renderer
- * 
- * Focused tests for capability-unavailable guidance messages.
- * No LLM, no user choice, no conversation state - only truthful
- * presentation of alternatives already discovered by Phase 8.9.
- */
+/** Phase 8.10 Layer 1: deterministic capability-unavailable guidance; no LLM, user choice or state, only alternatives already found by Phase 8.9. */
 
 const ORCHESTRATOR_URL = "http://127.0.0.1:54321/functions/v1/orchestrator";
 

@@ -39,9 +39,7 @@ async function main() {
   console.log("Starting Raw File Registration...");
   console.log("");
 
-  // -----------------------------------------------------
   // Locate the raw dataset
-  // -----------------------------------------------------
 
 const datasetPath = path.resolve(
   "data",

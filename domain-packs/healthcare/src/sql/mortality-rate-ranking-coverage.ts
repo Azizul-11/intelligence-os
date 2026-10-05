@@ -1,18 +1,7 @@
 import type { SqlTemplateDefinition } from "@intelligence/domain-sdk";
 
-/**
- * Phase 8.6C companion template for `mortality-rate-ranking`. Measures
- * population coverage only - never ranks, never limits. `eligible_count`:
- * hospitals matching the same non-metric scope (`:state`) the ranking
- * template itself uses. `covered_count`: of those, hospitals with
- * `facility_mort_measure_count > 0` - the same eligibility condition
- * the ranking template applies. Safe as a direct per-entity count:
- * `facility_mort_measure_count` is a pre-aggregated column already
- * stored directly on `warehouse_hospitals` (one row per hospital), not
- * a raw row count against the underlying multi-row
- * `warehouse_hospital_clinical_outcomes` detail table - no distinct-
- * entity join is needed here.
- */
+/** Phase 8.6C companion of `mortality-rate-ranking`: coverage only, never ranks or limits. `eligible_count` = hospitals in the same `:state` scope,
+ * `covered_count` = those with `facility_mort_measure_count > 0`, a pre-aggregated per-hospital column, so no distinct-entity join is needed. */
 export const mortalityRateRankingCoverageSqlTemplate: SqlTemplateDefinition = {
   id: "mortality-rate-ranking-coverage",
 

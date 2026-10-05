@@ -18,19 +18,8 @@ var RANKING_KEYWORDS = /* @__PURE__ */ new Set([
   "ranked",
   "rank",
   "order",
-  // Bug G (Phase 3.3, 2026-09-18): "strongest" is a plain English
-  // superlative, exactly like every other word already in this set -
-  // its absence meant a query also containing "compare"/"vs" (which
-  // succeeds deterministically via COMPARISON_KEYWORDS on the very
-  // first pass) never got a chance to fall through to Layer 1's LLM
-  // rewrite (which does normalize "strongest" -> "best"), silently
-  // returning an unranked result instead. The Round 6 audit's own fix
-  // plan also suggested "strong" - deliberately NOT added here: a
-  // direct grep of hospital-identity-directory.ts found a real,
-  // confirmed collision ("STRONG MEMORIAL HOSPITAL"), the exact same
-  // class of regression already documented for "good"/"great" and real
-  // hospital names - adding it would flip `operation` to "rank" for any
-  // query naming that hospital. "strongest" itself has zero matches.
+  // Bug G: "strongest" was missing, silently returning unranked results.
+  // "strong" deliberately NOT added - collides with "STRONG MEMORIAL HOSPITAL".
   "strongest"
 ]);
 var COMPARISON_KEYWORDS = /* @__PURE__ */ new Set(["compare", "vs", "versus"]);
@@ -239,19 +228,11 @@ var FUNCTION_WORDS = /* @__PURE__ */ new Set([
   "also",
   "between",
   "among",
-  // Batch 3: the participle of the "highest rated / top rated hospitals" idiom. A domain's lexical rewrite consumes
-  // the whole idiom ("highest rated hospitals" -> its rating metric), so "rated" is never left as a candidate phrase
-  // and was reported unaccounted, sending every such question to the LLM front door, which can drop the rest of it
-  // ("... in New York by county" lost "by county" about half the time). It carries no constraint of its own.
+  // Batch 3: "rated" ("highest rated hospitals") is consumed into its metric by lexical rewrite, so it carries no constraint of its own.
   "rated"
 ]);
 var QueryPlanner = class _QueryPlanner {
-  /**
-   * Batch 5A-1: filler words the DOMAIN declares, as data: words people add that ask for nothing measurable in that
-   * domain. Read like QUESTION_FILLER_WORDS, so one of them left over no longer stops a default ranking or sends a
-   * fully understood question to the model. This package names no domain word; a planner built without options
-   * behaves exactly as before.
-   */
+  /** Batch 5A-1: filler words the domain declares as data, read like QUESTION_FILLER_WORDS. */
   domainFillerWords;
   constructor(options = {}) {
     this.domainFillerWords = new Set((options.fillerWords ?? []).map((word) => word.toLowerCase()));
@@ -374,53 +355,12 @@ var QueryPlanner = class _QueryPlanner {
       }
     };
   }
-  /**
-   * Maps a detected intent to the generic, domain-declared
-   * MetricDefinition capability flag that should agree with it -
-   * "ranking" needs a rankable metric, "aggregation" needs an
-   * aggregatable one. Every domain's metrics already declare these
-   * flags (see MetricDefinition); this table only ever adds a new
-   * (intent, existing-flag) pairing, it never introduces new metadata.
-   * An intent with no entry here is left completely unfiltered.
-   */
+  /** Maps a detected intent to the MetricDefinition capability flag it requires - "ranking" needs rankable, etc. */
   static INTENT_CAPABILITY_FLAG = {
     ranking: "rankable",
     aggregation: "aggregatable"
   };
-  /**
-   * Excludes metric candidates whose own definition disagrees with the
-   * query's detected intent's required capability (see
-   * INTENT_CAPABILITY_FLAG), when at least one OTHER candidate in the
-   * same query DOES agree.
-   *
-   * This resolves a class of alias collisions where a generic,
-   * incapable-for-this-intent metric phrase (e.g. one that also matches
-   * ordinary connective language describing an entity, such as
-   * "<things> in <place>", or a phrase like "count <things>" that
-   * itself contains a shorter, unrelated metric's alias) coincidentally
-   * overlaps with a sentence that is actually asking to rank or
-   * aggregate a different, genuinely capable metric.
-   *
-   * Deliberately conservative: never produces an empty metrics list,
-   * and never touches a query where every candidate already agrees (all
-   * capable, or all incapable, for the relevant intent) - a standalone
-   * query for an incapable metric is completely unaffected. An intent
-   * with no capability mapping (including "lookup") is completely
-   * unaffected.
-   *
-   * "lookup" intent used to also filter by "any analytical capability at
-   * all", to resolve a generic-listing-metric ("hospital-list"-style)
-   * phantom collision. Removed: it did not actually make its own
-   * motivating example work (a lookup request naming no specific entity
-   * has no viable single-record template for a non-listing metric
-   * either, filtered or not), and it broke a genuinely-intended case -
-   * "hospitals in Birmingham with their overall ratings" - by stripping
-   * the listing metric whenever another analytically-capable metric
-   * candidate was also present, even though the listing metric was the
-   * actual primary subject (extractPrimaryMetric() takes metrics[0], in
-   * original phrase order) and the other metric was only ever meant as
-   * a secondary, per-row enrichment (Phase 7's existing mechanism).
-   */
+  /** Drops metric candidates that disagree with the intent's required capability, when another candidate agrees - resolves alias collisions. Never empties the list. */
   filterMetricsForIntent(metrics, intent) {
     const capabilityFlag = _QueryPlanner.INTENT_CAPABILITY_FLAG[intent];
     let capable;
@@ -436,22 +376,7 @@ var QueryPlanner = class _QueryPlanner {
     }
     return capable;
   }
-  /**
-   * Suppresses metric candidates whose phrase was introduced by a domain's
-   * declared generic-ranking-idiom rewrite rule (e.g. a domain's "best
-   * <entities>" idiom implying some default metric in the absence of any
-   * more specific one) whenever at least one OTHER, explicitly-typed
-   * metric candidate is also present in the same query.
-   *
-   * This is not domain-specific: it only ever consumes a flag computed
-   * generically by SemanticPipeline from LexicalRewriter's own record of
-   * which rules it applied (SemanticCandidate.isFallback) - it never
-   * inspects which metric or domain is involved - and never touches a
-   * query where every candidate agrees (all fallback, or all explicit) -
-   * a standalone query relying on the fallback idiom is unaffected, and
-   * a metric the user explicitly typed is never suppressed merely for
-   * sharing an id with some other fallback-eligible metric.
-   */
+  /** Suppresses a fallback-idiom metric candidate (e.g. "best <entities>") when an explicitly-typed one is also present. */
   filterFallbackMetrics(metrics) {
     const explicit = metrics.filter((metric) => !metric.isFallback);
     if (explicit.length === 0 || explicit.length === metrics.length) {
@@ -459,30 +384,7 @@ var QueryPlanner = class _QueryPlanner {
     }
     return explicit;
   }
-  /**
-   * Bug F (Phase 3.3, 2026-09-18): a metric with NO analytical
-   * capability at all (`rankable`/`aggregatable`/`benchmarkable` all
-   * false - e.g. Healthcare's "hospital-list") represents a base entity
-   * listing, not a per-row value. It is only ever meaningful as the
-   * PRIMARY metric (metrics[0] - "hospitals in Birmingham with their
-   * overall ratings", where the listing stays primary and "overall
-   * ratings" is Phase 7's secondary, per-row enrichment). When some
-   * OTHER, genuinely analytical metric resolves first instead (e.g.
-   * "safest hospitals in Texas" - "safest" is metrics[0], "hospitals
-   * in" would otherwise be metrics[1]), this capability-less metric has
-   * no per-row value for Phase 7 to fetch and merge as a secondary
-   * enrichment - it has no template for that role - and would silently
-   * disappear from the plan if simply dropped, exactly the shape
-   * `assessPlanCompleteness()` exists to catch. Removing it HERE, at
-   * the same layer as `filterMetricsForIntent()`/`filterFallbackMetrics()`
-   * above, keeps it a legitimate, accounted-for removal (`plannedSemantic.
-   * metrics` - what `assessPlanCompleteness()` treats as already-filtered)
-   * rather than a candidate lost after planning. Domain-agnostic: reuses
-   * the same "any analytical capability" flags `filterMetricsForIntent()`
-   * already reads, and only ever removes a non-primary candidate - a
-   * standalone capability-less metric (the common "hospitals in Texas"
-   * case) is completely unaffected, since it stays metrics[0].
-   */
+  /** Bug F: a capability-less metric (e.g. "hospital-list") only makes sense as the PRIMARY metric - drops it when it's a non-primary secondary instead, so it's an accounted-for removal, not a silent vanish. */
   filterNonAnalyticalSecondaryMetrics(metrics) {
     if (metrics.length <= 1) {
       return metrics;
@@ -495,27 +397,7 @@ var QueryPlanner = class _QueryPlanner {
     });
     return primary ? [primary, ...secondary] : secondary;
   }
-  /**
-   * Fix Cycle 018 (Option A): synthesizes metric candidates for a
-   * metric-less multi-entity request from the active Domain SDK's own
-   * `MetricDefinition.comparable` declarations, instead of from parsed
-   * phrases. Domain-agnostic by construction: `domainMetrics` is
-   * supplied opaquely by the runtime wiring layer, and this method
-   * never inspects which domain, entity type, or metric id is involved
-   * - it only ever reads the generic `comparable` flag every Domain
-   * SDK's metrics can declare, exactly as `filterMetricsForIntent()`
-   * already reads `rankable`/`aggregatable`.
-   *
-   * Requires at least 2 entities that share the same execution
-   * parameter (the same generic signal `ExecutionPlanMapper.
-   * buildFilters()`'s `groupEntityValues()` already uses to decide
-   * whether a request names an explicit multi-entity set) - a single
-   * entity, or entities of unrelated types, never triggers discovery.
-   * Returns an empty array (never a partial/guessed result) when the
-   * domain declares no comparable metrics, or when fewer than 2
-   * comparable entities are present - the caller falls through to the
-   * existing, unchanged failure in that case.
-   */
+  /** Fix Cycle 018: synthesizes metric candidates for a metric-less multi-entity request from the domain's `comparable` metrics. Requires 2+ entities sharing an execution parameter. */
   discoverComparableMetrics(entities, domainMetrics) {
     if (domainMetrics.length === 0) {
       return [];
@@ -537,35 +419,7 @@ var QueryPlanner = class _QueryPlanner {
       isFallback: true
     }));
   }
-  /**
-   * Tier0 Task 5 (F12 Sub-Task A): discovers the active Domain SDK's
-   * declared default ranking metric (see MetricDefinition.defaultRankable)
-   * for a request that names at least one scope-filter entity (e.g.
-   * state, ownership) but no metric at all. Domain-agnostic: only ever
-   * consumes the generic `defaultRankable` flag and
-   * `EntityDefinition.identifiesUniqueRecord`, never a domain-specific
-   * entity id or metric id.
-   *
-   * Deliberately excludes a request naming an entity that identifies a
-   * single, specific record (e.g. a named hospital) - defaulting THAT
-   * to a nationwide ranking would silently reinterpret "tell me about
-   * Mayo Clinic" as "rank hospitals nationwide", dropping the named
-   * identity entirely - exactly the entity-drop shape Tier0 Task 2 (F8)
-   * already closed elsewhere. Only fires when every resolved entity is
-   * a scope-only filter.
-   *
-   * Bug E (Phase 3.1, 2026-09-18): also refuses when the original
-   * question contains a substantive word that never became part of ANY
-   * resolved semantic candidate at all (see
-   * `hasUnaccountedSubstantiveToken()`'s own doc comment) - e.g.
-   * "what's the weather in Texas?" resolves only the "Texas" state
-   * entity, and "weather" is never accounted for anywhere. Defaulting a
-   * nationwide hospital ranking onto the resolved entity alone in that
-   * case would silently fabricate an answer to a different, narrower
-   * question than the one actually asked - the single most severe
-   * no-fabrication-invariant violation found in this codebase's history
-   * (Round 6 audit, Bug E).
-   */
+  /** Tier0 Task 5 (F12): discovers the default ranking metric for a scope-only request. Skips a unique-record entity, and (Bug E) any question with an unresolved substantive word. */
   discoverDefaultRankableMetric(entities, domainMetrics, normalizedQuery, allMatches, domainEntities) {
     if (entities.length === 0) {
       return [];
@@ -598,70 +452,15 @@ var QueryPlanner = class _QueryPlanner {
       }
     ];
   }
-  /**
-   * Bug E (Phase 3.1, 2026-09-18): true when the original question
-   * contains a word that never became part of ANY resolved semantic
-   * candidate's own matched phrase - metric, entity, dimension,
-   * category, benchmark, or relationship, whichever domain supplied
-   * them - and is not one of the generic English question/filler words
-   * above. This is a purely structural check: it only ever compares the
-   * raw question text against phrases the semantic pipeline itself
-   * already resolved, never a hardcoded off-topic vocabulary (no
-   * "weather", "climate", "president" anywhere in this file) - the same
-   * mechanism would refuse "what's the [x] in Texas?" for ANY word `x`
-   * this Domain SDK's own registered vocabulary doesn't recognize,
-   * regardless of what that word is.
-   *
-   * Also treats a word as accounted for when it equals a REGISTERED
-   * entity's own `id` (`domainEntities`, the domain's complete entity
-   * list - not just the entities that happened to resolve as
-   * candidates this query). Confirmed necessary live: a word naming the
-   * domain's own core subject (e.g. Healthcare's "hospital" entity,
-   * `id: "hospital"`) does not always land inside a matched alias
-   * phrase - "CA government hospital"/"government hospital TX" (word
-   * order variants with no "hospital(s) in" 2-gram to match) would
-   * otherwise flag "hospital" itself as an unaccounted, off-topic-
-   * looking word and wrongly refuse a legitimate query. This stays
-   * domain-agnostic: Universal Core never names "hospital" itself, it
-   * only ever compares against whatever `id`s the active Domain SDK
-   * already declared, the same way `domainMetrics` is already consumed
-   * generically elsewhere in this file.
-   */
+  /** Bug E: true when the question has a word nothing accounted for, not counting fillers. Also counts a bare entity id like "hospital". */
   hasUnaccountedSubstantiveToken(normalizedQuery, allMatches, domainEntities) {
     return this.unaccountedWords(normalizedQuery, allMatches, domainEntities).length > 0;
   }
-  /**
-   * True when the deterministic layers understood EVERY word of the question:
-   * each word is part of a resolved semantic phrase, a registered entity id, a
-   * generic filler/function word, or a word the intent detector acts on
-   * (ranking / comparison / trend / aggregation). A typo ("Houson"), an
-   * unregistered word ("heart pain", "weather") or a lowercase state code
-   * ("oh") is left over, so it returns false. The runtime engine uses this to
-   * skip an LLM rewrite that could only change a question it already
-   * understood - a suggestion chip, a canonical question, an aliased phrase.
-   * Structural and domain-agnostic, like hasUnaccountedSubstantiveToken().
-   */
+  /** True when every word of the question is resolved, a registered entity id, filler, or an intent keyword - a typo or unregistered word returns false. Lets the runtime skip an LLM rewrite on an already-understood question. */
   isFullyUnderstood(normalizedQuery, allMatches, domainEntities) {
     return this.unaccountedWords(normalizedQuery, allMatches, domainEntities, (word) => FUNCTION_WORDS.has(word) || INTENT_KEYWORDS.has(word)).length === 0;
   }
-  /**
-   * Batch 1 (Step 1.2): the words of `normalizedQuery` that nothing resolved,
-   * with the same allowance isFullyUnderstood() applies (question-filler,
-   * function and intent words count as understood). When `originalQuestion`
-   * is given, only words the user actually typed are returned: an LLM rewrite
-   * can introduce words of its own (a concept's display name, "performance")
-   * that no alias registers, and those are harmless - a word the user typed,
-   * that survived the rewrite and that nothing resolved is a dropped
-   * constraint. Structural and domain-agnostic: never inspects what a word
-   * means, only whether some semantic candidate accounted for it.
-   *
-   * V4 fix plan (Batch 1): a number the user typed as part of a limit phrase ("top 5", "bottom three", "3 worst")
-   * is exempt when, and only when, it is the SAME number `requestedCount(originalQuestion)` reads and will apply -
-   * never a bare "5 star" or a threshold/year the model happened to keep, which still trip the guard exactly as
-   * before. "highest/lowest/best/worst first" is an ordering cue ("lowest first"), not a count; a bare "first" with
-   * no ranking word before it still trips the guard. Both checks run only when `originalQuestion` is given (the one
-   * call site that rewrites the question), so what nothing else changes.
-   */
+  /** Batch 1: unresolved words of `normalizedQuery`. With `originalQuestion`, only user-typed words that survived a rewrite count (a rewrite-introduced word is harmless). Count/ordering words ("top 5", "lowest first") are exempt. */
   findUnaccountedWords(normalizedQuery, allMatches, domainEntities, originalQuestion) {
     const words = this.unaccountedWords(
       normalizedQuery,
@@ -697,14 +496,7 @@ var QueryPlanner = class _QueryPlanner {
       (word) => !consumedWords.has(word) && !QUESTION_FILLER_WORDS.has(word) && !this.domainFillerWords.has(word) && !alsoIgnore(word)
     );
   }
-  /**
-   * True when at least 2 resolved entities share the same execution
-   * parameter - the same generic entity-grouping signal
-   * `ExecutionPlanMapper.buildFilters()` already relies on to build a
-   * single `"in"`-operator filter for an explicit multi-entity request
-   * (Phase 7.5.3). Entities with no `execution` mapping at all (never
-   * usable as a filter) are ignored.
-   */
+  /** True when 2+ resolved entities share the same execution parameter (Phase 7.5.3's multi-entity "in"-filter signal). */
   hasComparableEntitySet(entities) {
     const countByParameter = /* @__PURE__ */ new Map();
     for (const entity of entities) {
@@ -741,11 +533,6 @@ var PERFORMANCE_COMPARISON_WORDS = /* @__PURE__ */ new Set([
   "worse"
 ]);
 var ExecutionPlanMapper = class {
-  /**
-   * Map QueryPlan to ExecutionPlan.
-   *
-   * Converts semantic collections and intent into execution structure.
-   */
   map(queryPlan) {
     const primaryMetric = this.extractPrimaryMetric(queryPlan);
     const operation = this.mapIntent(queryPlan.intent);
@@ -779,9 +566,6 @@ var ExecutionPlanMapper = class {
     }
     return plan;
   }
-  /**
-   * Extract primary metric from semantic collections.
-   */
   extractPrimaryMetric(queryPlan) {
     if (queryPlan.semantic.metrics.length === 0) {
       throw new Error("ExecutionPlan requires at least one metric");
@@ -792,20 +576,7 @@ var ExecutionPlanMapper = class {
     }
     return primaryMetric.canonicalKey;
   }
-  /**
-   * Build the distinct set of metrics carried by this plan, in original
-   * semantic order, each paired with its independent ranking direction.
-   *
-   * Deduplicates by canonicalKey - exhaustive phrase extraction can
-   * surface the same canonical metric via more than one matched phrase
-   * (e.g. "hospital overall rating" and "overall rating" both matching
-   * the same metric), and each distinct metric must appear only once.
-   *
-   * Direction comes from the semantic layer's modifier-association
-   * signal (SemanticCandidate.direction, Phase 6.2). A distinct metric
-   * with no associable modifier defaults to "desc", consistent with the
-   * existing single-metric default in buildOrdering() below.
-   */
+  /** Distinct metrics carried by this plan, each with its own ranking direction. Deduplicates by canonicalKey - exhaustive phrase extraction can match the same metric via more than one phrase. */
   buildMetrics(queryPlan) {
     const seen = /* @__PURE__ */ new Set();
     const metrics = [];
@@ -821,17 +592,7 @@ var ExecutionPlanMapper = class {
     }
     return metrics;
   }
-  /**
-   * Batch 3 (D1): the direction a ranking modifier asks for, normalized to ONE convention that every domain
-   * template can rely on: "desc" = best first, "asc" = worst first.
-   *
-   * The semantic layer reports the modifier's bucket (highest/best/top/largest -> "desc", lowest/worst/bottom/
-   * smallest -> "asc") and which kind of word it was. A performance word ("best", "worst") already says which end
-   * is good, so its bucket already is best-first / worst-first. A magnitude word ("highest", "lowest") names the
-   * number: for a metric where higher is better that is the same thing, but for a metric where LOWER is better
-   * (`MetricDefinition.lowerIsBetter`) "highest" means the worst hospitals first, so the bucket flips.
-   * A candidate with no modifier keeps the default of the caller.
-   */
+  /** Batch 3: normalizes ranking direction to "desc"=best first, "asc"=worst first - flips for a lower-is-better metric. */
   performanceDirection(candidate) {
     const direction = candidate.direction;
     if (!direction) {
@@ -843,9 +604,6 @@ var ExecutionPlanMapper = class {
     }
     return direction;
   }
-  /**
-   * Map QueryIntent to ExecutionOperation.
-   */
   mapIntent(intent) {
     const mapping = {
       lookup: "lookup",
@@ -856,20 +614,7 @@ var ExecutionPlanMapper = class {
     };
     return mapping[intent];
   }
-  /**
-   * Build execution filters from entity parameters.
-   *
-   * Converts resolved entities into filter constraints.
-   *
-   * Phase 7.5.3: multiple entities sharing the same execution parameter
-   * (e.g. two distinct canonical identities of the same entity type,
-   * such as "Memorial Hospital in Texas" and "Memorial Hospital in New
-   * York" both being "hospital" entities) are grouped into a single
-   * `"in"`-operator filter carrying every distinct value, instead of
-   * one `"="` filter per entity - which would silently only ever be
-   * usable as the last one added. A field with exactly one distinct
-   * value keeps the existing `"="` shape unchanged.
-   */
+  /** Phase 7.5.3: entities sharing the same execution parameter are grouped into one "in" filter, not one "=" filter each. */
   buildFilters(queryPlan) {
     const entries = [];
     for (const entity of queryPlan.semantic.entities) {
@@ -918,9 +663,6 @@ var ExecutionPlanMapper = class {
     }
     return filters;
   }
-  /**
-   * Build grouping from semantic dimensions.
-   */
   buildGrouping(queryPlan) {
     if (queryPlan.semantic.dimensions.length === 0) {
       return void 0;
@@ -929,12 +671,7 @@ var ExecutionPlanMapper = class {
       dimensions: queryPlan.semantic.dimensions.map((d) => d.canonicalKey)
     };
   }
-  /**
-   * Build ordering based on operation and metrics.
-   *
-   * Ranking operations order by primary metric descending.
-   * Other operations may not require ordering.
-   */
+  /** Ranking operations order by primary metric descending by default; other operations may not need ordering. */
   buildOrdering(queryPlan, operation) {
     if (operation === "rank") {
       const primaryCandidate = queryPlan.semantic.metrics[0];
@@ -957,11 +694,6 @@ var ExecutionPlanMapper = class {
     }
     return void 0;
   }
-  /**
-   * Build execution limit.
-   *
-   * Apply default limit for operations that typically need them.
-   */
   buildLimit(queryPlan) {
     if (queryPlan.intent === "ranking" || queryPlan.intent === "lookup") {
       return {
@@ -981,33 +713,7 @@ var ExecutionPlanMapper = class {
     }
     return void 0;
   }
-  /**
-   * RCG-009: build a benchmark comparison from semantic `relationship`
-   * and `benchmark` candidates.
-   *
-   * Requires BOTH a `relationship` candidate (e.g. "above"/"below" -
-   * the signal that this is a genuine comparison request, not merely a
-   * sentence that happens to mention a benchmark word - see RCG-009b)
-   * AND a `benchmark` candidate (the reference value itself, e.g.
-   * "national average"). Domain-agnostic: only ever reads the two
-   * Universal semantic-type categories `relationship`/`benchmark` -
-   * never a domain-specific canonical id.
-   *
-   * When more than one benchmark candidate is present (exhaustive
-   * phrase extraction can match both a qualified phrase, e.g. "national
-   * average", and the bare word "average" within it), the longer,
-   * more specific phrase match is preferred - a generic
-   * disambiguation rule, not one that inspects which canonical id is
-   * involved.
-   */
-  /**
-   * Batch 3 (D1): which side of a benchmark the request asks for, normalized to the same convention as the ranking
-   * direction: "above" = the better side, "below" = the worse side (a benchmark template compares PERFORMANCE).
-   * A comparison that judges the result ("performing below", "beat", "worse than", "better than") already says so.
-   * A bare "below" / "lower than" / "above" names the number: for a metric where LOWER is better
-   * (`MetricDefinition.lowerIsBetter`), "mortality rate lower than the national average" asks for the BETTER
-   * hospitals, so the side flips. Without a comparison word, or for a higher-is-better metric, nothing changes.
-   */
+  /** Batch 3: normalizes to "above"=better, "below"=worse - flips a bare number-comparison for a lower-is-better metric. */
   performanceComparison(queryPlan) {
     const { relationships, metrics } = queryPlan.semantic;
     const below = relationships.find((r) => r.canonicalKey === "below-comparison");
@@ -1023,6 +729,7 @@ var ExecutionPlanMapper = class {
     }
     return comparison;
   }
+  /** RCG-009: requires both a relationship and benchmark candidate; the longer, more specific benchmark match wins. */
   buildBenchmark(queryPlan) {
     const { relationships, benchmarks } = queryPlan.semantic;
     if (relationships.length === 0 || benchmarks.length === 0) {

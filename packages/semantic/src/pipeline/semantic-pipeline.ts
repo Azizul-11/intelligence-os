@@ -70,9 +70,7 @@ export class SemanticPipeline {
       console.log("-", phrase.value);
     }
 
-    // Phase 8.6A: a literal point-year value ("2021") is recognized independent of AliasResolver/Ontology - a year
-    // has no Domain-registered definition. Kept separate from `semanticCandidates` - a "by year" grouping request
-    // still resolves only through the ordinary alias path.
+    // Phase 8.6A: a literal point-year ("2021") is recognized independent of AliasResolver/Ontology and kept apart from `semanticCandidates`; "by year" grouping still resolves via the alias path.
     const temporalCandidates = this.temporalResolver.resolve(rewrittenTokens);
 
     let semanticCandidates: SemanticCandidate[] = [];
@@ -85,13 +83,7 @@ export class SemanticPipeline {
       result: EntityResolutionResult;
     }[] = [];
 
-    // Qualifier-safety: a longer phrase attempt reported `not_found` (a qualifier contradicting the sole
-    // candidate a bare name resolves to) is tracked like an ambiguity, so a shorter, contained candidate of the
-    // SAME entity type and exact `phrase` is recognized as the same mention, not an independent one. An exact
-    // `phrase` match (not just span containment) distinguishes this from an already-qualified candidate that a
-    // further over-extended attempt failed to narrow further.
-    // Tier0 Task 3: also populated for a longer "ambiguous" attempt (not just "not_found") sharing the same
-    // `phrase` - a brand-aliasing re-narrow is exactly as disqualifying for the shorter bare candidate.
+    // Qualifier-safety: a longer attempt that reported `not_found` (or, Tier0 Task 3, "ambiguous") is tracked like an ambiguity so a shorter contained candidate of the same entity type and exact `phrase` is treated as the same mention.
     const identityConflicts: {
       start: number;
       end: number;
@@ -182,10 +174,7 @@ export class SemanticPipeline {
       semanticCandidates.push(candidate);
     }
 
-    // F4: suppress spurious entity sub-spans. PhraseExtractor generates every contiguous sub-span, so a full
-    // mention and a shorter sub-span sharing text can each resolve to a different entity - a contained span is an
-    // extraction artifact, dropped in favor of the larger match. Bug B extension: ANY overlapping spans of the same
-    // execution-parameter type prefer the LONGER span, not just strict containment. Geometry-driven only.
+    // F4: drop spurious entity sub-spans (PhraseExtractor emits every sub-span); overlapping spans of the same execution-parameter type prefer the LONGER one (Bug B). Geometry only.
     semanticCandidates = semanticCandidates.filter((candidateA) => {
       if (candidateA.semanticType !== "entity") {
         return true;
@@ -224,13 +213,7 @@ export class SemanticPipeline {
       });
     });
 
-    // Qualifier-safety: a resolved entity candidate strictly contained within a tracked identity conflict's span
-    // (same entity type AND exact `phrase`) is the same mention a longer qualified attempt already rejected, not
-    // an independent one - keeping it would silently answer about the wrong entity.
-    // Also requires the suppression to be safe against OTHER same-type entities elsewhere (a comparison): safe
-    // only when this is the sole same-type entity, or another one already resolved to the same value - otherwise
-    // ("Compare Mayo Clinic and Cleveland Clinic in Florida...") a trailing qualifier's target is ambiguous by
-    // position alone, so neither entity is dropped.
+    // Qualifier-safety: drop an entity strictly inside a tracked identity conflict's span (same type and `phrase`) unless another same-type entity exists that resolved differently (a comparison), where position alone is ambiguous.
     semanticCandidates = semanticCandidates.filter((candidate) => {
       if (candidate.semanticType !== "entity") {
         return true;
@@ -265,10 +248,7 @@ export class SemanticPipeline {
       (candidate) => candidate.semanticType === "entity",
     );
 
-    // Phase 8.4: a non-entity candidate (dimension, category) fully contained within a resolved entity's span is
-    // part of that entity's own name, not independent - e.g. "county" inside "Greene County Hospital" doesn't
-    // survive as its own "county-dimension" candidate once the hospital itself resolves. Generic: keys only on
-    // span, never entity/domain identity.
+    // Phase 8.4: a non-entity candidate (dimension, category) inside a resolved entity span is part of its name (e.g. "county" in "Greene County Hospital"); keys on span only.
     semanticCandidates = semanticCandidates.filter((candidate) => {
       if (candidate.semanticType === "entity") {
         return true;
@@ -280,12 +260,7 @@ export class SemanticPipeline {
       );
     });
 
-    // Phase 8.1: the same exhaustive-substring artifact F4 handles also applies to an ambiguous entity-identity
-    // result - an ambiguous span overlapping a real, surviving entity candidate is the same mention already
-    // resolved, so it's dropped. Qualifier-identity-safety: the overlapping candidate must be the SAME entity type
-    // as the ambiguity, else a different-type qualifier word (e.g. "Texas") is never grounds to discard it.
-    // Batch 4: a `not_found` attempt no surviving same-type candidate overlaps is a mention of something that
-    // doesn't exist; an ambiguity inside that span is the same mention seen without its qualifier.
+    // Phase 8.1: drop an ambiguity overlapping a surviving SAME-type entity candidate (F4 artifact); Batch 4: with no such overlap, a `not_found` marks a nonexistent mention and an ambiguity inside it is the same mention.
     const identityNotFoundSpans = notFoundAttempts.filter(
       (attempt) =>
         !resolvedEntitySpans.some(
@@ -312,9 +287,7 @@ export class SemanticPipeline {
         ),
     );
 
-    // Qualifier-identity-safety: the same F4 artifact applies between two ambiguity entries of the SAME entity
-    // type - a bare name and a qualified attempt on it can each remain "ambiguous"; the shorter one is dropped in
-    // favor of the longer, strictly-containing one (F4's "longer span wins" geometry).
+    // Qualifier-identity-safety: between two same-type ambiguities, the shorter is dropped for the longer strictly-containing one (F4 longer-span-wins).
     const filteredIdentityAmbiguities = candidateSuppressedIdentityAmbiguities.filter(
       (inner) =>
         !candidateSuppressedIdentityAmbiguities.some(
@@ -453,11 +426,7 @@ export class SemanticPipeline {
 
     const ontologyResult = this.ontology.resolve(matchResult.canonicalKey);
 
-    // F5 safety gate: detects (never interprets) a negation/exclusion marker in the original text, computed from
-    // `analyzed` (pre-rewrite) so LexicalRewriter can't hide a negator. Detection only.
-    // V4 Batch 2: a negator inside a phrase already resolved to a registered ENTITY is part of that entity's name,
-    // not a negation ("not for profit" is a registered ownership phrase). Matched by word, not index, since
-    // candidate start/end count rewritten-stream tokens, a different length from `analyzed`'s pre-rewrite ones.
+    // F5 safety gate: detect (never interpret) a negator in the pre-rewrite `analyzed` text; V4 Batch 2: a negator inside a resolved ENTITY phrase ("not for profit") is skipped, matched by word since candidate indices count rewritten tokens.
     const insideResolvedEntityPhrase = (index: number): boolean =>
       semanticCandidates.some((candidate) => {
         if (candidate.semanticType !== "entity") {
@@ -478,10 +447,6 @@ export class SemanticPipeline {
       (analyzedToken, index) => analyzedToken.role === "negator" && !insideResolvedEntityPhrase(index),
     );
 
-    // const aliasResult = this.aliasResolver.resolve(rewritten.rewritten);
-    // const candidates = aliasResult.canonicalKey
-    //   ? [aliasResult.canonicalKey]
-    //   : [];
 
     // const matchResult = this.matcher.match(candidates);
 

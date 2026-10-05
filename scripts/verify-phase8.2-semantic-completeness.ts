@@ -1,22 +1,5 @@
-/**
- * Phase 8.2 - Semantic Completeness Verification
- *
- * Verifies the Blocker 1 reconciliation added to assessPlanCompleteness():
- * a raw metric candidate legitimately removed by QueryPlanner's own
- * filterMetricsForIntent()/filterFallbackMetrics() must NOT be reported as
- * a completeness discrepancy, while a metric candidate that survives that
- * filtering but is still absent from the ExecutionPlan must remain
- * detectable. Also verifies F12 (concept) / F13 (category) detection is
- * unaffected, and that only a genuine metric-type discrepancy is capable
- * of triggering the new Phase 8.2 execution gate (identity checked at the
- * type level, not re-implemented here - see create-runtime-engine.ts).
- *
- * Tests A/D/E/(part of C) use synthetic, domain-neutral fixtures (no
- * Healthcare terms) against assessPlanCompleteness() directly, following
- * the same convention as scripts/verify-phase5.2-execution-mapping.ts.
- * Test A (real) and the regression checks use the real Healthcare domain
- * pack through the actual semantic + planner pipeline - no SQL execution.
- */
+/** Phase 8.2: assessPlanCompleteness() ignores metrics legitimately dropped by intent/fallback filtering but flags ones lost afterward; only a
+ * metric-type discrepancy trips the new gate. Tests A/D/E are synthetic; the rest use the real Healthcare pack; no SQL. */
 
 import { assessPlanCompleteness } from "../packages/query-planner/src/plan-completeness";
 import type { SemanticCollections } from "../packages/query-planner/src/semantic-collections";
@@ -65,14 +48,9 @@ function metricCandidate(
   };
 }
 
-// ============================================================
 // Synthetic, domain-neutral unit tests against assessPlanCompleteness()
-// ============================================================
 
-// B - Intent-capability filtering (filterMetricsForIntent): a metric
-// legitimately filtered out (not rankable, for a ranking-shaped plan)
-// must not become a discrepancy, since QueryPlanner would never have
-// planned it in the first place.
+// B - a metric legitimately filtered by filterMetricsForIntent() (not rankable for a ranking plan) is not a discrepancy.
 {
   const rankableMetric = metricCandidate("metric-a", { rankable: true });
   const nonRankableMetric = metricCandidate("metric-b", { rankable: false });
@@ -107,9 +85,7 @@ function metricCandidate(
   );
 }
 
-// C - Genuine metric loss: a metric that survived legitimate filtering
-// (present in plannedSemantic.metrics) but is still absent from the
-// built ExecutionPlan must remain a detectable discrepancy.
+// C - a metric that survived filtering but is absent from the ExecutionPlan must stay a detectable discrepancy.
 {
   const survivingMetric = metricCandidate("metric-a", { rankable: true });
 
@@ -147,10 +123,7 @@ function metricCandidate(
   );
 }
 
-// D - F12 (concept) preservation: a concept candidate is always flagged,
-// regardless of the metric reconciliation, and never gates execution
-// (only a metric-type discrepancy does - verified structurally here by
-// confirming no metric-type entry is present in a concept-only report).
+// D - F12 concept candidates are always flagged but never gate execution (only metric-type discrepancies do).
 {
   const conceptCandidate: SemanticCandidate = {
     phrase: "some-concept-phrase",
@@ -228,10 +201,7 @@ function metricCandidate(
   );
 }
 
-// ============================================================
-// Real end-to-end (semantic + planner, NO SQL) tests using the actual
-// Healthcare domain pack
-// ============================================================
+// Real end-to-end tests (semantic + planner, no SQL) with the Healthcare pack
 
 const runtime = createDomainRuntime(healthcareDomain);
 const semantic = createSemanticResolver(runtime.registry, runtime.entityProvider);
@@ -256,12 +226,8 @@ function assessRealQuery(question: string) {
   return { semanticResult, planResult, executionPlan, completeness };
 }
 
-// A - Legitimate fallback suppression (real query): "best hospitals for
-// mortality" produces BOTH an explicit mortality-rate candidate and a
-// fallback hospital-overall-rating candidate (from the "best hospitals"
-// lexical-rewrite idiom) - filterFallbackMetrics() correctly suppresses
-// the fallback candidate since an explicit one is present. This must
-// remain `complete`, not a discrepancy.
+// A - "best hospitals for mortality" yields an explicit mortality candidate plus a fallback rating candidate; filterFallbackMetrics() suppresses the
+// fallback, so the plan must stay complete.
 {
   const { completeness } = assessRealQuery("best hospitals for mortality");
   const pass = completeness !== null && completeness.complete;
@@ -273,9 +239,7 @@ function assessRealQuery(question: string) {
   );
 }
 
-// Regression - pure fallback idiom alone (no explicit metric) must also
-// remain complete - the baseline case filterFallbackMetrics() has always
-// had to get right, now re-verified through the new reconciliation path.
+// Regression - a pure fallback idiom with no explicit metric must also stay complete.
 {
   const { completeness } = assessRealQuery("best hospitals");
   const pass = completeness !== null && completeness.complete;
@@ -300,15 +264,8 @@ function assessRealQuery(question: string) {
 }
 
 async function runWiringTests() {
-// ============================================================
-// Wiring-level proof: the actual gate in create-runtime-engine.ts, using
-// the real semantic/planner pipeline plus a wrapped ExecutionPlanMapper
-// that deliberately simulates an unaccounted-for metric loss (the exact
-// bug class this mechanism exists to catch - none occurs naturally in
-// the current, correctly-functioning pipeline, so this is the honest way
-// to exercise the gate itself, not just the pure completeness function).
-// A spy SqlExecutor proves SQL is never reached.
-// ============================================================
+// Wiring proof of the create-runtime-engine.ts gate: a wrapped ExecutionPlanMapper simulates an unaccounted metric loss (it never occurs naturally)
+// and a spy SqlExecutor proves SQL is never reached.
 {
   let sqlExecutorCalled = false;
 
@@ -317,9 +274,7 @@ async function runWiringTests() {
   const droppingMapper = {
     map(queryPlan: any) {
       const plan = realMapper.map(queryPlan);
-      // Simulate the plan silently losing its metric after mapping -
-      // the exact unaccounted-for-loss shape Test C proves in isolation,
-      // now exercised through the real RuntimeEngine.execute() call path.
+      // Simulate the plan silently losing its metric after mapping, through the real RuntimeEngine.execute() path.
       return { ...plan, metric: "simulated-missing-metric", metrics: undefined };
     },
   };
@@ -355,10 +310,7 @@ async function runWiringTests() {
   );
 }
 
-// Wiring-level regression: the same real pipeline, with the REAL
-// (unmodified) mapper, for an ordinary valid query - must still execute
-// (spy executor confirms SQL was reached, proving the gate does not
-// block legitimate requests).
+// Wiring regression: the real mapper with an ordinary valid query must still execute (spy confirms SQL reached).
 {
   let sqlExecutorCalled = false;
 

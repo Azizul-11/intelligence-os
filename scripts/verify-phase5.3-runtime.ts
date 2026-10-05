@@ -1,11 +1,4 @@
-/**
- * Phase 5.3: End-to-End Runtime Integration Proof
- *
- * Tests the complete Phase 5 flow:
- * Natural Language → Semantic → QueryPlan → ExecutionPlan → SQL → Postgres → Result
- *
- * This is the Phase 5 proof of concept.
- */
+/** Phase 5.3: end-to-end NL -> Semantic -> QueryPlan -> ExecutionPlan -> SQL -> Postgres proof. */
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";

@@ -12,17 +12,7 @@ export class SqlExecutor {
     private readonly adapter: DatabaseAdapter,
   ) {}
 
-//   private replaceParameters(
-//   sql: string,
-//   parameters: Record<string, unknown>,
-// ): string {
-//   let result = sql;
 
-//   for (const [key, value] of Object.entries(parameters)) {
-//     const replacement =
-//       typeof value === "string"
-//         ? `'${value.replace(/'/g, "''")}'`
-//         : String(value);
 
 //     result = result.replaceAll(`:${key}`, replacement);
 //   }
@@ -30,10 +20,7 @@ export class SqlExecutor {
 //   return result;
 // }
 
-/**
- * Renders a single scalar value using the existing escaping/quoting
- * convention (unchanged from before Phase 7).
- */
+/** Renders a scalar using the existing escaping/quoting convention. */
 private renderScalar(value: unknown): string {
   if (value === undefined || value === null) {
     return "NULL";

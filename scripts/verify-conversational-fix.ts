@@ -1,21 +1,6 @@
 #!/usr/bin/env tsx
-/**
- * ConversationalFix (2026-09-27) targeted live verification: the WORKING-TREE engine wired exactly like
- * services/domain-registry.ts (llmFallback, unsupportedPrecheck, and the new conversationalCheck hook), against
- * the LIVE model (free FALLBACK_CHAIN classification + handleConversational) and the LIVE warehouse (SELECT-only,
- * only reached for the sentinel rows that must still execute SQL).
- *
- * Covers exactly what AUDIT_CONVERSATIONAL_INTENT_ROUTING.md's approved fix needed to prove:
- *  - the 4 informal/typo phrasings the front-door regex never covered now resolve conversational, 0 SQL
- *  - the sentinels the new hook must never swallow: C048 (an analytical question that merely starts with "hi"),
- *    F010/F011 (off-topic but NOT conversational - must stay refused, never onboarded)
- *
- * F012-F015 (the regex-caught rows) are deliberately NOT re-tested here - services/conversational.ts itself was
- * not touched this batch, and verify-batch1-word-drop-guards.ts (in the battery) already proves that set exactly.
- *
- * Usage: pnpm exec tsx scripts/verify-conversational-fix.ts [--live]
- * --live: hits the DEPLOYED orchestrator function over HTTP instead of the working-tree engine directly.
- */
+/** ConversationalFix (2026-09-27) live verification: working-tree engine wired like services/domain-registry.ts (conversationalCheck hook) against the live model and read-only warehouse; 4 informal phrasings resolve conversational with 0 SQL, and sentinels C048, F010, F011 must not be swallowed.
+ * F012-F015 are covered by verify-batch1-word-drop-guards.ts. Usage: pnpm exec tsx scripts/verify-conversational-fix.ts [--live] (--live hits the deployed function over HTTP) */
 import { createClient } from "@supabase/supabase-js";
 import { env } from "./shared/env";
 

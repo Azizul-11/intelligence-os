@@ -1,13 +1,5 @@
-/**
- * Pre-Phase 9 Tier1 Task 4 Fix Verification: Single-Hospital Cross-Table
- * Dossier Enrichment.
- *
- * Live, in-process, spy-instrumented against the remote Supabase warehouse.
- * Authoritative post-fix verification - supersedes the audit script
- * (verify-tier1-t4-dossier-audit.ts) for regression purposes.
- *
- * Run: npx tsx scripts/verify-tier1-t4-dossier-fix.ts
- */
+/** Tier1 Task 4 Fix: single-hospital cross-table dossier enrichment (live, spy-instrumented). Supersedes verify-tier1-t4-dossier-audit.ts for
+ * regression. */
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";

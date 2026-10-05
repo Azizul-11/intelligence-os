@@ -1,6 +1,4 @@
-/**
- * Result returned by registry operations.
- */
+/** Result returned by registry operations. */
 export interface ConceptRegistryResult {
   success: boolean;
 

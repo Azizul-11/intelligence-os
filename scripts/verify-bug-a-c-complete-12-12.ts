@@ -1,20 +1,7 @@
 #!/usr/bin/env tsx
 
-/**
- * Verification script for Bug A/C Complete 12/12 + Bug B + Comparison Fix
- *
- * Tests all 12 single-hospital queries + comparison queries + controls
- * Verifies no regressions on previously passing queries
- *
- * Runs against the DEPLOYED orchestrator using the current wire contract
- * (the same request the frontend sends): POST { question, domain } with the
- * anon key in `apikey` + `Authorization`; the response carries the rows as a
- * JSON string in `answer`. (The original request body { query, sessionId }
- * without auth returns HTTP 500 on the current function.)
- *
- * Usage:
- *   pnpm tsx scripts/verify-bug-a-c-complete-12-12.ts
- */
+/** Verifies Bug A/C 12/12 + Bug B + comparison fix (single-hospital, comparison and control queries, no regressions) against the DEPLOYED orchestrator.
+ * Wire contract: POST { question, domain } with the anon key in `apikey` + `Authorization`; rows come back as a JSON string in `answer`. Usage: pnpm tsx scripts/verify-bug-a-c-complete-12-12.ts */
 
 import { env } from "./shared/env";
 

@@ -29,11 +29,7 @@ export function ResultCard({
   const processId = useId();
   const success = result.success;
 
-  // LLM Integration Layer 0: a conversational turn (greeting/meta-
-  // capability/deflection) is plain prose, not a row-table JSON payload
-  // - rendered as a chat message, never run through JSON.parse (which
-  // would otherwise misreport it as "not valid JSON" and dump it in a
-  // monospace block).
+  // LLM Integration Layer 0: a conversational turn is plain prose; render as a chat message, never JSON.parse it.
   const isConversational =
     success && "answerability" in result && result.answerability?.status === "conversational";
 
@@ -109,9 +105,7 @@ export function ResultCard({
         </div>
       )}
 
-      {/* LLM Integration Layer 3: purely additive - only rendered when
-          the backend's own numeric cross-check already accepted it; the
-          raw rows table below is completely unaffected either way. */}
+      {/* LLM Integration Layer 3: additive; shown only when the backend's numeric cross-check accepted it. */}
       {success && "summary" in result && result.summary && (
         <p className="max-w-prose whitespace-pre-line text-base leading-relaxed text-foreground">{result.summary}</p>
       )}

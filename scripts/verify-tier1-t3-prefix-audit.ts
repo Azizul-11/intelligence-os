@@ -1,27 +1,5 @@
-/**
- * Pre-Phase 9 Tier1 Task 3 Audit: Layer 2 Continuation Prefix Parsing.
- *
- * STRICTLY DIAGNOSTIC - read-only, no production writes. Live, in-process,
- * spy-instrumented against the remote Supabase warehouse.
- *
- * Key finding this script demonstrates: "prefix parsing" was assumed to be
- * a missing-feature gap, but `domain-packs/healthcare/src/aliases/
- * hospital-detail.ts` ALREADY registers "tell me about" (and 5 variant
- * phrasings) as a literal metric alias mapped to a "hospital-detail"
- * profile lookup. The real, reproducible bug is a METRIC COLLISION: when
- * a real metric/concept also appears later in the same sentence (e.g.
- * "...mortality rate for heart attack"), BOTH "hospital-detail" (from the
- * prefix) and the real metric resolve simultaneously, and the
- * condition-specific request is silently downgraded to a generic
- * hospital-detail + secondary-aggregate-metric shape instead of the
- * correctly-scoped answer - success:true, wrong shape, not a clean
- * failure. Unregistered prefixes ("what about", "show me about") are
- * harmless no-ops (PhraseExtractor's exhaustive substrings already let
- * the rest of the sentence resolve normally regardless of what precedes
- * it) - they neither help nor break anything.
- *
- * Run: npx tsx scripts/verify-tier1-t3-prefix-audit.ts
- */
+/** Tier1 Task 3 Audit (DIAGNOSTIC ONLY, live). The real bug is a METRIC COLLISION, not missing prefix parsing: "tell me about" is already a
+ * hospital-detail alias, so a later real metric/concept silently downgrades to hospital-detail (success:true, wrong shape). */
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";

@@ -1,12 +1,4 @@
-/**
- * Minimal client for the existing IntelligenceOS orchestrator edge function.
- *
- * This is a client-side mirror of the already-fixed wire contract declared in
- * supabase/functions/orchestrator/types/{request,response}.ts - it does not
- * introduce a second execution path, a new backend, or any new semantics.
- * The frontend never interprets, corrects, or summarizes what the backend
- * returns; it only forwards the question and renders the response as-is.
- */
+/** Minimal client for the orchestrator edge function; mirrors the wire contract in supabase/functions/orchestrator/types, adds no semantics and renders the response as-is. */
 
 export interface ChatRequest {
   question: string;
@@ -91,9 +83,7 @@ export async function askOrchestrator(
     "Content-Type": "application/json",
   };
 
-  // Supabase edge functions expect an apikey/Authorization header even when
-  // the function itself performs no auth check of its own (--no-verify-jwt).
-  // Only the public anon key is ever used here - never a service-role key.
+  // Edge functions expect an apikey/Authorization header even with --no-verify-jwt; only the public anon key is used, never a service-role key.
   if (SUPABASE_ANON_KEY) {
     headers.apikey = SUPABASE_ANON_KEY;
     headers.Authorization = `Bearer ${SUPABASE_ANON_KEY}`;

@@ -1,9 +1,4 @@
-/**
- * MVP Batch #2 Phase 1 - Remote Warehouse Data Validation
- * 
- * Validates warehouse data against the REMOTE Supabase project
- * Uses the same connection as the live orchestrator
- */
+/** MVP Batch #2 Phase 1: validates warehouse data against the REMOTE Supabase project (same connection as the live orchestrator). */
 
 import { createClient } from "@supabase/supabase-js";
 

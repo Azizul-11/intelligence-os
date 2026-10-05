@@ -1,68 +1,5 @@
-/**
- * Bug L Beyond (Phase 2, 2026-09-17; camel-case fix Phase 2.1,
- * 2026-09-17): hybrid deterministic fix for US state abbreviations
- * ("goverment hospital in CA", "government hospital in Ca",
- * "government hospital TX") - the compound "typo + abbreviation" shape
- * that remained LLM-dependent (and therefore non-deterministic across
- * the gateway's multi-vendor fallback chain) after the Bug L and Master
- * LLM Audit fixes.
- *
- * Why this splits abbreviations into two groups with two different
- * case-matching rules, rather than one blanket case-insensitive
- * addition to `entity-provider.ts`'s own `STATES` map:
- *
- * Real 2-letter US state codes collide with common English words when
- * matched lowercase and bare - "in" (Indiana) is also the preposition
- * "in", "or" (Oregon) is also the conjunction "or", "ok"/"hi"/"co"/
- * "pa"/"ma"/"de" are all also plain words or common informal usage.
- * This is exactly why `entity-provider.ts`'s `STATES` map only ever
- * contains full, spelled-out state names - a deliberate architectural
- * choice documented across this campaign, not an oversight. For this
- * COLLIDING_UPPERCASE_ONLY group, only an exact, isolated ALL-CAPS
- * token is treated as the state code ("IN") - any other casing
- * ("in", "In") is left alone, since a real user typing the actual
- * abbreviation overwhelmingly writes it in caps, while the colliding
- * ordinary word is overwhelmingly lowercase or sentence-initial
- * Title-case (e.g. "In California, hospitals report...").
- *
- * The remaining, NON_COLLIDING_CASE_INSENSITIVE group ("CA", "TX",
- * "NY", ...) has no such English-word collision risk, so it is matched
- * regardless of case ("CA"/"Ca"/"ca") - this is what closes the
- * Phase 2.1 camel-case gap ("government hospital in Ca" previously
- * fell through this fix entirely, since the original Phase 2 version
- * matched ALL 2-letter codes uppercase-only, more conservative than
- * this group of codes actually needs to be).
- *
- * "VA" is deliberately EXCLUDED from both maps despite being a real
- * state abbreviation (Virginia) - confirmed live that "VA" is also
- * this platform's own already-working ownership alias for "Veterans
- * Health Administration" (see ownership-directory.ts's "va" entry),
- * and `normalizeText()` lowercases before that lookup runs, so
- * "VA hospital" (meaning a veterans-owned hospital) is a real, already
- * working query today, in any casing. Expanding "VA"/"Va"/"va" to
- * "Virginia" here would silently break that existing capability. A
- * query that means the state of Virginia by its abbreviation remains
- * LLM-dependent, exactly as before this fix - except the unambiguous
- * "in VA" (Batch 2, IN_VA_PATTERN below).
- *
- * Phase 2.1 correction (found by this fix's own regression test, not
- * assumed safe): the first case-insensitive draft of this file put
- * "ME" and "OH" in the case-insensitive group on the assumption that
- * only the 8 codes explicitly called out as risky ("IN"/"OR"/etc.)
- * collided with ordinary English words - live-tested and confirmed
- * FALSE. "Show me hospital in CA" case-insensitively matched "me" (the
- * pronoun) against "ME" (Maine) and silently corrupted the result to a
- * mixed CA+ME response. "OH" is the equally common interjection "oh".
- * "ID" ("I'd"/identification), "MS" ("Ms." the title), and "MT" ("Mt."
- * the abbreviation for "Mount" - notably, "Mt Sinai" is a real,
- * well-known hospital brand name, making this collision concretely
- * plausible in this exact domain) were moved alongside them after the
- * same closer audit, before they could cause the identical class of
- * bug. This is exactly the lesson of the "VA" exclusion above, applied
- * more rigorously: any candidate for case-insensitive matching must be
- * checked against real English words/abbreviations, not just the
- * shortlist a prior pass happened to already flag.
- */
+/** Bug L Beyond (Phase 2/2.1): deterministic state-abbreviation fix ("goverment hospital in CA"). Codes that collide with English words ("IN", "OR") match ALL-CAPS only (COLLIDING_UPPERCASE_ONLY);
+ * others match any case. Excluded: "VA" (ownership alias for Veterans Health Administration); "ME", "OH", "ID", "MS", "MT" ("Mt Sinai") collide with words, so they need caps (found by regression test). */
 
 // Collide with a common English word or abbreviation in at least one
 // non-uppercase casing - matched case-SENSITIVE, exact uppercase only.
@@ -80,18 +17,14 @@ const COLLIDING_UPPERCASE_ONLY = new Map<string, string>([
   ["ID", "Idaho"], // "id"/"I'd"
   ["MS", "Mississippi"], // "Ms." (title)
   ["MT", "Montana"], // "Mt." (Mount) - e.g. "Mt Sinai" hospital brand
-  // Batch 5B-5 (D7): DC and two territories, uppercase only ("pr" is public relations, "gu" and "dc" are rare but
-  // not worth the risk). "Washington DC" becomes "Washington District of Columbia", which entity-provider.ts resolves
-  // as one span (DC), never Washington state plus DC. AS, MP and VI are not here: "as", "mp" and the numeral "VI"
-  // are ordinary text, so those territories are recognised by their full names only.
+  // Batch 5B-5 (D7): DC and two territories, uppercase only ("pr", "gu", "dc" are risky); "Washington DC" becomes one DC span in entity-provider.ts.
+  // AS, MP and VI are omitted ("as", "mp", numeral "VI"); those territories match by full name only.
   ["DC", "District of Columbia"],
   ["PR", "Puerto Rico"],
   ["GU", "Guam"],
 ]);
 
-// No meaningful English-word/abbreviation collision - matched
-// case-INSENSITIVELY ("CA"/"Ca"/"ca" all resolve). "VA" is
-// deliberately not in this list either - see file header comment.
+// No English-word collision: matched case-INSENSITIVELY ("CA"/"Ca"/"ca"); "VA" is excluded, see file header.
 const NON_COLLIDING_CASE_INSENSITIVE = new Map<string, string>([
   ["AL", "Alabama"],
   ["AK", "Alaska"],

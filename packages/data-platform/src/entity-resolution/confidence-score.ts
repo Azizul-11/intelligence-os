@@ -1,17 +1,8 @@
-/**
- * Deterministic confidence score.
- *
- * Value range:
- * 0.0 → 1.0
- */
+/** Deterministic confidence score in the range 0.0 to 1.0. */
 export interface ConfidenceScore {
-  /**
-   * Match confidence.
-   */
+  /** Match confidence. */
   value: number;
 
-  /**
-   * Explanation of the score.
-   */
+  /** Explanation of the score. */
   reason?: string;
 }

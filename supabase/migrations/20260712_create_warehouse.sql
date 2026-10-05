@@ -1,12 +1,6 @@
--- =====================================================
--- IntelligenceOS
--- Phase 4.2
--- Warehouse Schema
--- =====================================================
+-- IntelligenceOS Phase 4.2: Warehouse Schema
 
--- -----------------------------------------------------
 -- Hospitals
--- -----------------------------------------------------
 
 create table if not exists public.warehouse_hospitals (
 
@@ -92,9 +86,7 @@ create table if not exists public.warehouse_hospitals (
 
 );
 
--- -----------------------------------------------------
 -- States
--- -----------------------------------------------------
 
 create table if not exists public.warehouse_states (
 
@@ -106,9 +98,7 @@ create table if not exists public.warehouse_states (
 
 );
 
--- -----------------------------------------------------
 -- Counties
--- -----------------------------------------------------
 
 create table if not exists public.warehouse_counties (
 
@@ -124,9 +114,7 @@ create table if not exists public.warehouse_counties (
 
 );
 
--- -----------------------------------------------------
 -- Dataset Registry
--- -----------------------------------------------------
 
 create table if not exists public.dataset_registry (
 
@@ -156,9 +144,7 @@ create table if not exists public.dataset_registry (
 
 );
 
--- -----------------------------------------------------
 -- Pipeline Runs
--- -----------------------------------------------------
 
 create table if not exists public.pipeline_runs (
 

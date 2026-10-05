@@ -1,11 +1,5 @@
-/**
- * The healthcare domain's layperson vocabulary (DATA ONLY, owned by the domain pack): maps informal phrases
- * ("heart problem", "trouble breathing") to the canonical question the deterministic pipeline already answers,
- * instead of refusing them as unsupported. Exact literals matched on whole words, never fuzzy.
- * Four parts: SPELLINGS (typo -> correct phrase), GROUPS (phrase -> canonical question + reading + alternates),
- * SCAFFOLD/FILLER (dropped words, never a refusal reason), BLOCKERS (a metric/direction word means a formal
- * question - no group applies, so "pneumonia readmissions" is never rewritten to pneumonia mortality).
- */
+/** Healthcare layperson vocabulary (DATA ONLY): exact whole-word literals mapping informal phrases to canonical questions instead of refusing them. Parts: SPELLINGS, GROUPS,
+ * SCAFFOLD/FILLER (dropped words), BLOCKERS (a metric/direction word means a formal question, so "pneumonia readmissions" is never rewritten to mortality). */
 
 export interface LayAlternate {
   /** Shown in the note ("You can also view <label> below"). */
@@ -42,11 +36,7 @@ export interface LayVocabulary {
   filler: readonly string[];
   narration: readonly string[];
   blockers: readonly string[];
-  /**
-   * Words that may stay in the question next to a mapped phrase because they are slots the pipeline resolves
-   * (ownership, "owned"). Anything else left over that is not a place (a state name, a code, a capitalised name) means
-   * the mapper does not rewrite and the model decides.
-   */
+  /** Words that may stay next to a mapped phrase because the pipeline resolves them (ownership, "owned"); any other non-place leftover means no rewrite and the model decides. */
   slotWords: readonly string[];
 }
 
@@ -66,20 +56,14 @@ export interface CanonicalRepair {
 const WHOLE_HOSPITAL_METRICS = "(?:Safety Performance|Patient Experience|Hospital Overall Rating)";
 const REPAIR_NOTE = "Showing the condition's mortality rate: safety and patient experience are scored for a whole hospital, not for one condition.";
 
-// Batch 5C: a procedure is not a metric either ("best CABG", seen live for "my uncle needs a bypass, who is good in Michigan"):
-// what is ranked for a procedure is its 30-day mortality, exactly as for a condition. A bare "Show me hospitals" (seen for
-// "hospitals please") names no measure at all and is a dead end; it means the overall rating, as the vague-ask rule says.
+// Batch 5C: a procedure ("best CABG") is ranked by its 30-day mortality like a condition; a bare "Show me hospitals" names no measure and means the overall rating.
 const CABG_NAMES = "(?:CABG|Coronary Artery Bypass(?: Graft(?:s|ing)?)?|Bypass(?: Surgery)?)";
 const CABG_NOTE = "Showing Bypass Surgery (CABG) Mortality, the bypass-surgery measure I track.";
 const STROKE_NOTE = "Showing Stroke Mortality, the stroke measure I track.";
 const VAGUE_NOTE = "You didn't name a measure, so I'm showing the highest overall-rated hospitals.";
 
-// Batch 5B-2: a Patient Safety Indicator is a complication or death rate, never a mortality rate and never a
-// whole-hospital metric - these repairs must run BEFORE the WHOLE_HOSPITAL_METRICS ones below (repairCanonical
-// stops at the first match), or "best Safety Performance for Postoperative Sepsis" would be repaired to the wrong
-// measure (Mortality Rate) instead of this one.
-// Kept in step with the trimmed alias set actually registered (aliases/psi.ts, aliases/sepsis.ts) - a repaired
-// phrase this regex does not resolve afterward would be a dead end.
+// Batch 5B-2: PSI repairs must run BEFORE the WHOLE_HOSPITAL_METRICS ones (repairCanonical stops at the first match) or sepsis is repaired to Mortality Rate;
+// keep in step with the registered aliases (psi.ts, sepsis.ts).
 const PSI_NAMES =
   "(?:PSI[ -]?90|PSI[ -]?13|Pressure Ulcers?|Death After Serious Surgical Complication|" +
   "Failure to Rescue|Iatrogenic Pneumothorax|Collapsed Lung|In-Hospital Falls? With Fracture|" +
@@ -96,9 +80,7 @@ const PSI_WORSE = "(?:worst|bottom|highest|most)";
 const PSI_COMPOSITE_NOTE = "No specific safety indicator was named, so this shows the PSI 90 Patient Safety Composite.";
 // V4 fix plan (Batch 3): a PSI name the model appends "Mortality Rate", " Rate" or " scores" to, in either direction word.
 const PSI_TAIL = "(?: Mortality Rates?| Rates?| scores?)?";
-// Batch 5B-3: a patient-survey dimension IS a Patient Experience topic, so "best Patient Experience for Cleanliness" is
-// the correct canonical question and must never be "repaired" to a condition's mortality below; and a model that writes
-// the dimension as if it were a metric ("best Cleanliness") gets the Patient Experience question back.
+// Batch 5B-3: a survey dimension is a Patient Experience topic, so it must not be repaired to a condition mortality; a dimension written as a metric gets the Patient Experience question.
 const SURVEY_NAMES =
   "(?:Cleanliness|Quietness|Nurse Communication|Doctor Communication|Communication About Medicines|Discharge Information|" +
   "Recommend Hospital|Overall Survey Rating|Survey Summary Star)";
@@ -117,9 +99,7 @@ const RATED_NOTE = "Showing the CMS overall star rating, the rating that ranks w
 const BIRTHING_NOTE = "Showing hospitals with the CMS Birthing-Friendly designation.";
 
 export const CANONICAL_REPAIRS: readonly CanonicalRepair[] = [
-  // V4 Batch 3: the anchored PSI repairs further below miss multi-dimension rewrites (a place/type/ownership phrase
-  // before "with" or after the name). These three replace the indicator's words IN PLACE instead, and are tried
-  // first - verified to supersede the anchored ones with 0 output changes, which are kept only as an unreachable fallback.
+  // V4 Batch 3: these three PSI repairs replace the indicator words in place, run first, and supersede the anchored ones below (kept only as an unreachable fallback).
   { pattern: `^(Show me .*?)${PSI_BETTER} (?:(?:${WHOLE_HOSPITAL_METRICS}|Mortality Rate) for )?(${PSI_NAMES})${PSI_TAIL}(?=[ .?!,]|$)(.*)$`, flags: "i", replacement: "$1lowest Patient Safety Indicator for $2$3", note: PSI_NOTE },
   { pattern: `^(Show me .*?)${PSI_WORSE} (?:(?:${WHOLE_HOSPITAL_METRICS}|Mortality Rate) for )?(${PSI_NAMES})${PSI_TAIL}(?=[ .?!,]|$)(.*)$`, flags: "i", replacement: "$1highest Patient Safety Indicator for $2$3", note: PSI_NOTE },
   {

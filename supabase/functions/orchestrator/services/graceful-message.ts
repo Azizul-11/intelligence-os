@@ -1,11 +1,5 @@
-/**
- * Batch 5A-1: the wording of the graceful replies. Pure and dependency-free like normalizer-hook.ts, and generic: it
- * knows no domain word, only the guidance and coverage sentence the domain hands in (`DOMAIN_CAPABILITIES.scopeGuidance`
- * and `.coverageSummary`).
- *
- * Plain text, on purpose: apps/web renders `summary` and `error` in a bare <p>, so markdown would show as literal
- * asterisks. The tappable questions are the response's `suggestions`; these sentences only introduce them.
- */
+/** Batch 5A-1: wording of the graceful replies. Pure and generic (knows no domain word, only the guidance/coverage sentences the domain hands in).
+ * Plain text on purpose: apps/web renders `summary`/`error` in a bare <p>, so markdown would show literal asterisks. */
 
 export interface ScopeGuidanceLike {
   topics: readonly string[];
@@ -55,11 +49,8 @@ export function buildIgnoredNote(unaccounted: readonly string[]): string {
   return `I didn't match "${unaccounted.join(" ")}" to something I track, so this answer leaves it out.`;
 }
 
-/**
- * Batch 5A-2: words the model reported as unsupported but whose rewrite went ahead without them ("mental health" in
- * "mental health hospitals in Florida"): the answer is a broader one than asked for, so it says so. A term the model
- * already explained in its own reading, or one still in the canonical question, is not reported twice.
- */
+/** Batch 5A-2: words the model reported as unsupported whose rewrite went ahead without them, so the answer says it is broader than asked;
+ * a term already explained in the model's reading or still in the canonical question is not repeated. */
 export function droppedTerms(terms: readonly string[], interpretation: string | undefined, canonicalQuestion: string | undefined, question?: string): string[] {
   const covered = words(`${interpretation ?? ""} ${canonicalQuestion ?? ""}`);
   const typed = question === undefined ? undefined : words(question);

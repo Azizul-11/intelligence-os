@@ -11,30 +11,11 @@ import { buildIgnoredNote, buildInterpretedRefusal, buildScopeMessage, buildUnac
 import { buildVerifiedSummary, recordRejectedSummary, type VerifiedSummary } from "../services/verified-summary.ts";
 import { llmGateway, withLlmCallLog } from "@intelligence/llm-model-gateway";
 
-/**
- * LLM Integration Layer 0 (Conversational Front-Door Router). A short
- * greeting/meta-capability/thanks message never reaches Gate 1 semantic
- * resolution at all - live dogfooding (docs/Frontend test/PrePhase 9
- * LLM.md) showed "hi"/"hello"/"what can you do" hitting the deterministic
- * pipeline's own honest "Unable to resolve question." dead end, which is
- * technically correct (none of these are analytical questions) but reads
- * as a compiler failure on a user's very first message. This is a plain
- * regex classifier, not a semantic gate - it never decides whether a
- * REAL analytical question is answerable, only whether a message is
- * conversational enough to skip the pipeline entirely. Batch 1: it now
- * matches the WHOLE utterance (see services/conversational.ts), so a
- * request that merely starts with a greeting reaches the pipeline.
- */
+/** LLM Layer 0 front-door router: a whole-utterance greeting/meta/thanks message skips Gate 1 so a first "hi" does not hit "Unable to resolve question.".
+ * Plain regex classifier (services/conversational.ts), never decides whether a real analytical question is answerable. */
 
-/**
- * Every suggestion chip from Layer 0 must still be dry-run validated
- * exactly like every other suggestion this platform surfaces (the
- * Every-Turn/100%-Executable invariants make no exception for
- * conversational turns) - reuses the same RuntimeRequest.dryRun
- * mechanism create-runtime-engine.ts's own suggestion loop already
- * established, just invoked here since Layer 0 returns before the
- * engine's own suggestion-generation code ever runs.
- */
+/** Layer 0 suggestion chips are dry-run validated like every other suggestion (Every-Turn/100%-Executable invariants),
+ * via RuntimeRequest.dryRun, because Layer 0 returns before the engine's own suggestion code runs. */
 async function validateConversationalSuggestions(candidates: string[]): Promise<string[]> {
   const engine = getRuntimeEngine();
   const validated: string[] = [];
@@ -50,32 +31,14 @@ async function validateConversationalSuggestions(candidates: string[]): Promise<
   return validated;
 }
 
-/**
- * PrePhase 9.5, Guardrail 6: no bare, technical-sounding failure text
- * ever reaches the frontend as a "compiler failure." This only softens
- * the specific, already-catalogued BLUNT/GENERIC messages (the ones
- * this task's own dogfooding flagged - "Unable to resolve question.",
- * "SQL template not found.", the missing-parameter message) - it never
- * touches an already-informative message (Phase 8.10's alternative-
- * based guidance text, F5's negation explanation, a targeted identity-
- * ambiguous clarification), which are handled by their own dedicated
- * branches above this function's only call site and already read as
- * helpful, not as a raw error.
- */
+/** PrePhase 9.5, Guardrail 6: softens only the catalogued blunt/generic failure messages so no raw "compiler failure" text reaches the frontend.
+ * Already-informative messages (Phase 8.10 guidance, F5 negation, identity clarification) are handled by earlier branches and left alone. */
 const BLUNT_FAILURE_MESSAGES = new Set([
   "Unable to resolve question.",
   "SQL template not found.",
   "I don't have enough specific information to identify exactly which record this question refers to. Please include more identifying detail (such as a full name or location) and try again.",
-  // Bug E (Phase 3.1.1): the exact literal text create-runtime-engine.ts
-  // falls back to when QueryPlanner.createPlan() refuses to plan at all
-  // (query-planner.ts's own `discoverDefaultRankableMetric` guard,
-  // "Unable to create query plan.") - this is the same class of
-  // technical-sounding dead end the 3 messages above already exist to
-  // soften, just not previously in this set. Fires for the off-topic/
-  // unaccounted-token refusal ("what's the weather in Texas?") among
-  // other genuinely-nothing-resolved cases - the generic redirect below
-  // is honest and appropriate for all of them, same as it already is for
-  // "Unable to resolve question."
+  // Bug E (Phase 3.1.1): also soften "Unable to create query plan." (QueryPlanner refusal, e.g. off-topic "weather in Texas");
+  // the generic redirect below fits every case.
   "Unable to create query plan.",
 ]);
 
@@ -86,9 +49,8 @@ function softenBluntFailureMessage(error: string | undefined): string | undefine
   return "I specialize in US hospital clinical performance and healthcare analytics - I couldn't quite match that to something I track. Here are a few things I can help with:";
 }
 
-// buildVerifiedSummary, recordRejectedSummary and the VerifiedSummary type moved to services/verified-summary.ts
-// (2026-09-27, post-clarification summary fix) so services/continuation.ts can call them too, without a circular
-// import (this file already imports continuation.ts).
+// buildVerifiedSummary, recordRejectedSummary and VerifiedSummary moved to services/verified-summary.ts (2026-09-27)
+// so continuation.ts can use them without a circular import.
 
 type TraceGate = { phase: string; status: string; detail?: Record<string, unknown> };
 
@@ -97,12 +59,8 @@ function lastGate(trace: unknown, phase: string): TraceGate | undefined {
   return [...((trace as TraceGate[] | undefined) ?? [])].reverse().find((gate) => gate.phase === phase);
 }
 
-/**
- * Batch 5A-1: a refusal that names what it could not do. A question the domain declined as unsupported ("stroke",
- * "church owned") or one the pipeline refused rather than drop words from ("quiet environment") gets a reply that says
- * what was understood and what is tracked, instead of the static "I specialize in ..." card. The tappable questions
- * come with it as `suggestions` (the domain's guidance, validated by the engine).
- */
+/** Batch 5A-1: a refusal that names what it could not do (unsupported topic, or words the pipeline would not drop) instead of the static card;
+ * the tappable questions come as engine-validated `suggestions`. */
 function gracefulFailureMessage(trace: unknown): string | undefined {
   const capabilities = getDomainCapabilities();
   const declined = lastGate(trace, "llm-normalization");
@@ -120,11 +78,8 @@ function gracefulFailureMessage(trace: unknown): string | undefined {
   return undefined;
 }
 
-/**
- * Batch 5A-1: the one-tap alternatives a layperson mapping offers ("heart failure", "bypass surgery" for "heart
- * problem") are complete questions, and like every other chip each is dry-run validated before it is shown (in
- * parallel: a dry run never touches the warehouse).
- */
+/** Batch 5A-1: layperson-mapping alternatives are complete questions; each is dry-run validated before display
+ * (in parallel, a dry run never touches the warehouse). */
 async function validateAlternates(candidates: string[]): Promise<string[]> {
   if (candidates.length === 0) {
     return [];
@@ -138,13 +93,8 @@ async function validateAlternates(candidates: string[]): Promise<string[]> {
   return checked.filter((candidate): candidate is string => candidate !== undefined);
 }
 
-// Tier0 Task 2 (F8) Phase 2: Query Tracer Observability. Persists the
-// PhaseGateTracker trace RuntimeResult already carries (see
-// packages/runtime-engine/src/phase-gate-tracker.ts) as one row per
-// request - purely evidentiary, never read back by the runtime itself to
-// make any decision. Fire-and-forget by design (best-effort tracing must
-// never fail or slow down the actual answer): logged, not thrown, on
-// error.
+// Tier0 Task 2 (F8) Phase 2: persists the PhaseGateTracker trace as one row per request. Evidentiary only, never read back by the runtime.
+// Fire-and-forget: best-effort tracing must never fail or slow the answer, so errors are logged, not thrown.
 async function persistTrace(
   requestId: string,
   questionText: string,
@@ -167,11 +117,7 @@ async function persistTrace(
   }
 }
 
-/**
- * Every response, whichever path produced it, carries how long the server took
- * and every LLM call made for it (role, model that answered, latency) - the
- * frontend renders both, so a slow query can be attributed without log access.
- */
+/** Every response carries server latency and each LLM call (role, model, latency) so the frontend can attribute a slow query without log access. */
 export async function handleChat(
   request: ChatRequest,
 ): Promise<ChatResponse> {
@@ -192,10 +138,7 @@ async function runChat(
     return await handleContinuation(request);
   }
 
-  // LLM Integration Layer 0: intercepted BEFORE Gate 1 / the deterministic
-  // pipeline entirely - never SQL, never the analytical pipeline, purely
-  // an onboarding/deflection response. See isConversational()'s own doc
-  // comment for why this exists.
+  // LLM Layer 0: intercepted BEFORE Gate 1 and the pipeline; never SQL, only an onboarding/deflection reply (see isConversational()).
   if (isConversational(request.question)) {
     const capabilities = getDomainCapabilities();
     const conversational = await llmGateway.handleConversational(request.question, capabilities);
@@ -224,10 +167,8 @@ async function runChat(
 
   const requestId = crypto.randomUUID();
 
-  // Normal execution (Turn 1 or standalone query). Batch 5A-1: the summary and the tie note start the moment the
-  // answer exists, while the engine is still building the suggestions, so the two no longer run one after the other.
-  // Phase 3.5: the summary waits for the deterministic note (a tie, an unrated type, a nationwide count - no SQL for
-  // most answers, one count query at most) so the model is told what is already shown and does not repeat it.
+  // Batch 5A-1: summary and tie note start as soon as the answer exists, in parallel with suggestion building.
+  // Phase 3.5: the summary waits for the deterministic note so the model knows what is already shown and does not repeat it.
   let early: { summary: Promise<VerifiedSummary>; tie: Promise<string | undefined> } | undefined;
   const result = await executeRuntime(request, requestId, (answer) => {
     if (answer.success && answer.rows.length > 0 && !early) {
@@ -242,10 +183,8 @@ async function runChat(
   });
   await persistTrace(requestId, request.question, result);
 
-  // ConversationalFix (2026-09-27): the `conversationalCheck` hook (create-runtime-engine.ts) caught this - a
-  // not-yet-understood question that turned out to be small talk / a capability question, not a real analytical
-  // request. 0 SQL, same shape Layer 0's own regex branch above already returns; `result.rows` is empty so none of
-  // the normal success-path machinery below (row summary, tie note) applies here.
+  // ConversationalFix (2026-09-27): the `conversationalCheck` hook caught small talk / a capability question; 0 SQL,
+  // same shape as Layer 0's regex branch, and `result.rows` is empty so the success-path machinery below does not apply.
   if (result.success && result.answerability?.status === "conversational") {
     const suggestions = result.suggestions && result.suggestions.length > 0 ? result.suggestions : getDomainCapabilities().exampleAnswerableQuestions.slice(0, 3);
     return {
@@ -268,13 +207,8 @@ async function runChat(
       result.answerability.candidates.length > 0
     ) {
       try {
-        // Phase 8.10 Layer 2: Enrich candidates with full hospital records
-        // Candidates from runtime are {value: facility_id, label: "CITY, COUNTY County, STATE"}
-        // (see entity-provider.ts's toAmbiguousCandidate()) - a fixed
-        // 3-part format, not 2-part - so matching needs the individual
-        // city/county/state fields split out accordingly. A hospital-family
-        // candidate (Batch 4) leads with the facility name, which may itself
-        // contain ", ": the last three parts are the place, the rest the name.
+        // Phase 8.10 Layer 2: enrich candidates ({value: facility_id, label: "CITY, COUNTY County, STATE"}, see entity-provider.ts); a hospital-family candidate (Batch 4)
+        // leads with a name that may contain ", ", so the last three parts are the place and the rest the name.
         const offeredOptions = result.answerability.candidates.map((candidate: any) => {
           const parts = (candidate.label || "").split(", ");
           const [city, county, state] = parts.slice(-3);

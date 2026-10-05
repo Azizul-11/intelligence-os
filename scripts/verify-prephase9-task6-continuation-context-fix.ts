@@ -1,23 +1,5 @@
-/**
- * Tier0 Task 6 Fix Verification: Disambiguation Turn-2 Context Preservation.
- *
- * Live, in-process, spy-instrumented verification of Option A (structural
- * identity injection + full Turn 1 context capture) against the remote
- * Supabase warehouse. Reproduces the real two-turn continuation flow using
- * the actual, unmodified `@intelligence/runtime-engine` exports
- * (createPendingInteraction, retrievePendingInteraction,
- * matchClarificationResponse, reconstructClarificationRequest,
- * reconstructHospitalChoice) plus the *fixed* orchestrator glue logic
- * (chat.ts's offeredOptions construction + originalSemanticResult capture;
- * continuation.ts's forcedIdentityCandidate injection + fallback-scope
- * narrowing) reproduced inline, since those live in Deno-only edge function
- * files not importable into this Node/tsx script. The reproduced glue is
- * byte-for-byte the same logic as the deployed source after this task's
- * fix (see supabase/functions/orchestrator/{handlers/chat.ts,
- * services/continuation.ts}).
- *
- * Run: npx tsx scripts/verify-prephase9-task6-continuation-context-fix.ts
- */
+/** Tier0 Task 6 Fix: Turn-2 context preservation (structural identity injection + full Turn 1 capture), live and spy-instrumented. Fixed Deno glue
+ * (supabase/functions/orchestrator/) is reproduced inline; runtime-engine exports are real. */
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";

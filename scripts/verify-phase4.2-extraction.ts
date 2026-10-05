@@ -1,6 +1,4 @@
-/**
- * Phase 4.2 Benchmark + Relationship Extraction Verification
- */
+/** Phase 4.2 Benchmark + Relationship Extraction Verification */
 
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";

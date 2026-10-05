@@ -1,9 +1,6 @@
 #!/usr/bin/env -S pnpm exec tsx
 
-/**
- * P1-2 ACCEPTANCE CRITERIA VERIFICATION
- * Tests the two actual P1-2 natural language queries
- */
+/** P1-2 acceptance criteria: the two natural-language queries. */
 
 const ORCHESTRATOR_URL = "http://127.0.0.1:54321/functions/v1/orchestrator";
 

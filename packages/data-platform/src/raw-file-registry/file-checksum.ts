@@ -1,22 +1,8 @@
-/**
- * Represents a deterministic checksum for a physical file.
- *
- * Checksums allow the platform to detect duplicate files,
- * verify integrity, and identify file changes.
- */
+/** Deterministic file checksum, used to detect duplicates, verify integrity and spot changes. */
 export interface FileChecksum {
-  /**
-   * Hashing algorithm used.
-   *
-   * Examples:
-   * - sha256
-   * - sha512
-   * - md5
-   */
+  /** Hashing algorithm, e.g. sha256, sha512, md5. */
   algorithm: string;
 
-  /**
-   * Generated checksum value.
-   */
+  /** Generated checksum value. */
   value: string;
 }

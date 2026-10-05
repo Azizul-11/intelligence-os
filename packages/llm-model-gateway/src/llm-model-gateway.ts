@@ -1,44 +1,19 @@
-/**
- * The ONE file allowed to name a vendor/model/API URL. Every LLM call in the repo goes through `llmGateway`'s 3
- * bounded role methods (normalizeMessyLanguage / synthesizeSuggestions / summarizeResult) - never a provider SDK
- * directly. Provider order lives in `FALLBACK_CHAIN` only. Never writes SQL or becomes the source of analytical
- * truth - every output is re-validated by deterministic code downstream. See docs/LLM-ModelGateway/.
- */
+/** The ONE file allowed to name a vendor/model/API URL; all LLM calls go through `llmGateway`'s 3 bounded role methods, provider order only in `FALLBACK_CHAIN`.
+ * Never writes SQL or becomes analytical truth - output is re-validated downstream. See docs/LLM-ModelGateway/. */
 
 import { AsyncLocalStorage } from "node:async_hooks";
 
-// ============================================================================
-// §1 — Provider contract
-// ============================================================================
+// §1 - Provider contract
 
-/**
- * Master LLM Audit (2026-09-15): per-call sampling controls. Different roles need different determinism/creativity
- * tradeoffs (canonicalizing messy input must be near-deterministic; suggestions must not be) - a single fixed
- * `temperature: 0.9` for every role was itself a root cause of Bug L's non-determinism (the same "goverment
- * hospital in CA" input producing a correct result on one call and silently-wrong on the next). Per OpenAI's own
- * guidance, callers set only `temperature` and leave `topP` unset unless they specifically need to bound it.
- */
+/** Per-call sampling controls; roles differ in determinism need (rewrite near-deterministic, suggestions not) - one fixed 0.9 caused Bug L non-determinism. Set only `temperature`, leave `topP` unset. */
 export interface SamplingOptions {
   temperature: number;
   topP?: number;
-  /**
-   * True when this call's output decides WHICH DATA THE USER IS SHOWN (the
-   * question rewrite) - tiers flagged `unsafeForRewrite` are skipped for it.
-   */
+  /** True when the output decides WHICH DATA THE USER IS SHOWN (question rewrite); tiers flagged `unsafeForRewrite` are skipped. */
   forRewrite?: boolean;
-  /**
-   * True for calls that must return a JSON object (completeJSON). Sent as
-   * `response_format: json_object` ONLY to a tier flagged `supportsJsonMode`
-   * - every other provider's request body is unchanged.
-   */
+  /** True for completeJSON calls; sends `response_format: json_object` ONLY to tiers flagged `supportsJsonMode`. */
   jsonMode?: boolean;
-  /**
-   * Wall-clock budget for the WHOLE chain traversal, in ms. Each attempt's
-   * timeout is capped to what is left, and no further tier is started once it
-   * is spent (the call then rejects like an exhausted chain). Unset = the
-   * per-tier timeouts alone apply, as before - on the free chain that adds up
-   * to 10-40 s when the first tiers are rate-limited.
-   */
+  /** Wall-clock budget (ms) for the WHOLE chain: attempt timeouts are capped to what is left and no new tier starts once spent. Unset = per-tier timeouts only (10-40 s on a rate-limited free chain). */
   deadlineMs?: number | undefined;
 }
 
@@ -71,62 +46,31 @@ export interface ProviderConfig {
   keyId: string; // human-readable id for logging/observability
   isFree: boolean; // descriptive metadata only, not behavioral
   stripReasoningTokens?: boolean; // true for reasoning-tuned models (NVIDIA Nemotron, OpenRouter Laguna/Nemotron)
-  /**
-   * Skipped for question rewriting (normalizeMessyLanguage) only. Measured
-   * 2026-09-18 on the real prompt: this tier returns VALID JSON with wrong
-   * content - it drops or invents cities/states ("Houson Texas" -> "Texas",
-   * "heart attack death rate" -> "... in Houston, Texas") and picks the
-   * wrong metric. A rewrite is the one role whose output directly decides
-   * which data is shown, with no downstream faithfulness check, so a
-   * confident wrong answer is worse than moving on to the next tier. Still
-   * used by every role that is validated downstream.
-   */
+  /** Skipped for question rewriting only: measured 2026-09-18, this tier returns valid JSON with wrong content (drops/invents cities, wrong metric), and a rewrite has no downstream faithfulness check. Still used by roles validated downstream. */
   unsafeForRewrite?: boolean;
   /** Accepts `response_format: {"type": "json_object"}` - see SamplingOptions.jsonMode. */
   supportsJsonMode?: boolean;
-  /**
-   * Extra fields merged into this tier's OpenAI-compatible request body (core
-   * fields - model, messages, temperature - always win). Used to switch off a
-   * hybrid model's reasoning: `{ reasoning: { enabled: false } }`.
-   */
+  /** Extra fields merged into this tier's request body (core fields always win); e.g. `{ reasoning: { enabled: false } }` to switch off a hybrid model's reasoning. */
   extraBody?: Record<string, unknown>;
-  /**
-   * Circuit-breaker key; defaults to `provider`, so tiers of one provider share
-   * a circuit (a Groq 429 skips every Groq tier). Set it when two tiers of the
-   * same gateway must fail independently.
-   */
+  /** Circuit-breaker key, defaults to `provider` (a Groq 429 skips every Groq tier); set it when two tiers of one gateway must fail independently. */
   circuitKey?: string;
 }
 
-// ============================================================================
-// §2 — FALLBACK_CHAIN — the single source of truth for provider order.
-// Confirmed against this repo's actual .env contents (see
-// docs/LLM-ModelGateway/ARCHITECTURE_LLM_MODELGATEWAY.md §0):
-//   - groq, google, openrouter, nvidia: real keys present today.
-//   - openai, anthropic, cerebras, mistral: no key configured yet -
-//     Graceful Unset Bypass (§6) skips these with zero network calls.
-//   - ollama, mock (handled by role-level fallback, see §7): always
-//     available, need no key.
-// ============================================================================
+// §2 - FALLBACK_CHAIN: the single source of truth for provider order.
+// Keys present: groq, google, openrouter, nvidia; unset keys are skipped with no network call (Graceful Unset Bypass, §6); ollama/mock need no key (see §7).
 
 export const FALLBACK_CHAIN: ProviderConfig[] = [
-  // --- Groq (primary). LIVE-VERIFIED 2026-09-13: the original "llama-3.3-70b-versatile"/"llama-3.1-8b-instant"
-  // assumption 404s - Groq's free catalog is the open-weight GPT-OSS family, not Llama. Using the two confirmed,
-  // json_mode-capable models below instead. ---
+  // Groq (primary), live-verified 2026-09-13: the free catalog is the open-weight GPT-OSS family, not Llama (those 404).
   { provider: "groq", model: "openai/gpt-oss-20b", apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", timeoutMs: 3000, maxRetries: 2, keyId: "groq-gpt-oss-20b", isFree: true },
   { provider: "groq", model: "openai/gpt-oss-120b", apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", timeoutMs: 4000, maxRetries: 1, keyId: "groq-gpt-oss-120b", isFree: true },
-  // --- Extra Groq quota tier, added after dogfooding exhausted the 2 gpt-oss tiers' 1K-requests/day cap each.
-  // "allam-2-7b" has a 7K-requests/day cap (~7x the headroom); placed last so Zero-Stall 429 Failover only reaches
-  // it once both gpt-oss tiers are exhausted, at no added latency when they're healthy. ---
+  // Extra Groq quota tier (7K requests/day vs 1K per gpt-oss tier); last, so Zero-Stall 429 Failover reaches it only once both gpt-oss tiers are exhausted.
   { provider: "groq", model: "allam-2-7b", apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", timeoutMs: 4000, maxRetries: 1, keyId: "groq-allam-2-7b", isFree: true, unsafeForRewrite: true },
 
   // --- Google Gemini. LIVE-VERIFIED 2026-09-13: the original "gemini-2.0-flash"/"gemini-1.5-flash" assumption both
   // 404 - using Google's own error-response-named replacement model directly. ---
   { provider: "google", model: "gemini-3.6-flash", apiKey: process.env.GOOGLE_API_KEY, timeoutMs: 4000, maxRetries: 2, keyId: "google-3.6-flash", isFree: true },
 
-  // --- OpenRouter — ONE real key confirmed in .env (not two). The original "meta-llama/...instruct:free" entries
-  // are confirmed gone from OpenRouter's free catalog as of 2026-09-13; replaced with LIVE-CONFIRMED models -
-  // "laguna-s-2.1:free" also confirmed working end-to-end by scripts/verify-llm-gateway.ts. ---
+  // OpenRouter: one real key in .env; the old "meta-llama/...instruct:free" entries are gone from the free catalog (2026-09-13), replaced with live-confirmed models.
   { provider: "openrouter", model: "poolside/laguna-s-2.1:free", apiKey: process.env.OPENROUTER_API_KEY, baseURL: "https://openrouter.ai/api/v1", timeoutMs: 6000, maxRetries: 2, keyId: "openrouter-key1-laguna-s", isFree: true, stripReasoningTokens: true },
   { provider: "openrouter", model: "poolside/laguna-xs-2.1:free", apiKey: process.env.OPENROUTER_API_KEY, baseURL: "https://openrouter.ai/api/v1", timeoutMs: 5000, maxRetries: 1, keyId: "openrouter-key1-laguna-xs", isFree: true, stripReasoningTokens: true },
   { provider: "openrouter", model: "nvidia/nemotron-3-super-120b-a12b:free", apiKey: process.env.OPENROUTER_API_KEY_2 || process.env.OPENROUTER_API_KEY, baseURL: "https://openrouter.ai/api/v1", timeoutMs: 8000, maxRetries: 1, keyId: "openrouter-key2-nemotron-super", isFree: true, stripReasoningTokens: true },
@@ -135,9 +79,7 @@ export const FALLBACK_CHAIN: ProviderConfig[] = [
   // global cap. Reasoning model - stripReasoningTokens mandatory. ---
   { provider: "nvidia", model: "nvidia/nemotron-3-ultra-550b-a55b", apiKey: process.env.NVIDIA_API_KEY, baseURL: "https://integrate.api.nvidia.com/v1", timeoutMs: 15000, maxRetries: 1, keyId: "nvidia-direct-nemotron", isFree: true, stripReasoningTokens: true },
 
-  // --- Future placeholders — confirmed ABSENT from .env today.
-  // Graceful Unset Bypass (§6) skips these with zero network calls;
-  // adding a key later activates them with zero code change. ---
+  // Future placeholders, keys absent from .env: skipped with no network call (Graceful Unset Bypass, §6); adding a key activates them with no code change.
   { provider: "openai", model: "gpt-4o-mini", apiKey: process.env.OPENAI_API_KEY, baseURL: "https://api.openai.com/v1", timeoutMs: 4000, maxRetries: 2, keyId: "openai-mini", isFree: false },
   { provider: "openai", model: "gpt-4o", apiKey: process.env.OPENAI_API_KEY, baseURL: "https://api.openai.com/v1", timeoutMs: 6000, maxRetries: 1, keyId: "openai-gpt4o", isFree: false },
   { provider: "anthropic", model: "claude-3-5-haiku-latest", apiKey: process.env.ANTHROPIC_API_KEY, timeoutMs: 4000, maxRetries: 2, keyId: "anthropic-haiku", isFree: false },
@@ -148,25 +90,13 @@ export const FALLBACK_CHAIN: ProviderConfig[] = [
   // --- Local, always available when running. ---
   { provider: "ollama", model: "llama3", endpoint: process.env.OLLAMA_ENDPOINT ?? "http://localhost:11434", timeoutMs: 8000, maxRetries: 1, keyId: "ollama-local", isFree: true },
 
-  // --- Zero-dependency deterministic tier. `callMock` always throws immediately - a mock provider can't produce a
-  // role-correct answer, since it doesn't know which of the 3 bounded roles is calling. Reaching it means every
-  // real provider is unavailable, at which point the caller applies its OWN documented deterministic fallback.
-  // Exists so the chain is provably total and appears in fallback-event logs for observability parity. ---
+  // Zero-dependency deterministic tier: `callMock` always throws, since it can't know which role is calling.
+  // Reaching it means every real provider is down, so the caller applies its OWN deterministic fallback; keeps the chain total and visible in fallback-event logs.
   { provider: "mock", model: "deterministic-fallback", timeoutMs: 0, maxRetries: 0, keyId: "mock-deterministic", isFree: true },
 ];
 
-/**
- * R7 (2026-09-18): the two PAID tiers - first in line for the question-rewrite role only. Deliberately not in
- * FALLBACK_CHAIN (conversational replies use that chain and can never spend them). AICredits
- * (https://api.aicredits.in/v1) is an OpenAI-compatible gateway keyed by ZAI_API_KEY; unset = Graceful Unset
- * Bypass (free chain as before), no-credit 4xx skips the tier (no retry) and the free chain takes over.
- * Chosen on a 42-case rewrite battery (3 runs each): qwen3.7-flash (reasoning off) scored 39-40/42, ~INR 2.5/1K
- * queries, p50 ~1s, with `reasoning: {enabled: false}` mandatory (reasons by default otherwise, 10-12s) and a 3s/
- * no-retry cutoff for its ~2-8% upstream-429 rate; qwen3-30b-a3b-instruct-2507 scored 38-39/42, ~INR 16/1K, p95
- * 2.7-3.8s. Rejected on the same evidence: gemini-2.5-flash-lite (silently drops names/places), mistral-nemo
- * (excluded by the owner), phi-4, nova-micro, gemma-3-4b (wrong rewrites), glm-5.3-flash (reasoning can't disable).
- * Each tier has its OWN circuit breaker so a failing second tier can't take the first one down with it.
- */
+/** R7 (2026-09-18): the two PAID tiers, first in line for the question-rewrite role only (deliberately not in FALLBACK_CHAIN, so conversational replies can never spend them).
+ * AICredits is OpenAI-compatible, keyed by ZAI_API_KEY (unset = free chain); no-credit 4xx skips the tier, no retry. Rewrite needs `reasoning: {enabled: false}` (otherwise 10-12s) and a 3s/no-retry cutoff (~2-8% upstream 429); each tier has its OWN circuit breaker. */
 export const AICREDITS_QWEN_FLASH_TIER: ProviderConfig = {
   provider: "aicredits",
   model: "qwen/qwen3.7-flash",
@@ -198,17 +128,8 @@ export const AICREDITS_NORMALIZER_TIERS: ProviderConfig[] = [AICREDITS_QWEN_FLAS
 
 export const NORMALIZER_CHAIN: ProviderConfig[] = [...AICREDITS_NORMALIZER_TIERS, ...FALLBACK_CHAIN];
 
-/**
- * Batch 5A-1 (D2, 2026-09-21): decoration (summary + suggestion chips) is paid-first too - the free chain answered
- * only 47/378 summary calls and 158/510 chip calls on the 600 sweep (Groq's 8,000 tokens/min, 1K requests/day per
- * gpt-oss tier), leaving most answers without a summary or with static chips.
- * Same `qwen/qwen3.7-flash` (reasoning off) as the rewrite role, but its own keyId/circuit breaker so decoration
- * 429s can't open the rewrite role's circuit. No retry; unset key or empty wallet (4xx) falls back to free.
- * Timeouts from 200 billed calls: chips p95 2.0s/max 2.2s (2.5s budget); summaries p95 2.7s/max 3.3s (3.3s budget -
- * a stricter 2.5s cutoff dropped 9% of calls and tripped the circuit, cutting a 100-call run to 28 answered).
- * Conversational replies stay on FALLBACK_CHAIN. The summary chain drops `allam-2-7b`: it answered 33/47 sweep
- * summaries, most of which the number/name cross-check then rejected.
- */
+/** Batch 5A-1 (D2, 2026-09-21): decoration (summary + chips) is paid-first too, since the free chain answered only 47/378 summaries and 158/510 chips on the 600 sweep.
+ * Same qwen3.7-flash (reasoning off), own keyId/circuit so decoration 429s can't open the rewrite circuit; timeouts from 200 billed calls (a stricter 2.5s summary cutoff dropped 9% and tripped the circuit); summary chain drops `allam-2-7b` (cross-check rejected most of its answers). */
 export const AICREDITS_QWEN_FLASH_DECORATION_TIER: ProviderConfig = {
   ...AICREDITS_QWEN_FLASH_TIER,
   timeoutMs: 2500,
@@ -234,16 +155,9 @@ export const SUMMARY_CHAIN: ProviderConfig[] = [
   ...FALLBACK_CHAIN.filter((tier) => tier.keyId !== "groq-allam-2-7b"),
 ];
 
-// ============================================================================
-// §3 — Response sanitization: reasoning-token stripping + JSON extraction
-// ============================================================================
+// §3 - Response sanitization: reasoning-token stripping + JSON extraction
 
-/**
- * Strips <thought>/<think> blocks some reasoning-tuned free models (NVIDIA
- * Nemotron, OpenRouter Laguna/Nemotron) inline into their content field,
- * per NVIDIA NIM's own documented "Thinking Budget Control" behavior.
- * Applied BEFORE json extraction/schema validation.
- */
+/** Strips <thought>/<think> blocks some reasoning-tuned free models inline into content (per NVIDIA NIM "Thinking Budget Control"); applied BEFORE JSON extraction/schema validation. */
 function stripReasoning(text: string): string {
   return text
     .replace(/<thought>[\s\S]*?<\/thought>/gi, "")
@@ -251,12 +165,7 @@ function stripReasoning(text: string): string {
     .trim();
 }
 
-/**
- * Extracts a clean JSON object/array from a completion that may be
- * wrapped in markdown code fences or preceded/followed by prose - a
- * defensive boundary stripper run before JSON.parse(), since not every
- * free-tier model reliably returns bare JSON even when explicitly asked.
- */
+/** Extracts a JSON object/array from a completion wrapped in code fences or prose; run before JSON.parse() since free-tier models don't reliably return bare JSON. */
 function extractJsonBoundary(text: string): string {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
   const candidate = fenced ? fenced[1]! : text;
@@ -274,10 +183,7 @@ function extractJsonBoundary(text: string): string {
   return trimmed.slice(firstBrace, lastBrace + 1);
 }
 
-// ============================================================================
-// §4 — Per-provider adapters. Private to this file - the only way to
-// reach any vendor is through the failover loop in §7.
-// ============================================================================
+// §4 - Per-provider adapters, private to this file; the only way to reach any vendor is the failover loop in §7.
 
 interface AdapterResult {
   content: string;
@@ -1228,18 +1134,8 @@ export class LLMModelGateway implements LLMProvider {
     }
   }
 
-  /**
-   * Layer 2, diversity mode (PrePhase 9.5). Given a POOL of already
-   * mechanically-valid candidates (built by the Domain-owned generator
-   * from its own comparable-metrics/peer-states/ownership/entity data -
-   * never invented by the LLM), selects `count` of them for maximum
-   * diversity across dimensions and rephrases each for natural wording.
-   * Never selects anything outside the given pool, never combines two
-   * pool entries into one, never invents a new fact. On any
-   * failure/malformed/wrong-length response, falls back to the first
-   * `count` pool entries unchanged - the caller's own dry-run validation
-   * is what actually guarantees every returned suggestion is answerable.
-   */
+  /** Layer 2 diversity mode (PrePhase 9.5): from a POOL of Domain-built, mechanically-valid candidates, picks `count` for max diversity and rephrases them; never selects outside the pool, merges entries or invents facts.
+   * On any failure/malformed/wrong-length response falls back to the first `count` pool entries unchanged (the caller's dry-run validation guarantees answerability). */
   async selectAndRephraseSuggestions(
     pool: string[],
     context: { resolvedMetric?: string | undefined; resolvedState?: string | undefined },
@@ -1264,10 +1160,7 @@ export class LLMModelGateway implements LLMProvider {
     const startedAt = Date.now();
     const trace: ChainTrace = { attempts: 0, tiers: [] };
     try {
-      // Master LLM Audit: kept high - this is the brainstorming/diversity
-      // task (research: 0.7-1.1 best creativity-to-cost ratio for idea
-      // generation) - a low temperature here would defeat the entire
-      // point of this method (avoiding repetitive, formulaic suggestions).
+      // Kept high on purpose (Master LLM Audit): brainstorming/diversity task (0.7-1.1 best for ideas); low temperature would yield formulaic suggestions.
       const result = await this.runJSON<string[]>(this.decorationChain, systemPrompt, userMessage, { temperature: 0.8, deadlineMs }, trace);
       if (Array.isArray(result) && result.length === count && result.every((s) => typeof s === "string" && s.length > 0)) {
         return result;

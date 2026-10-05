@@ -1,13 +1,7 @@
 import type { SqlTemplateDefinition } from "@intelligence/domain-sdk";
 
-// Batch 5B-3: one HCAHPS survey dimension, scoped by :measureCode (concepts/hcahps-dimensions.ts). Every read of
-// warehouse_hospital_hcahps is pinned to a single measure_code (the 5B audit's own unfiltered 326K-row aggregate hit
-// the RPC statement timeout). The composite patient-experience-ranking template is untouched.
-//  - score: the dimension's linear mean score (0-100, higher is better); for the summary star (H_STAR_RATING, which
-//    has no linear score) the star value itself.
-//  - star_rating: the dimension's own 1-5 star, from its matching _STAR_RATING row. Star values are text and the
-//    non-star rows hold 'Not Applicable' (not null), so only '1'..'5' is read as a star.
-//  - :direction is the SQL keyword, as in patient-experience-ranking: DESC (default) = highest score = best first.
+// Batch 5B-3: one HCAHPS dimension via :measureCode; every read is pinned to one measure_code (the unfiltered 326K-row aggregate hit the RPC timeout).
+// score is the linear mean (0-100, higher better; the star value for H_STAR_RATING); star_rating reads only '1'..'5' since non-star rows hold 'Not Applicable'; :direction is the SQL keyword.
 export const hospitalHcahpsDimensionRankingSqlTemplate: SqlTemplateDefinition = {
   id: "hospital-hcahps-dimension-ranking",
 

@@ -64,11 +64,8 @@ export class HealthcareExecutionStrategy
     );
   }
 
-  /**
-   * Pre-Phase 9 Tier0: county/city names that collide across states (e.g. ALBANY is both NY and WY) are flagged as
-   * ambiguous (0 SQL) before any template selection, instead of silently mixing facilities from both states.
-   * Skipped when a state filter is already present, or an explicit "hospital" filter already pins down one facility.
-   */
+  /** Pre-Phase 9 Tier0: city/county names colliding across states (ALBANY in NY and WY) are flagged ambiguous (0 SQL) before template selection;
+   * skipped when a state filter or an explicit single-hospital filter already pins it down. */
   checkPlanAmbiguity(executionPlan: ExecutionPlan): EntityResolutionResult[] | undefined {
     const hasStateFilter = executionPlan.filters.some(
       (filter) => filter.field === "state",
@@ -78,9 +75,7 @@ export class HealthcareExecutionStrategy
     );
     const hasHospitalFilter = hospitalFilter !== undefined;
 
-    // Tier0 Task 2 (F8): a single named hospital + a ranking op ("Mayo Clinic best hospitals") is genuinely
-    // ambiguous (is the hospital the subject or a reference point?), so it gets a real clarification here instead
-    // of runtime-engine's generic capability-mismatch refusal. Scoped to a single hospital ("=" operator) only.
+    // Tier0 Task 2 (F8): a single named hospital + ranking op ("Mayo Clinic best hospitals") is ambiguous, so it clarifies instead of the generic capability-mismatch refusal.
     if (
       executionPlan.operation === "rank" &&
       hospitalFilter &&

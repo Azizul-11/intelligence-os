@@ -1,6 +1,4 @@
-/**
- * Validation severity.
- */
+/** Validation severity. */
 export type ValidationLevel =
   | "info"
   | "warning"

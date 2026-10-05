@@ -1,23 +1,7 @@
 import type { GuidanceOption } from "@intelligence/contracts";
 
-/**
- * Phase 8.10 Layer 2: Deterministically match user response against offered
- * guidance options (alternative capabilities).
- * 
- * Matching logic (in priority order):
- * 1. Exact capability ID match
- * 2. Exact display name match (case-insensitive)
- * 3. Partial display name match (only if unique)
- * 
- * Common prefixes like "use", "try", "with", "show" are stripped.
- * 
- * NO fuzzy matching, NO similarity scoring, NO LLM, NO searching entire metric
- * registry - ONLY match against offered options.
- * 
- * @param userResponse User's continuation response
- * @param options Offered guidance options from pending interaction
- * @returns Matched option, or null if no unique match found
- */
+/** Phase 8.10 Layer 2: deterministically match a reply to offered guidance options only, in order: exact capability ID, exact display name (case-insensitive), unique partial display name; prefixes like "use"/"try"/"with"/"show" are stripped.
+ * NO fuzzy matching, similarity scoring, LLM, or searching the whole metric registry; returns null if no unique match. */
 export function matchGuidanceResponse(
   userResponse: string,
   options: GuidanceOption[]

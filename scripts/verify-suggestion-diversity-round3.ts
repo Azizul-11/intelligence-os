@@ -1,23 +1,5 @@
-/**
- * PrePhase 9.5 Round 3 — suggestion diversity verification (concepts +
- * Layer 0).
- *
- * Confirms two things live dogfooding found broken:
- * 1. A concept-scoped success (e.g. "heart attack death rate") now
- *    offers suggestions that pivot across OTHER clinical concepts
- *    (bypass surgery, heart failure, etc.), not only unrelated
- *    top-level metrics - `buildSuccessSuggestionPool()` gained a
- *    concept-aware branch this round.
- * 2. Layer 0 (`handleConversational`) no longer offers the exact same
- *    4 suggestions on every single conversational turn - its prompt is
- *    no longer restricted to only the fixed 5-item example list.
- *
- * Every suggestion is still independently dry-run/live executed here,
- * same 100%-executable guarantee as every other suggestion in this
- * codebase.
- *
- * Run: npx tsx scripts/verify-suggestion-diversity-round3.ts
- */
+/** PrePhase 9.5 R3: concept-scoped successes now suggest pivots across other clinical concepts, and Layer 0 (handleConversational) no longer repeats
+ * the same 4 suggestions. Every suggestion is still dry-run/live executed. */
 import "dotenv/config";
 
 import { healthcareDomain, DOMAIN_CAPABILITIES } from "../domain-packs/healthcare/src/index";

@@ -1,10 +1,4 @@
-/**
- * High-level platform classification for any entity within IntelligenceOS.
- *
- * EntityKind is intentionally domain-agnostic.
- * Domain SDKs (Healthcare, Education, Finance, etc.)
- * provide more specific classifications.
- */
+/** Domain-agnostic platform classification of an entity; Domain SDKs provide more specific ones. */
 export enum EntityKind {
   Unknown = "unknown",
 

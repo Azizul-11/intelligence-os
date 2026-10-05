@@ -1,6 +1,4 @@
-/**
- * Individual pipeline stages.
- */
+/** Individual pipeline stages. */
 export type PipelineStage =
   | "raw-file-registry"
   | "dataset-registry"

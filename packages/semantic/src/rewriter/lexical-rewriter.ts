@@ -8,12 +8,7 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/**
- * Generic, domain-agnostic text-rewrite engine. Executes whatever rules
- * a Domain SDK declares (see LexicalRewriteRule) - it never contains
- * domain vocabulary itself. A domain with no generic ranking idiom to
- * express may construct this with zero rules.
- */
+/** Generic text-rewrite engine that executes the rules a Domain SDK declares (LexicalRewriteRule); holds no domain vocabulary, zero rules is valid. */
 export class LexicalRewriter {
   constructor(
     private readonly rules: readonly LexicalRewriteRule[] = [],

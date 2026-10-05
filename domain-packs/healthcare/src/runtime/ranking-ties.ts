@@ -5,17 +5,8 @@ import { describeHospitalAttributeResult, HOSPITAL_ATTRIBUTE_PARAMETERS, UNRATED
 import { concepts } from "../concepts";
 import { summaryFilters } from "./summary-context";
 
-/**
- * Batch 5A-1 (D5): the plain overall-rating ranking returns the first 10 hospitals of everything that ties for the
- * top rating, in alphabetical order (`ORDER BY overall_rating, hospital_name` inside the template): 384 hospitals hold
- * 5 stars nationwide, so "best hospital" shows ten of 384 and nothing says so. This counts the tie, in the exact scope
- * the ranking ran with (the parameters the engine reports as `executedParameters`), so the answer can say it.
- *
- * The template below is deliberately not registered with the domain's templates: it is only ever run by the caller
- * of `describeOverallRatingTies`, never selected for a question, so it cannot become a capability, a suggestion or a
- * coverage fact by accident. Its parameters are declared in the same order as the ranking template's (`states` before
- * `state`: the executor substitutes by plain text replacement per declared parameter).
- */
+/** Batch 5A-1 (D5): the plain overall-rating ranking shows 10 of everything tied at the top rating (384 five-star hospitals); this counts the tie in the executed scope so the answer can say so.
+ * The template is deliberately not registered (only run by describeOverallRatingTies); parameters keep the ranking template order (`states` before `state`: plain text replacement). */
 export const OVERALL_RATING_TIE_COUNT_TEMPLATE: SqlTemplateDefinition = {
   id: "hospital-overall-rating-tie-count",
   name: "hospital-overall-rating-tie-count",
@@ -53,11 +44,7 @@ WHERE
   enabled: true,
 };
 
-/**
- * The columns of the plain ranking's rows (the engine returns them as city, state, county, ownership, facility_id,
- * hospital_name, overall_rating): the only shape this describes. The per-state view (state, facility_id,
- * hospital_name, overall_rating) and every other ranking lack some of them.
- */
+/** Columns of the plain ranking rows (city, state, county, ownership, facility_id, hospital_name, overall_rating); the per-state view and other rankings lack some. */
 const PLAIN_RANKING_COLUMNS = ["facility_id", "hospital_name", "state", "city", "county", "ownership", "overall_rating"];
 
 /** The measure a condition-level ranking ran for, by its display name (e.g. "Postoperative Sepsis"). */
@@ -65,10 +52,7 @@ function measureName(code: unknown): string | undefined {
   return typeof code === "string" ? concepts.find((concept) => Object.values(concept.measureCodesByMetric ?? {}).includes(code))?.displayName : undefined;
 }
 
-/**
- * 2,000 sweep (Batch A3): the one line an empty answer gets, built from the filters the engine executed with, e.g.
- * "No hospital in the CMS data matches all of: Oregon; rural emergency hospitals."
- */
+/** 2,000 sweep (Batch A3): the one line an empty answer gets, built from the executed filters, e.g. "No hospital in the CMS data matches all of: Oregon; rural emergency hospitals." */
 export function describeEmptyResult(parameters: Record<string, unknown> | undefined): string {
   const parts = summaryFilters(parameters);
   const measure = measureName(parameters?.measureCode);

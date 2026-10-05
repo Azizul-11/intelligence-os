@@ -1,9 +1,7 @@
 import type { AliasDefinition } from "@intelligence/domain-sdk";
 
-// Batch 5B-2: bare "Sepsis" is deliberately NOT registered here - Decision D1 maps casual "sepsis"/"sepsis rate" via
-// a lay-vocabulary group instead (runtime/lay-vocabulary.ts), which can attach the "Showing Postoperative Sepsis
-// Rate for 'sepsis'" note a silent alias cannot. These two formal phrases already name the postoperative measure
-// exactly, so they resolve directly.
+// Batch 5B-2: bare "Sepsis" is NOT registered (D1): a lay-vocabulary group maps it and can attach the "Showing Postoperative Sepsis Rate" note;
+// these two formal phrases name the measure exactly.
 export const sepsisAlias: AliasDefinition = {
   id: "sepsis",
 

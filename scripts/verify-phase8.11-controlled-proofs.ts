@@ -1,31 +1,5 @@
-/**
- * Phase 8.11 - Controlled Proofs (Master Vision §18.14)
- * 
- * Executes all 13 canonical controlled proofs (A-M) to verify Phase 8 
- * architectural completeness per Master Vision requirements.
- * 
- * SCOPE:
- * - Proof A: Valid single metric
- * - Proof B: Valid compound metric
- * - Proof C: Entity-constrained compound
- * - Proof D: Duplicate entity clarification (2 turns)
- * - Proof E: Multiple explicit entities
- * - Proof F: Unsupported capability
- * - Proof G: Data unavailable
- * - Proof H: Guidance + continuation (2 turns)
- * - Proof I: Complete clarification loop (full E2E)
- * - Proof J: Atomic multi-metric failure
- * - Proof K: No-SQL ambiguity control (negative)
- * - Proof L: No-SQL capability control (negative)
- * - Proof M: Mayo/Rochester documented observation
- * 
- * EVIDENCE STANDARDS:
- * - Build + Typecheck must pass before execution
- * - Real RuntimeEngine with deterministic pipeline
- * - Spy executor for negative controls (K, L)
- * - Multi-turn proofs against remote orchestrator
- * - NO code modifications to force test results
- */
+/** Phase 8.11 (Master Vision section 18.14): the 13 controlled proofs A-M with the real RuntimeEngine; spy executor for negative controls K/L, remote
+ * orchestrator for multi-turn; no code changes to force results. */
 
 import { createClient } from "@supabase/supabase-js";
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
@@ -38,9 +12,7 @@ import { SqlExecutor } from "../packages/sql-executor/src/sql-executor";
 import { SupabaseDatabaseAdapter } from "../packages/sql-executor/src/supabase-database-adapter";
 import { env } from "./shared/env";
 
-// ============================================================================
 // TYPES
-// ============================================================================
 
 interface ProofResult {
   proofId: string;
@@ -72,9 +44,7 @@ interface ExecutorSpy {
   callCount: number;
 }
 
-// ============================================================================
 // SETUP
-// ============================================================================
 
 const runtime = createDomainRuntime(healthcareDomain);
 const semantic = createSemanticResolver(runtime.registry, runtime.entityProvider);
@@ -109,9 +79,7 @@ function makeSpyEngine(spy: ExecutorSpy) {
   });
 }
 
-// ============================================================================
 // REMOTE ORCHESTRATOR (for multi-turn proofs)
-// ============================================================================
 
 const ORCHESTRATOR_URL = `${env.supabaseUrl}/functions/v1/orchestrator`;
 

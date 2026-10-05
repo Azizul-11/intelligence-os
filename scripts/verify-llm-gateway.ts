@@ -1,15 +1,5 @@
-/**
- * LLM-ModelGateway — direct gateway verification.
- *
- * Live smoke test against the real, currently-configured free-tier
- * providers (Groq/Google/OpenRouter/NVIDIA) plus a forced-failure test
- * proving the failover loop actually advances tiers and terminates.
- *
- * Run: npx tsx scripts/verify-llm-gateway.ts
- */
-// Must load before the gateway module - FALLBACK_CHAIN reads
-// process.env.* eagerly at import time (same pattern scripts/shared/env.ts
-// already establishes for every other verify-*.ts script).
+/** Direct gateway verification: live smoke test of the free-tier providers plus a forced-failure test that the failover loop advances tiers and terminates. Run: npx tsx scripts/verify-llm-gateway.ts */
+// Must load before the gateway module: FALLBACK_CHAIN reads process.env eagerly at import time.
 import "dotenv/config";
 import { llmGateway, LLMModelGateway } from "../packages/llm-model-gateway/src/llm-model-gateway";
 import { DOMAIN_CAPABILITIES } from "../domain-packs/healthcare/src/runtime/capability-catalog";

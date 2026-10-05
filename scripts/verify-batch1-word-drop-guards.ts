@@ -1,16 +1,7 @@
 #!/usr/bin/env tsx
 
-/**
- * Batch 1 (word-drop and discarded-refusal guards) verification.
- *
- *   Step 1.1  Layer 0 whole-utterance classifier (services/conversational.ts)
- *   Step 1.2  unaccounted-word gate on an LLM-rewritten question (QueryPlanner.findUnaccountedWords + engine)
- *   Step 1.3  LLM decline contract (services/normalizer-hook.ts, engine hook shape, trace detail, catalog topics)
- *
- * The engine checks use a scripted `llmFallback` (no LLM call) against the live warehouse (read-only SELECTs).
- *
- * Usage: pnpm exec tsx scripts/verify-batch1-word-drop-guards.ts
- */
+/** Batch 1 verification: Layer 0 whole-utterance classifier (1.1), unaccounted-word gate on LLM rewrites (1.2), LLM decline contract (1.3).
+ * Engine checks use a scripted llmFallback (no LLM call) against the live warehouse (read-only). Usage: pnpm exec tsx scripts/verify-batch1-word-drop-guards.ts */
 import "dotenv/config";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";

@@ -3,17 +3,7 @@ import type {
   AmbiguousCandidate,
 } from "@intelligence/semantic";
 
-/**
- * Phase 8.3: deterministic, contract-driven targeted clarification
- * message construction. No LLM, no NLP, no semantic guessing - only
- * string interpolation over data the Domain SDK already supplied on
- * `SemanticResolutionResult.identityAmbiguities` (Phase 8.1).
- *
- * Universal Core never interprets what a candidate's `label` means; it
- * only displays it verbatim when present, falling back to the raw
- * opaque value for a Domain SDK that has not adopted the
- * `AmbiguousCandidate` shape (backward-compatible, never crashes).
- */
+/** Phase 8.3: deterministic clarification message from `identityAmbiguities` (Phase 8.1); no LLM/NLP. Core never interprets a candidate `label`, shows it verbatim or falls back to the raw opaque value. */
 
 function isAmbiguousCandidate(value: unknown): value is AmbiguousCandidate {
   return typeof value === "object" && value !== null && "value" in value;

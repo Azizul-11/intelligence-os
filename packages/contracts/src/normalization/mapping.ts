@@ -1,17 +1,11 @@
 import type { Alias } from "./alias";
 import type { NormalizedField } from "./normalized-field";
 
-/**
- * Represents a normalization mapping.
- */
+/** Represents a normalization mapping. */
 export interface Mapping {
-  /**
-   * Field normalization.
-   */
+  /** Field normalization. */
   field: NormalizedField;
 
-  /**
-   * Supported aliases.
-   */
+  /** Supported aliases. */
   aliases?: Alias[];
 }

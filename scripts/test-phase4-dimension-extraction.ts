@@ -1,11 +1,4 @@
-/**
- * Phase 4.1 Dimension Extraction Test
- * 
- * Tests that dimension aliases are extracted into SemanticCollections.dimensions
- * 
- * NOTE: This test relies on console log output from the orchestrator.
- * Check Supabase logs for semantic extraction validation.
- */
+/** Phase 4.1: dimension aliases must land in SemanticCollections.dimensions; relies on orchestrator console output, so check Supabase logs. */
 
 const ORCHESTRATOR_URL = "http://127.0.0.1:54321/functions/v1/orchestrator";
 

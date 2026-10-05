@@ -1,11 +1,7 @@
 import type { ConceptDefinition } from "@intelligence/domain-sdk";
 
-// Batch 5B-3: the 8 HCAHPS survey dimensions plus the summary star, each a single measure code under the existing
-// patient-experience metric (higher is better, unchanged flags). The composite "Patient Experience" (the average of
-// all linear scores, patient-experience-ranking) is untouched - it applies whenever no dimension is named.
-// Staff responsiveness (H_COMP_3) and care transition (H_COMP_7) have 0 rows in the warehouse and are not here.
-// The summary star is named "Survey Summary Star", not "Summary Star Rating": "star rating" is an alias of the
-// Hospital Overall Rating metric, and a concept name containing it puts two metrics in one canonical question.
+// Batch 5B-3: 8 HCAHPS dimensions plus summary star under patient-experience (higher is better); H_COMP_3 and H_COMP_7 have 0 rows and are omitted.
+// Named "Survey Summary Star", not "Summary Star Rating": "star rating" aliases Hospital Overall Rating and would put two metrics in one question.
 
 const dimension = (id: string, displayName: string, description: string, measureCode: string): ConceptDefinition => ({
   id,

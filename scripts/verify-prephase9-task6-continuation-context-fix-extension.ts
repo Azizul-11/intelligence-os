@@ -1,24 +1,5 @@
-/**
- * Tier0 Task 6 Fix Extension: F8 "Own" Path Condition-Filter Preservation.
- *
- * Live, in-process, spy-instrumented verification. BATCH18 fixed the
- * geographic-clarification branch of Layer 2 continuation (a hospital-name
- * ambiguity, e.g. Memorial Hospital). This extension fixes a SIBLING but
- * distinct branch: the pre-existing Task 2 F8 plan-ambiguity "own vs
- * similar" choice (e.g. "Mayo Clinic best AMI mortality" -> "own"), which
- * unconditionally called `lookupHospitalOverallRating` - a function that
- * can only ever return a bare `overall_rating`, discarding whatever
- * metric/condition Turn 1 actually asked about.
- *
- * Reproduces the real flow using the actual, unmodified
- * `@intelligence/runtime-engine` continuation exports plus the *fixed*
- * orchestrator glue (chat.ts's real-semantic-result capture;
- * continuation.ts's condition-aware "own" re-execution via
- * `forcedIdentityCandidate` + `forcedIntent: "lookup"`) reproduced inline,
- * since those live in Deno-only files not importable into this script.
- *
- * Run: npx tsx scripts/verify-prephase9-task6-continuation-context-fix-extension.ts
- */
+/** Tier0 Task 6 Fix Extension: the F8 "own vs similar" choice always called lookupHospitalOverallRating and dropped the Turn 1 metric/condition;
+ * fixed Deno glue (chat.ts, continuation.ts forcedIdentityCandidate) is reproduced inline, live and spy-instrumented. */
 import { healthcareDomain } from "../domain-packs/healthcare/src/index";
 import { createDomainRuntime } from "../packages/domain-runtime/src/index";
 import { createSemanticResolver } from "../packages/semantic/src/index";

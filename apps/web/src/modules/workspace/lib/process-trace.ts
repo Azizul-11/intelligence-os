@@ -28,9 +28,7 @@ const CORE_GATES = [
   "deterministic-warehouse-execution",
 ];
 
-// A gate whose last recorded status is one of these passed. "enter" alone means the pipeline moved on past it.
-// "annotated" and "restored" are non-error outcomes (a note was added, or a phrase was put back), so they count as passed.
-// "dry-run" is a suggestion check that never queried the warehouse.
+// Statuses counting as passed: "enter" alone means the pipeline moved on; "annotated"/"restored" are non-error; "dry-run" never queried the warehouse.
 const PASSED_STATUSES = new Set([
   "ok",
   "enter",

@@ -1,17 +1,8 @@
-/**
- * Universal execution ordering.
- *
- * Represents how results should be sorted.
- * Domain-agnostic representation of ordering logic.
- */
+/** Universal, domain-agnostic result sorting. */
 export interface ExecutionOrdering {
-  /**
-   * Field or metric to order by.
-   */
+  /** Field or metric to order by. */
   field: string;
 
-  /**
-   * Sort direction.
-   */
+  /** Sort direction. */
   direction: "asc" | "desc";
 }

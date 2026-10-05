@@ -1,10 +1,4 @@
-/**
- * Phase 5.2: ExecutionPlan Mapping Verification
- *
- * Tests semantic QueryPlan → ExecutionPlan conversion.
- * Verifies the mapper correctly translates Phase 4 semantic understanding
- * into Phase 5 deterministic execution structure.
- */
+/** Phase 5.2: semantic QueryPlan -> ExecutionPlan mapping verification. */
 
 import { ExecutionPlanMapper } from "../packages/query-planner/src/execution-plan-mapper";
 import type { QueryPlan } from "../packages/query-planner/src/query-plan";

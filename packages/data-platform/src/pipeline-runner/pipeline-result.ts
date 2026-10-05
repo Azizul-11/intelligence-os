@@ -1,9 +1,7 @@
 import type { PipelineReport } from "./pipeline-report";
 import type { PipelineStatus } from "./pipeline-status";
 
-/**
- * Final pipeline execution result.
- */
+/** Final pipeline execution result. */
 export interface PipelineResult {
   status: PipelineStatus;
 

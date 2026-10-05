@@ -8,16 +8,7 @@ export class AliasResolver {
 
     
 
-    // console.log("========== ALIAS DEBUG ==========");
-    // console.log(
-    //   "Contains 'overall rating':",
-    //   this.aliases.has("overall rating"),
-    // );
 
-    // console.log(
-    //   "Contains 'highest rated hospitals':",
-    //   this.aliases.has("highest rated hospitals"),
-    // );
 
     // const canonicalKey = this.aliases.get(input);
 
