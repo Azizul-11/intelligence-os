@@ -20,6 +20,11 @@ export const healthcare: DomainConfig = {
     import("../../../../domain-packs/healthcare/src/runtime/hospital-identity-directory").then(({ hospitalIdentityDirectory }) =>
       Object.fromEntries(hospitalIdentityDirectory.map((record) => [record.facilityId, record.hospitalName])),
     ),
+  // Per-hospital answers carry facility_id but no name. An ID the map does not know shows as the ID itself.
+  enrichRows: (rows, nameMap = {}) => {
+    if (!rows[0] || !("facility_id" in rows[0]) || Object.keys(nameMap).length === 0) return rows;
+    return rows.map((row) => ({ ...row, hospital_name: nameMap[String(row.facility_id)] ?? String(row.facility_id) }));
+  },
   visualizers: healthcareVisualizers,
   chat: {
     placeholder: "Ask about a hospital, a state, or a condition",

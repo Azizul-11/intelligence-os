@@ -3,10 +3,10 @@ import { CircleAlert, Info, Lightbulb, MapPin, PanelRight, PanelRightClose, Work
 
 import { Button } from "@/shared/components/ui/button";
 
-import { useFacilityNames } from "../lib/facility-names";
+import { enrichRows, useFacilityNames } from "../lib/facility-names";
 import { activeDomain } from "@/domains";
 
-import { displayValue, withFacilityNames, type Row } from "../lib/result-format";
+import { displayValue, type Row } from "../lib/result-format";
 import type { ChatEntry } from "../stores/chat-history.store";
 import { useCanvas } from "../stores/canvas.store";
 import { CARD_LIST_LIMIT, RankedList } from "./RankedList";
@@ -52,7 +52,7 @@ export function ResultCard({
   }
 
   const names = useFacilityNames();
-  const namedRows = Array.isArray(rows) ? withFacilityNames(rows as Row[], names) : [];
+  const namedRows = Array.isArray(rows) ? enrichRows(rows as Row[], names) : [];
   const visualizer = activeDomain.visualizers?.find((candidate) => candidate.matches(namedRows));
 
   return (

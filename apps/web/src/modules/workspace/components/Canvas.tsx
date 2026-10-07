@@ -14,8 +14,8 @@ import { activeDomain } from "@/domains";
 import type { ChatResponse } from "../api/orchestrator";
 import { useCanvas } from "../stores/canvas.store";
 import type { ChatEntry } from "../stores/chat-history.store";
-import { orderColumns, parseRows, withFacilityNames, type Row } from "../lib/result-format";
-import { useFacilityNames } from "../lib/facility-names";
+import { orderColumns, parseRows, type Row } from "../lib/result-format";
+import { enrichRows, useFacilityNames } from "../lib/facility-names";
 import { ResultTable } from "./ResultTable";
 
 const CANVAS_MIN_WIDTH = 320;
@@ -43,7 +43,7 @@ export function Canvas({ entry, onClose }: { entry: ChatEntry; onClose: () => vo
   const setWidth = useCanvas((state) => state.setWidth);
   const names = useFacilityNames();
   const rows = useMemo(
-    () => withFacilityNames(parseRows((entry.result as ChatResponse).answer), names),
+    () => enrichRows(parseRows((entry.result as ChatResponse).answer), names),
     [entry.result, names],
   );
   const columnCount = Object.keys(rows[0] ?? {}).length;

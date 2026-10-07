@@ -37,7 +37,7 @@ export function compareCells(a: unknown, b: unknown): number {
   return String(a ?? "").localeCompare(String(b ?? ""), undefined, { numeric: true, sensitivity: "base" });
 }
 
-// "hospital_name" -> "Hospital name", "facility_id" -> "Facility ID".
+// "first_name" -> "First name", "user_id" -> "User ID".
 export function columnLabel(column: string): string {
   const text = column
     .split("_")
@@ -79,13 +79,4 @@ export function planColumns(rows: Row[]): ColumnPlan {
 export function orderColumns(rows: Row[]): string[] {
   const { nameKey, measureKey, rest, idKeys } = planColumns(rows);
   return [nameKey, measureKey, ...rest, ...idKeys].filter((key): key is string => key !== undefined);
-}
-
-// Per-hospital answers carry facility_id but no name. When a result has no name column, this adds hospital_name from the
-// domain's map. An ID the map does not know shows as the ID itself. Nothing is added until the map has loaded.
-export function withFacilityNames(rows: Row[], names: Record<string, string>): Row[] {
-  const first = rows[0];
-  if (!first || !("facility_id" in first) || planColumns(rows).nameKey !== undefined) return rows;
-  if (Object.keys(names).length === 0) return rows;
-  return rows.map((row) => ({ ...row, hospital_name: names[String(row.facility_id)] ?? String(row.facility_id) }));
 }
