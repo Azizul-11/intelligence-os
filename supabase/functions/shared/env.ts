@@ -16,9 +16,9 @@ console.log(
 );
 
 console.log(
-  "SUPABASE_SERVICE_ROLE_KEY exists =",
+  "ORCHESTRATOR_SECRET_KEY exists =",
   !!Deno.env.get(
-    "SUPABASE_SERVICE_ROLE_KEY",
+    "ORCHESTRATOR_SECRET_KEY",
   ),
 );
 
@@ -26,8 +26,8 @@ console.log("=====================");
 const env = {
   supabase: {
     url: requireEnv("SUPABASE_URL"),
-    anonKey: requireEnv("SUPABASE_ANON_KEY"),
-    serviceRoleKey: requireEnv("SUPABASE_SERVICE_ROLE_KEY"),
+    // The sb_secret_ key, set with `supabase secrets set`; the legacy keys are disabled.
+    secretKey: requireEnv("ORCHESTRATOR_SECRET_KEY"),
   },
   llm: {
     groqApiKey: requireEnv("GROQ_API_KEY"),

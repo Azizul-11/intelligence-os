@@ -30,6 +30,7 @@ function getEnv(name: string): string {
 
 export const env = {
   supabaseUrl: getEnv("SUPABASE_URL"),
-  supabaseAnonKey: getEnv("SUPABASE_ANON_KEY"),
-  supabaseServiceRoleKey: getEnv("SUPABASE_SERVICE_ROLE_KEY"),
+  supabaseAnonKey: process.env.SUPABASE_ANON_KEY ?? "",
+  // Holds the sb_secret_ key; the name predates the move off the legacy service_role key.
+  supabaseServiceRoleKey: getEnv("SUPABASE_SECRET_KEY"),
 };
