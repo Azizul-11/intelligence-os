@@ -25,6 +25,7 @@ function pickRandomPrompts(pool: readonly string[], count: number): string[] {
 
 type SubmitVariables = {
   conversationId: string;
+  entryId: string;
   q: string;
   pendingId?: string;
   contResp?: string;
@@ -69,11 +70,10 @@ export function QueryConsole() {
   const mutation = useMutation({
     mutationFn: ({ q, pendingId, contResp }: SubmitVariables) => askOrchestrator(q, activeDomain.id, pendingId, contResp),
     onSuccess: (result, vars) => {
-      const entryId = crypto.randomUUID();
       appendEntry(
         vars.conversationId,
         {
-          id: entryId,
+          id: vars.entryId,
           question: vars.q,
           result,
           clientMs: Math.round(performance.now() - vars.startedAt),
@@ -94,7 +94,7 @@ export function QueryConsole() {
       appendEntry(
         vars.conversationId,
         {
-          id: crypto.randomUUID(),
+          id: vars.entryId,
           question: vars.q,
           result: {
             success: false,
@@ -109,7 +109,11 @@ export function QueryConsole() {
     },
   });
 
-  const isPendingHere = mutation.isPending && mutation.variables?.conversationId === conversationId;
+  // The row leaves in the commit its answer lands in, so no frame shows both.
+  const isPendingHere =
+    mutation.isPending &&
+    mutation.variables?.conversationId === conversationId &&
+    !history.some((entry) => entry.id === mutation.variables?.entryId);
 
   const canvasEntryId = useCanvas((state) => state.entryId);
   const closeCanvas = useCanvas((state) => state.close);
@@ -146,6 +150,7 @@ export function QueryConsole() {
     setAnnouncement("Running your query…");
     mutation.mutate({
       conversationId: targetId,
+      entryId: crypto.randomUUID(),
       q: trimmed,
       pendingId: currentPendingId,
       contResp: isContinuation ? trimmed : undefined,

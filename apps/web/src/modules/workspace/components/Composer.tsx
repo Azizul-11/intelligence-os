@@ -1,7 +1,8 @@
 import { useRef, useState } from "react";
-import { ArrowUp, CornerDownRight, LoaderCircle } from "lucide-react";
+import { ArrowUp, LoaderCircle } from "lucide-react";
 
 import { Button } from "@/shared/components/ui/button";
+import { cn } from "@/shared/lib/utils";
 
 import type { PendingInteraction } from "../stores/chat-history.store";
 
@@ -41,18 +42,15 @@ export function Composer({ pending, pendingInteraction, placeholder, compactPlac
       className="shrink-0 pt-2 pb-3 sm:pb-4"
     >
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-4 sm:px-6">
-        {continuation && (
-          <div className="rounded-md border border-primary/40 bg-primary/10 px-3 py-2 text-sm">
-            <p className="flex items-center gap-2 font-semibold text-foreground">
-              <CornerDownRight className="size-4 text-primary" aria-hidden="true" />
-              <span>{continuation.banner}</span>
-            </p>
-          </div>
-        )}
-
-        <div className="flex items-end gap-2 rounded-xl border border-field bg-surface p-2 transition-colors focus-within:border-primary focus-within:ring-2 focus-within:ring-ring">
+        {/* No banner: it resized the bar. The label, placeholder and ring carry the mode. */}
+        <div
+          className={cn(
+            "flex items-end gap-2 rounded-xl border border-field bg-surface p-2 transition-colors focus-within:border-primary focus-within:ring-2 focus-within:ring-ring",
+            continuation && "ring-1 ring-primary/40",
+          )}
+        >
           <label htmlFor="query-input" className="sr-only">
-            Ask a question
+            {continuation ? continuation.banner : "Ask a question"}
           </label>
           <div className="relative min-w-0 flex-1">
             {/* A one-line hint instead of the native placeholder, which wraps and grows the bar on narrow screens; the label names the field. */}
