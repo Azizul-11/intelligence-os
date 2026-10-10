@@ -212,7 +212,16 @@ export function QueryConsole() {
         onSubmit={submit}
       />
       </div>
-      {canvasEntry && <Canvas entry={canvasEntry} onClose={closeCanvas} />}
+      {canvasEntry && (
+        <Canvas
+          entry={canvasEntry}
+          onClose={closeCanvas}
+          onAsk={(question) => {
+            closeCanvas();
+            submit(question);
+          }}
+        />
+      )}
     </div>
   );
 }

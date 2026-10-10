@@ -155,6 +155,42 @@ export function columnForMeasureCode(code: string): string | undefined {
   return MEASURE_COLUMN_BY_CODE[code];
 }
 
+const UNIT_BY_COLUMN = new Map(SECTIONS.flatMap((section) => section.measures.map((item) => [item.key, item.unit ?? ""] as const)));
+
+// The unit a measure code's value is reported in, from this catalog ("%" for death and complication rates).
+export function unitForMeasureCode(code: string): Unit {
+  const column = MEASURE_COLUMN_BY_CODE[code];
+  return (column && UNIT_BY_COLUMN.get(column)) || "";
+}
+
+// Short names for the CMS category values in the warehouse (12 ownership values, 7 hospital types).
+// Exact keys: a value that is not listed is shown as it arrived.
+export const OWNERSHIP_LABELS: Record<string, string> = {
+  "Voluntary non-profit - Private": "Non-profit",
+  "Voluntary non-profit - Other": "Non-profit",
+  "Voluntary non-profit - Church": "Non-profit (church)",
+  Proprietary: "For-profit",
+  "Government - Hospital District or Authority": "Government",
+  "Government - Local": "Government",
+  "Government - State": "Government",
+  "Government - Federal": "Government",
+  "Veterans Health Administration": "Veterans",
+  "Department of Defense": "Defense",
+  Physician: "Physician-owned",
+  Tribal: "Tribal",
+};
+
+export const HOSPITAL_TYPE_LABELS: Record<string, string> = {
+  "Acute Care Hospitals": "Acute care",
+  "Critical Access Hospitals": "Critical access",
+  Psychiatric: "Psychiatric",
+  Childrens: "Children's",
+  "Acute Care - Veterans Administration": "Veterans (acute care)",
+  "Acute Care - Department of Defense": "Defense (acute care)",
+  "Rural Emergency Hospital": "Rural emergency",
+  "Long-term": "Long-term care",
+};
+
 // A profile result: one or more rows that carry the full measure columns of this catalog.
 export function isHospitalProfile(rows: Row[]): boolean {
   return rows.length > 0 && rows.every((row) => "facility_id" in row && "mort_30_ami_score" in row);

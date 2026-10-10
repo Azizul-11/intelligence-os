@@ -2,6 +2,7 @@ import type { FocusCard, ResultVisualizer } from "../types";
 import { describeFact, FocusFactCard } from "./FocusFactCard";
 import { HospitalCompare } from "./HospitalCompare";
 import { HospitalDossier } from "./HospitalDossier";
+import { HospitalList } from "./HospitalList";
 import { isHospitalProfile } from "./measures";
 
 // Registered on the healthcare domain config; the generic canvas only ever asks "does a visualizer match these rows?".
@@ -18,6 +19,17 @@ export const healthcareVisualizers: readonly ResultVisualizer[] = [
     // The wide layout is built for 2-3 hospitals; more rows fall back to the generic table.
     matches: (rows) => (rows.length === 2 || rows.length === 3) && isHospitalProfile(rows),
     Component: HospitalCompare,
+  },
+  {
+    id: "hospital-list",
+    openLabel: "Browse hospitals",
+    countLabel: (rows) => `${rows.length} hospitals`,
+    // Any set of named hospitals (a directory or a ranking); full 56-column profiles keep their own views above.
+    matches: (rows) =>
+      rows.length >= 2 &&
+      !isHospitalProfile(rows) &&
+      rows.every((row) => typeof row.hospital_name === "string" && row.hospital_name !== "" && row.facility_id !== undefined),
+    Component: HospitalList,
   },
 ];
 

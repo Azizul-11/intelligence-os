@@ -63,6 +63,30 @@ export function displayValue(value: unknown): string {
     .join(" ");
 }
 
+// An empty value is said to be missing instead of leaving a blank cell that reads like a loading or data bug.
+export function isMissing(value: unknown): boolean {
+  return value === null || value === undefined || (typeof value === "string" && value.trim() === "");
+}
+
+// Display text for one cell: booleans read as Yes/No everywhere, otherwise the existing capitalisation fix.
+export function displayCell(value: unknown): string {
+  if (value === true || value === "true") return "Yes";
+  if (value === false || value === "false") return "No";
+  return displayValue(value);
+}
+
+export function isIdColumn(column: string): boolean {
+  const name = column.toLowerCase();
+  return name === "id" || name.endsWith("_id");
+}
+
+// Columns with the same value on every row (needs 2+ rows): said once as context rather than once per row.
+export function sharedColumns(rows: Row[]): string[] {
+  const first = rows[0];
+  if (!first || rows.length < 2) return [];
+  return Object.keys(first).filter((key) => rows.every((row) => String(row[key] ?? "") === String(first[key] ?? "")));
+}
+
 // The measure is the first numeric column that is neither the name nor an ID. It is a guess from the data shape;
 // the backend already knows the real measure (context.measure) and could pass it through to replace this.
 export function planColumns(rows: Row[]): ColumnPlan {

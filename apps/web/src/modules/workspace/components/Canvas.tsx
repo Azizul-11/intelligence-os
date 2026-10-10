@@ -37,7 +37,7 @@ function downloadCsv(question: string, rows: Row[]) {
   URL.revokeObjectURL(url);
 }
 
-export function Canvas({ entry, onClose }: { entry: ChatEntry; onClose: () => void }) {
+export function Canvas({ entry, onClose, onAsk }: { entry: ChatEntry; onClose: () => void; onAsk?: (question: string) => void }) {
   const asideRef = useRef<HTMLElement>(null);
   const width = useCanvas((state) => state.width);
   const setWidth = useCanvas((state) => state.setWidth);
@@ -146,7 +146,8 @@ export function Canvas({ entry, onClose }: { entry: ChatEntry; onClose: () => vo
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{entry.question}</p>
           <p className="text-xs text-muted-foreground tabular-nums">
-            {rows.length} {rows.length === 1 ? "result" : "results"} · {columnCount} columns
+            {visualizer?.countLabel?.(rows) ??
+              `${rows.length} ${rows.length === 1 ? "result" : "results"}${visualizer ? ` · ${columnCount} columns` : ""}`}
           </p>
         </div>
         <button
@@ -172,7 +173,7 @@ export function Canvas({ entry, onClose }: { entry: ChatEntry; onClose: () => vo
         {rows.length === 0 ? (
           <p className="text-sm text-muted-foreground">No results to show.</p>
         ) : visualizer ? (
-          <visualizer.Component key={entry.id} rows={rows} focus={(entry.result as ChatResponse).presentation?.focus} />
+          <visualizer.Component key={entry.id} rows={rows} focus={(entry.result as ChatResponse).presentation?.focus} {...(onAsk ? { onAsk } : {})} />
         ) : (
           <ResultTable key={entry.id} rows={rows} />
         )}

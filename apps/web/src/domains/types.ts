@@ -10,7 +10,12 @@ export type ChatConfig = {
 // What the backend says the answer is about. Opaque to the workspace; only a domain's own components read it.
 export type ResultFocus = Record<string, string | undefined>;
 
-export type VisualizerProps = { rows: Record<string, unknown>[]; focus?: ResultFocus };
+export type VisualizerProps = {
+  rows: Record<string, unknown>[];
+  focus?: ResultFocus;
+  // Sends a follow-up question as a new chat turn (the canvas closes so the answer is visible).
+  onAsk?: (question: string) => void;
+};
 
 export type FocusCardProps = {
   rows: Record<string, unknown>[];
@@ -31,6 +36,8 @@ export type ResultVisualizer = {
   id: string;
   // The canvas button says this when the visualizer applies, e.g. "View full profile".
   openLabel: string;
+  // Replaces the canvas header's default "N results · M columns", for views that hide or reshape columns.
+  countLabel?: (rows: Record<string, unknown>[]) => string;
   matches: (rows: Record<string, unknown>[]) => boolean;
   Component: ComponentType<VisualizerProps>;
 };

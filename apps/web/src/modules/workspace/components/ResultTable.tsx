@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight } from "lucide-react";
 
 import { cn } from "@/shared/lib/utils";
@@ -6,21 +6,52 @@ import { cn } from "@/shared/lib/utils";
 import {
   columnLabel,
   compareCells,
-  displayValue,
+  displayCell,
+  isIdColumn,
+  isMissing,
   isNumericColumn,
   orderColumns,
+  planColumns,
+  sharedColumns,
   type Row,
 } from "../lib/result-format";
 
 // Rows per canvas page. Sorting runs over every row first, then the page is cut from the sorted list.
 const PAGE_SIZE = 25;
+// Below this canvas width the rows stack as small records, so no result ever needs a sideways scroll.
+const STACK_BELOW = 520;
 
 type SortState = { key: string; dir: "asc" | "desc" } | null;
 
+function Cell({ value }: { value: unknown }) {
+  return isMissing(value) ? <span className="text-muted-foreground">Not reported</span> : <>{displayCell(value)}</>;
+}
+
 export function ResultTable({ rows }: { rows: Row[] }) {
-  const columns = orderColumns(rows);
+  const all = orderColumns(rows);
   const [sort, setSort] = useState<SortState>(null);
   const [page, setPage] = useState(0);
+  const [showIds, setShowIds] = useState(false);
+  const [narrow, setNarrow] = useState(false);
+  const frame = useRef<HTMLDivElement>(null);
+
+  // Same value on every row: said once above the table. IDs stay out of sight unless asked for.
+  const shared = useMemo(() => sharedColumns(rows).filter((column) => all.includes(column)), [rows, all.join("|")]);
+  const idColumns = all.filter(isIdColumn);
+  const visible = (column: string) => showIds || !isIdColumn(column);
+  const kept = all.filter((column) => visible(column) && !shared.includes(column));
+  // If nothing varies (or only IDs remain) the table keeps every column rather than render empty.
+  const columns = kept.length > 0 ? kept : all.filter(visible).length > 0 ? all.filter(visible) : all;
+  const context = kept.length > 0 ? shared.filter(visible) : [];
+
+  useEffect(() => {
+    const element = frame.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => setNarrow((entry?.contentRect.width ?? STACK_BELOW) < STACK_BELOW));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
   const numeric = useMemo(() => Object.fromEntries(columns.map((column) => [column, isNumericColumn(rows, column)])), [rows, columns.join("|")]);
   const sorted = useMemo(() => {
     if (!sort) return rows;
@@ -40,69 +71,124 @@ export function ResultTable({ rows }: { rows: Row[] }) {
     );
   }
 
+  const first = rows[0] ?? {};
+  // A record is titled by its name column when it has one; otherwise every column is a labelled pair.
+  const nameKey = planColumns(rows).nameKey;
+  const title = nameKey && columns.includes(nameKey) ? nameKey : undefined;
+  const rest = columns.filter((column) => column !== title);
+
   return (
-    <>
-      {/* Scrollbar hidden by design; focusable so the keyboard (arrow keys) can still scroll it sideways. */}
-      <div
-        role="region"
-        aria-label="Results table"
-        tabIndex={0}
-        className="min-h-0 flex-1 overflow-auto overscroll-contain rounded-md [scrollbar-width:none] [&::-webkit-scrollbar]:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <table className="w-max min-w-full border-collapse text-sm">
-          <thead className="sticky top-0 z-10 bg-surface">
-            <tr className="border-b border-border">
-              {columns.map((column) => {
-                const active = sort?.key === column;
-                const alignRight = numeric[column];
-                return (
-                  <th
-                    key={column}
-                    scope="col"
-                    aria-sort={active ? (sort?.dir === "asc" ? "ascending" : "descending") : "none"}
-                    className="p-0 font-medium"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => toggleSort(column)}
-                      className={cn(
-                        "inline-flex min-h-11 w-full items-center gap-1 whitespace-nowrap px-3 py-2 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        alignRight ? "justify-end" : "justify-start",
-                        active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
-                      )}
-                    >
-                      {columnLabel(column)}
-                      {active ? (
-                        sort?.dir === "asc" ? (
-                          <ArrowUp className="size-3" aria-hidden="true" />
-                        ) : (
-                          <ArrowDown className="size-3" aria-hidden="true" />
-                        )
-                      ) : (
-                        <ArrowUpDown className="size-3 opacity-50" aria-hidden="true" />
-                      )}
-                    </button>
-                  </th>
-                );
-              })}
-            </tr>
-          </thead>
-          <tbody>
+    <div ref={frame} className="flex min-h-0 flex-1 flex-col gap-3">
+      {(context.length > 0 || idColumns.length > 0) && (
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+          {context.length > 0 && (
+            <p className="text-sm text-muted-foreground">{context.map((column) => `${columnLabel(column)}: ${isMissing(first[column]) ? "Not reported" : displayCell(first[column])}`).join(" · ")}</p>
+          )}
+          {idColumns.length > 0 && columns.length !== idColumns.length && (
+            <button
+              type="button"
+              aria-pressed={showIds}
+              onClick={() => setShowIds((value) => !value)}
+              className="inline-flex min-h-11 cursor-pointer items-center rounded-md border border-border px-3 text-xs transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-pressed:border-primary"
+            >
+              {showIds ? "Hide IDs" : "Show IDs"}
+            </button>
+          )}
+        </div>
+      )}
+
+      {narrow ? (
+        <>
+          {rows.length > 1 && (
+          <label className="inline-flex items-center gap-2 text-sm">
+            <span className="text-muted-foreground">Sort</span>
+            <select
+              value={sort ? `${sort.key}:${sort.dir}` : ""}
+              onChange={(event) => {
+                const [key, dir] = event.target.value.split(":");
+                setPage(0);
+                setSort(key ? { key, dir: dir === "desc" ? "desc" : "asc" } : null);
+              }}
+              className="min-h-11 rounded-md border border-field bg-surface px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <option value="">Original order</option>
+              {columns.flatMap((column) => [
+                <option key={`${column}:asc`} value={`${column}:asc`}>
+                  {columnLabel(column)} ({numeric[column] ? "low to high" : "A to Z"})
+                </option>,
+                <option key={`${column}:desc`} value={`${column}:desc`}>
+                  {columnLabel(column)} ({numeric[column] ? "high to low" : "Z to A"})
+                </option>,
+              ])}
+            </select>
+          </label>
+          )}
+
+          <ul aria-label="Results" className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {pageRows.map((row, index) => (
-              <tr key={start + index} className="border-b border-border/60">
-                {columns.map((column) => (
-                  <td
-                    key={column}
-                    className={cn("max-w-[14rem] px-3 py-2 align-top break-words sm:max-w-[22rem]", numeric[column] ? "text-right tabular-nums" : "text-left")}
-                  >
-                    {displayValue(row[column])}
-                  </td>
-                ))}
-              </tr>
+              <li key={start + index} className="border-b border-border/60 py-3">
+                {title && <p className="text-sm font-medium [overflow-wrap:anywhere]"><Cell value={row[title]} /></p>}
+                <dl className="mt-1 grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
+                  {rest.map((column) => (
+                    <div key={column} className="contents">
+                      <dt className="text-muted-foreground">{columnLabel(column)}</dt>
+                      <dd className={cn("[overflow-wrap:anywhere]", numeric[column] && "tabular-nums")}><Cell value={row[column]} /></dd>
+                    </div>
+                  ))}
+                </dl>
+              </li>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </ul>
+        </>
+      ) : (
+        <div
+          role="region"
+          aria-label="Results table"
+          tabIndex={0}
+          className="min-h-0 flex-1 overflow-auto overscroll-contain rounded-md [scrollbar-width:none] [&::-webkit-scrollbar]:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <table className="w-full min-w-full border-collapse text-sm">
+            <thead className="sticky top-0 z-10 bg-surface">
+              <tr className="border-b border-border">
+                {columns.map((column) => {
+                  const active = sort?.key === column;
+                  return (
+                    <th key={column} scope="col" aria-sort={active ? (sort?.dir === "asc" ? "ascending" : "descending") : "none"} className="p-0 font-medium">
+                      <button
+                        type="button"
+                        onClick={() => toggleSort(column)}
+                        className={cn(
+                          "group inline-flex min-h-11 w-full cursor-pointer items-center gap-1 px-3 py-2 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                          numeric[column] ? "justify-end" : "justify-start",
+                          active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        {columnLabel(column)}
+                        {active ? (
+                          sort?.dir === "asc" ? <ArrowUp className="size-3" aria-hidden="true" /> : <ArrowDown className="size-3" aria-hidden="true" />
+                        ) : (
+                          <ArrowUpDown className="size-3 opacity-0 transition-opacity group-hover:opacity-60 group-focus-visible:opacity-100" aria-hidden="true" />
+                        )}
+                      </button>
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {pageRows.map((row, index) => (
+                <tr key={start + index} className="border-b border-border/60">
+                  {columns.map((column) => (
+                    <td key={column} className={cn("max-w-[22rem] px-3 py-2 align-top [overflow-wrap:anywhere]", numeric[column] ? "text-right tabular-nums" : "text-left")}>
+                      <Cell value={row[column]} />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {pageCount > 1 && (
         <nav aria-label="Result pages" className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3 text-sm">
@@ -141,6 +227,6 @@ export function ResultTable({ rows }: { rows: Row[] }) {
           </div>
         </nav>
       )}
-    </>
+    </div>
   );
 }
