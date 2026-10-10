@@ -29,5 +29,6 @@ WHERE hospital_id = :hospitalId;
 
   deterministic: true,
 
-  enabled: true,
+  // Queries `hospital_metrics`, which the warehouse does not have; off until a real source exists.
+  enabled: false,
 };

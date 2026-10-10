@@ -1,3 +1,4 @@
+import type { ExecutionPlan } from "@intelligence/contracts";
 import type { PlanCompletenessReport } from "@intelligence/query-planner";
 import type { AnswerabilityResult } from "@intelligence/semantic";
 import type { CoverageFact } from "./coverage-fact";
@@ -24,6 +25,9 @@ export interface RuntimeResult<T = unknown> {
 
   /** Batch 5A-1: parameters the answering template ran with (resolved filters etc.), only on success, so a Domain can describe its result exactly (e.g. ties for the top value IN THIS SCOPE). Diagnostic and additive. */
   executedParameters?: Record<string, unknown>;
+
+  /** The plan this answer was built from, once planning succeeded. Additive and opaque to Core: a Domain reads it to describe what the answer is about. */
+  executionPlan?: ExecutionPlan;
 
   /** Tier0 Task 2 (F8) Phase 2: ordered gate trace PhaseGateTracker recorded for this execution; present on every response, diagnostic and additive. */
   trace?: PhaseGateEntry[];

@@ -1,6 +1,7 @@
 /** Handles Turn-2 continuation: matches the user's reply against a pending clarification/guidance, reconstructs the request, and re-executes through the full RuntimeEngine pipeline. */
 import { supabase } from "../../shared/supabase.ts";
-import { describeResultNote, getRuntimeEngine, lookupHospitalOverallRating } from "./domain-registry.ts";
+import { describeFocus, describeResultNote, getRuntimeEngine, lookupHospitalOverallRating, OVERALL_RATING_FOCUS } from "./domain-registry.ts";
+import { sanitizeDatabaseError } from "./sanitize-error.ts";
 // Used only for the narrow bypass paths below that call lookupHospitalOverallRating() directly or terminate before engine.execute().
 import { SAFE_FALLBACK_SUGGESTIONS } from "@intelligence/healthcare-domain";
 
@@ -22,12 +23,16 @@ import {
   reconstructHospitalChoice,
 } from "@intelligence/runtime-engine";
 
-/** Whether Turn 1 named a specific metric/condition - shared by the geographic-clarification and F8 "own" branches to decide if a generic overall_rating fallback is safe. */
-function hadMetricOrConcept(originalSemanticResult: unknown): boolean {
+/** Whether Turn 1 named something to answer (a metric, a condition, or an attribute like "birth friendly") - decides if a generic overall_rating fallback is safe.
+ * A place alone ("in Illinois") is not intent; any other resolved entity is. */
+function hadNamedIntent(originalSemanticResult: unknown): boolean {
   return (
     Array.isArray(originalSemanticResult) &&
     originalSemanticResult.some(
-      (match: any) => match?.semanticType === "metric" || match?.semanticType === "concept",
+      (match: any) =>
+        match?.semanticType === "metric" ||
+        match?.semanticType === "concept" ||
+        (match?.semanticType === "entity" && match?.resolvedValue !== undefined && match?.definition?.category?.isGeographicScope !== true),
     )
   );
 }
@@ -128,7 +133,7 @@ export async function handleContinuation(
 
         // Tier0 Task 6 (F8): Turn 1 named a specific metric/condition, so re-execute the ORIGINAL question with the identity forced
         // and `forcedIntent: "lookup"` ("best" would otherwise route to a population-wide ranking; the bare overall-rating lookup below would substitute a generic rating).
-        if (hadMetricOrConcept(interaction.originalSemanticResult)) {
+        if (hadNamedIntent(interaction.originalSemanticResult)) {
           const requestId = crypto.randomUUID();
           const engine = getRuntimeEngine();
           const conditionResult = await engine.execute({
@@ -144,12 +149,17 @@ export async function handleContinuation(
           });
 
           if (conditionResult.success) {
+            const conditionFocus = conditionResult.executionPlan
+              ? describeFocus(conditionResult.executionPlan, conditionResult.rows as Record<string, unknown>[])
+              : undefined;
+
             return {
               success: true,
               requestId,
               answerability: conditionResult.answerability,
               trace: conditionResult.trace,
               answer: JSON.stringify(conditionResult.rows, null, 2),
+              ...(conditionFocus ? { presentation: { focus: conditionFocus } } : {}),
               metadata: { rowCount: conditionResult.rowCount },
               suggestions: conditionResult.suggestions,
             };
@@ -165,7 +175,7 @@ export async function handleContinuation(
           return {
             success: false,
             answer: "",
-            error: lookupResult.error ?? "Lookup failed",
+            error: sanitizeDatabaseError(lookupResult.error) ?? "Lookup failed",
             suggestions: SAFE_FALLBACK_SUGGESTIONS.slice(),
           };
         }
@@ -173,6 +183,7 @@ export async function handleContinuation(
         return {
           success: true,
           answer: JSON.stringify(lookupResult.rows, null, 2),
+          presentation: { focus: OVERALL_RATING_FOCUS },
           metadata: { rowCount: lookupResult.rowCount },
           suggestions: SAFE_FALLBACK_SUGGESTIONS.slice(),
         };
@@ -334,7 +345,7 @@ export async function handleContinuation(
       if (
         typeof facilityId === "string" &&
         reconstructed.identityAlreadyResolved &&
-        !hadMetricOrConcept(interaction.originalSemanticResult)
+        !hadNamedIntent(interaction.originalSemanticResult)
       ) {
         const fallback = await lookupHospitalOverallRating(facilityId);
 
@@ -343,6 +354,7 @@ export async function handleContinuation(
             success: true,
             answer: JSON.stringify(fallback.rows, null, 2),
             requestId,
+            presentation: { focus: OVERALL_RATING_FOCUS },
             answerability: { status: "answerable" },
             metadata: { rowCount: fallback.rowCount },
             suggestions: SAFE_FALLBACK_SUGGESTIONS.slice(),
@@ -353,7 +365,7 @@ export async function handleContinuation(
       return {
         success: false,
         answer: "",
-        error: result.error,
+        error: sanitizeDatabaseError(result.error),
         requestId,
         answerability: result.answerability,
         trace: result.trace,
@@ -376,12 +388,15 @@ export async function handleContinuation(
       await recordRejectedSummary(requestId, result.trace, verified.rejected);
     }
 
+    const focus = result.executionPlan ? describeFocus(result.executionPlan, result.rows as Record<string, unknown>[]) : undefined;
+
     return {
       success: true,
       requestId,
       answerability: result.answerability,
       trace: result.trace,
       answer: JSON.stringify(result.rows, null, 2),
+      ...(focus ? { presentation: { focus } } : {}),
       ...(summary ? { summary } : {}),
       metadata: {
         rowCount: result.rowCount,
@@ -394,7 +409,7 @@ export async function handleContinuation(
     return {
       success: false,
       answer: "",
-      error: error instanceof Error ? error.message : "Continuation failed",
+      error: sanitizeDatabaseError(error instanceof Error ? error.message : undefined) ?? "Continuation failed",
       suggestions: SAFE_FALLBACK_SUGGESTIONS.slice(),
     };
   }

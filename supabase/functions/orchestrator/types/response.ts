@@ -58,4 +58,7 @@ export interface ChatResponse {
   /** LLM Layer 3: optional 1-2 sentence summary of `answer`'s rows, attached only after chat.ts's numeric cross-check passes.
    * Never replaces `answer`; a rejected/failed/timed-out summary leaves this absent. */
   summary?: string;
+
+  /** What the answer is about, as the domain read it from the plan. Opaque to the orchestrator and the generic workspace; only the domain's own components interpret it. */
+  presentation?: { focus?: Record<string, string | undefined> };
 }

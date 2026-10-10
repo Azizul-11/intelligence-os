@@ -1564,7 +1564,11 @@ return {
         { rowCount: result.rowCount ?? 0 },
       );
 
-      const finalResult: RuntimeResult = { ...result, trace: tracker.gates };
+      const finalResult: RuntimeResult = {
+        ...result,
+        trace: tracker.gates,
+        ...(capturedExecutionPlan && !result.executionPlan ? { executionPlan: capturedExecutionPlan } : {}),
+      };
 
       // Batch 5A-1: hand the caller the answer before the suggestions are built (see RuntimeRequest.onResult).
       request.onResult?.(finalResult);

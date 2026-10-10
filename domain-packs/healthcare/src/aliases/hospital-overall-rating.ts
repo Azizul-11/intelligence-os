@@ -9,6 +9,10 @@ export const hospitalOverallRatingAlias: AliasDefinition = {
     "Hospital Overall Rating",
     "Overall Rating",
     "Star Rating",
+    "Overall Hospital Rating",
+    "Overall Hospital Ratings",
+    "Hospital Ratings",
+    "Overall Ratings",
   ],
 
   type: "metric",

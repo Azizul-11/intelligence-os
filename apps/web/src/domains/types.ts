@@ -7,7 +7,24 @@ export type ChatConfig = {
   examplePrompts: readonly string[];
 };
 
-export type VisualizerProps = { rows: Record<string, unknown>[] };
+// What the backend says the answer is about. Opaque to the workspace; only a domain's own components read it.
+export type ResultFocus = Record<string, string | undefined>;
+
+export type VisualizerProps = { rows: Record<string, unknown>[]; focus?: ResultFocus };
+
+export type FocusCardProps = {
+  rows: Record<string, unknown>[];
+  focus: ResultFocus;
+  // Set when the domain's full view can open; the card shows that action itself.
+  profile?: { label: string; open: boolean; onToggle: () => void };
+};
+
+// A domain's compact card for one asked-for fact, tried before the generic ranked list.
+export type FocusCard = {
+  id: string;
+  matches: (rows: Record<string, unknown>[], focus: ResultFocus) => boolean;
+  Component: ComponentType<FocusCardProps>;
+};
 
 // A domain's richer view of a result (for example one profile card), tried before the generic table.
 export type ResultVisualizer = {
@@ -30,4 +47,5 @@ export type DomainConfig = {
   // Optional: adds display columns to rows that have no name column. Receives the facilityNames map once it has loaded.
   enrichRows?: (rows: Record<string, unknown>[], nameMap?: Record<string, string>) => Record<string, unknown>[];
   visualizers?: readonly ResultVisualizer[];
+  focusCards?: readonly FocusCard[];
 };

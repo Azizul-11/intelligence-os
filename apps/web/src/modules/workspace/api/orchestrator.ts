@@ -53,6 +53,8 @@ export interface ChatResponse {
   suggestions?: string[];
   // LLM Integration Layer 3: optional, numerically-verified 1-2 sentence summary of answer's rows
   summary?: string;
+  // What the answer is about, from the backend's plan. Opaque to the workspace; only the active domain's components read it.
+  presentation?: { focus?: Record<string, string | undefined> };
   // Every LLM call made for this response (absent role = not called)
   llmCalls?: LlmCall[];
 }

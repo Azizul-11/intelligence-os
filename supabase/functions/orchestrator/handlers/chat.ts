@@ -6,7 +6,8 @@ import { executeRuntime } from "../services/runtime.ts";
 import { handleContinuation } from "../services/continuation.ts";
 import { isConversational, isPureGreeting, preflightClarification } from "../services/conversational.ts";
 import { createPendingInteraction } from "@intelligence/runtime-engine";
-import { getDomainMetrics, getDomainCapabilities, getRuntimeEngine, describeResultNote } from "../services/domain-registry.ts";
+import { getDomainMetrics, getDomainCapabilities, getRuntimeEngine, describeResultNote, describeFocus } from "../services/domain-registry.ts";
+import { sanitizeDatabaseError } from "../services/sanitize-error.ts";
 import { buildIgnoredNote, buildInterpretedRefusal, buildScopeMessage, buildUnaccountedMessage, composeSummary, droppedTerms, gateAlternates } from "../services/graceful-message.ts";
 import { buildVerifiedSummary, recordRejectedSummary, type VerifiedSummary } from "../services/verified-summary.ts";
 import { llmGateway, withLlmCallLog } from "@intelligence/llm-model-gateway";
@@ -331,7 +332,7 @@ async function runChat(
     return {
       success: false,
       answer: "",
-      error: graceful ?? interpreted ?? softenBluntFailureMessage(result.error),
+      error: graceful ?? interpreted ?? sanitizeDatabaseError(softenBluntFailureMessage(result.error)),
       requestId,
       answerability: result.answerability,
       trace: result.trace,
@@ -380,6 +381,8 @@ async function runChat(
     await recordRejectedSummary(requestId, result.trace, verified.rejected);
   }
 
+  const focus = result.executionPlan ? describeFocus(result.executionPlan, result.rows as Record<string, unknown>[]) : undefined;
+
   return {
     success: true,
     answer: JSON.stringify(result.rows, null, 2),
@@ -387,6 +390,7 @@ async function runChat(
     answerability: result.answerability,
     trace: result.trace,
     suggestions,
+    ...(focus ? { presentation: { focus } } : {}),
     ...(summary ? { summary } : {}),
     metadata: {
       rowCount: result.rowCount,

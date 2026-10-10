@@ -17,6 +17,7 @@ import {
   buildSummaryContext,
   summaryFactNumbers,
   summaryVocabulary,
+  describeResultFocus,
   type SummaryContext,
 } from "@intelligence/healthcare-domain";
 
@@ -125,6 +126,17 @@ export function prepareSummaryContext(
 ): { context: SummaryContext; factNumbers: string[]; vocabulary: string[] } {
   const context = buildSummaryContext({ rows, parameters, alreadyShown });
   return { context, factNumbers: summaryFactNumbers(context), vocabulary: summaryVocabulary(context) };
+}
+
+/** The focus of a direct overall-rating lookup (no plan exists on those bypass paths); the rows are exactly the rating. */
+export const OVERALL_RATING_FOCUS: Record<string, string> = { kind: "fact", metric: "hospital-overall-rating" };
+
+/** What the domain says this answer is about (one fact, or a measure family), for the frontend's focused card and tab. Opaque here. */
+export function describeFocus(
+  plan: Parameters<typeof describeResultFocus>[0],
+  rows: readonly Record<string, unknown>[],
+): Record<string, string | undefined> | undefined {
+  return describeResultFocus(plan, rows);
 }
 
 /** Tier0 Task 2 (F8): direct single-hospital rating lookup by facility_id for the ranking clarification's "lookup" Turn 2 (see reconstruct-hospital-choice.ts);

@@ -212,7 +212,10 @@ export class QueryPlanner {
       collections.entities.length > 0 &&
       !forcedIntent
     ) {
-      const firstEntity = collections.entities[0];
+      // The record itself, not whichever entity came first: a pinned identity is appended after an attribute ("birth friendly").
+      const firstEntity =
+        collections.entities.find((entity) => (entity.definition as EntityDefinition).identifiesUniqueRecord === true) ??
+        collections.entities[0];
       if (firstEntity) {
         const entityType = firstEntity.canonicalKey;
         const detailMetricId = `${entityType}-detail`;

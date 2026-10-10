@@ -54,6 +54,10 @@ export function ResultCard({
   const names = useFacilityNames();
   const namedRows = Array.isArray(rows) ? enrichRows(rows as Row[], names) : [];
   const visualizer = activeDomain.visualizers?.find((candidate) => candidate.matches(namedRows));
+  // A domain card for the one fact that was asked; without a match the generic ranked list is shown.
+  const focus = "presentation" in result ? result.presentation?.focus : undefined;
+  const focusCard = focus ? activeDomain.focusCards?.find((card) => card.matches(namedRows, focus)) : undefined;
+  const cardOwnsCanvasAction = focusCard !== undefined && visualizer !== undefined;
 
   return (
     <div className="flex flex-col gap-4">
@@ -119,7 +123,16 @@ export function ResultCard({
         </>
       )}
 
-      {success && !parseError && Array.isArray(rows) && rows.length > 0 && <RankedList rows={namedRows} />}
+      {success && !parseError && Array.isArray(rows) && rows.length > 0 &&
+        (focusCard && focus ? (
+          <focusCard.Component
+            rows={namedRows}
+            focus={focus}
+            profile={visualizer ? { label: visualizer.openLabel, open: canvasOpen, onToggle: () => (canvasOpen ? closeCanvas() : openCanvas(entry.id)) } : undefined}
+          />
+        ) : (
+          <RankedList rows={namedRows} />
+        ))}
 
       {/* Actions for every answer: the result count and canvas when there are rows, and the process view always. */}
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -133,7 +146,7 @@ export function ResultCard({
           <span />
         )}
         <div className="flex flex-wrap items-center gap-2">
-          {success && !parseError && Array.isArray(rows) && rows.length > 0 && (
+          {success && !parseError && Array.isArray(rows) && rows.length > 0 && !cardOwnsCanvasAction && (
             <Button
               type="button"
               variant="outline"

@@ -968,7 +968,11 @@ function createRuntimeEngine({
         result.answerability?.status,
         { rowCount: result.rowCount ?? 0 }
       );
-      const finalResult = { ...result, trace: tracker.gates };
+      const finalResult = {
+        ...result,
+        trace: tracker.gates,
+        ...capturedExecutionPlan && !result.executionPlan ? { executionPlan: capturedExecutionPlan } : {}
+      };
       request.onResult?.(finalResult);
       if (!request.includeSuggestions || !runtime.domain.executionStrategy.generateSuggestions) {
         return finalResult;

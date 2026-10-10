@@ -1,4 +1,5 @@
-import type { ResultVisualizer } from "../types";
+import type { FocusCard, ResultVisualizer } from "../types";
+import { describeFact, FocusFactCard } from "./FocusFactCard";
 import { HospitalCompare } from "./HospitalCompare";
 import { HospitalDossier } from "./HospitalDossier";
 import { isHospitalProfile } from "./measures";
@@ -17,5 +18,14 @@ export const healthcareVisualizers: readonly ResultVisualizer[] = [
     // The wide layout is built for 2-3 hospitals; more rows fall back to the generic table.
     matches: (rows) => (rows.length === 2 || rows.length === 3) && isHospitalProfile(rows),
     Component: HospitalCompare,
+  },
+];
+
+// One asked-for fact about one hospital; the card only matches when the row itself can answer it.
+export const healthcareFocusCards: readonly FocusCard[] = [
+  {
+    id: "focus-fact",
+    matches: (rows, focus) => rows.length === 1 && describeFact(rows[0]!, focus) !== null,
+    Component: FocusFactCard,
   },
 ];

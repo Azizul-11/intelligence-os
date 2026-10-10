@@ -371,6 +371,16 @@ export class HealthcareExecutionStrategy
       }
     }
 
+    // A single named hospital cannot be grouped: "what county is X in" asks for a column of its own profile row.
+    if (
+      executionPlan.metric === "hospital-detail" &&
+      executionPlan.grouping &&
+      executionPlan.grouping.dimensions.length > 0 &&
+      executionPlan.filters.some((filter) => filter.field === "hospital" && filter.operator === "=")
+    ) {
+      return "hospital-detail";
+    }
+
     // RCG-008: grouped ranking. Universal Core supplies an opaque dimension key; Healthcare maps it to its own
     // grouped SQL templates. Skipped when an explicit county/city filter is present (that's a scope, not a grouping).
     if (

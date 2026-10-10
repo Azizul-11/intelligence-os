@@ -8,5 +8,11 @@ export function continuationQuestion(
   const hospitalsPinnedByValue = context.twoSlot || (context.isComparison && Boolean(option.state));
   const place = hospitalsPinnedByValue ? "" : [option.city, option.state].filter(Boolean).join(", ");
 
-  return place ? `${originalQuestion} in ${place}` : originalQuestion;
+  if (!place) {
+    return originalQuestion;
+  }
+
+  // A question already ending in "in" ("what county is X in") must not get a second one: "in in" reads as the state IN.
+  const stem = originalQuestion.replace(/[\s?.!]+$/, "");
+  return /\bin$/i.test(stem) ? `${stem} ${place}` : `${originalQuestion} in ${place}`;
 }

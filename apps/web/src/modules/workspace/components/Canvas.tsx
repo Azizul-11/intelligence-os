@@ -172,7 +172,7 @@ export function Canvas({ entry, onClose }: { entry: ChatEntry; onClose: () => vo
         {rows.length === 0 ? (
           <p className="text-sm text-muted-foreground">No results to show.</p>
         ) : visualizer ? (
-          <visualizer.Component key={entry.id} rows={rows} />
+          <visualizer.Component key={entry.id} rows={rows} focus={(entry.result as ChatResponse).presentation?.focus} />
         ) : (
           <ResultTable key={entry.id} rows={rows} />
         )}

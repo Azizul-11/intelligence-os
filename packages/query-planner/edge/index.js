@@ -296,7 +296,7 @@ var QueryPlanner = class _QueryPlanner {
       discoveredDefaultRanking = true;
     }
     if (collections.metrics.length === 0 && hasUniqueRecordEntity && collections.entities.length > 0 && !forcedIntent) {
-      const firstEntity = collections.entities[0];
+      const firstEntity = collections.entities.find((entity) => entity.definition.identifiesUniqueRecord === true) ?? collections.entities[0];
       if (firstEntity) {
         const entityType = firstEntity.canonicalKey;
         const detailMetricId = `${entityType}-detail`;

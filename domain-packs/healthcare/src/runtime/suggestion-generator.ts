@@ -7,6 +7,7 @@ import { concepts } from "../concepts";
 import { healthcareAliases } from "../aliases";
 import { healthcareSqlTemplates } from "../sql";
 import { STATE_NAMES_BY_CODE } from "./execution-strategy";
+import { hospitalIdentityDirectory } from "./hospital-identity-directory";
 import { clarificationChips, scopeGuidanceChips } from "./lay-vocabulary";
 import { HEALTHCARE_PROMPT_WORDING } from "./prompt-wording";
 import { HealthcareTemplateSelector } from "./template-selector";
@@ -200,15 +201,49 @@ function hasRankingTemplate(metricId: string): boolean {
   return ENABLED_TEMPLATE_IDS.has(rankingTemplateSelector.select(metricId, "ranking"));
 }
 
+/** A one-hospital chip needs the metric's single-hospital template, which several metrics do not have (or have disabled). */
+function hasLookupTemplate(metricId: string): boolean {
+  return ENABLED_TEMPLATE_IDS.has(rankingTemplateSelector.select(metricId, "lookup"));
+}
+
+let hospitalIndex: { byId: Map<string, (typeof hospitalIdentityDirectory)[number]>; nameCounts: Map<string, number> } | undefined;
+
+/** The hospital a one-hospital answer is about: named by the plan's own `hospital = <id>` filter, since a measure template's rows carry no name.
+ * A name several hospitals share carries its place, or every chip built from it would come back as "which one do you mean". */
+function activeHospital(
+  facilityId: unknown,
+  firstRow: Record<string, unknown> | undefined,
+): { label: string; qualified: boolean } | undefined {
+  hospitalIndex ??= {
+    byId: new Map(hospitalIdentityDirectory.map((record) => [record.facilityId, record])),
+    nameCounts: hospitalIdentityDirectory.reduce((counts, record) => counts.set(record.hospitalName, (counts.get(record.hospitalName) ?? 0) + 1), new Map<string, number>()),
+  };
+  const record = hospitalIndex.byId.get(String(facilityId));
+  const name = typeof firstRow?.["hospital_name"] === "string" ? (firstRow["hospital_name"] as string) : record?.hospitalName;
+
+  if (!name) {
+    return undefined;
+  }
+
+  const shared = record !== undefined && (hospitalIndex.nameCounts.get(record.hospitalName) ?? 0) > 1;
+  return shared ? { label: `${name} in ${record.city}, ${record.state}`, qualified: true } : { label: name, qualified: false };
+}
+
+/** The follow-up chip asking for another measure of the same hospital. */
+const askAbout = (hospital: { label: string; qualified: boolean }, measure: string): string =>
+  hospital.qualified ? `What is the ${measure} for ${hospital.label}?` : `What is ${hospital.label}'s ${measure}?`;
+
 function filterValues(value: unknown): string[] {
   return (Array.isArray(value) ? value : [value]).map(String);
 }
 
 /** Bug 2 fix: picks the NEXT comparable/rankable metric after the current one, wrapping around - not always the first alternate found. */
-function nextComparableMetric(currentMetricId: string, requireRankingTemplate = false) {
+function nextComparableMetric(currentMetricId: string, requireRankingTemplate = false, requireLookupTemplate = false) {
   const pool = healthcareMetrics.filter(
     (metric) =>
-      (metric.rankable || metric.comparable) && (!requireRankingTemplate || hasRankingTemplate(metric.id)),
+      (metric.rankable || metric.comparable) &&
+      (!requireRankingTemplate || hasRankingTemplate(metric.id)) &&
+      (!requireLookupTemplate || hasLookupTemplate(metric.id)),
   );
   if (pool.length === 0) {
     return undefined;
@@ -261,15 +296,12 @@ function successPathSuggestions(context: SuggestionContext): string[] {
 
   // Entity dive: same resolved facility, a different rankable measure.
   const firstRow = context.rows?.[0];
-  const hospitalName =
-    hospitalFilter && firstRow && typeof firstRow["hospital_name"] === "string"
-      ? (firstRow["hospital_name"] as string)
-      : undefined;
+  const hospital = hospitalFilter ? activeHospital(hospitalFilter.value, firstRow) : undefined;
 
-  if (hospitalName) {
-    const diveMetric = nextComparableMetric(plan.metric);
+  if (hospital) {
+    const diveMetric = nextComparableMetric(plan.metric, false, true);
     if (diveMetric) {
-      candidates.push(`What is ${hospitalName}'s ${diveMetric.displayName.toLowerCase()}?`);
+      candidates.push(askAbout(hospital, diveMetric.displayName.toLowerCase()));
     }
   } else {
     // Depth probe: a different comparable/rankable metric, same scope.
@@ -332,21 +364,19 @@ export function buildSuccessSuggestionPool(context: SuggestionContext): string[]
   const scopeSuffix = stateNames.length > 0 ? ` in ${stateNames.join(" and ")}` : "";
 
   const firstRow = context.rows?.[0];
-  const hospitalName =
-    hospitalFilter && firstRow && typeof firstRow["hospital_name"] === "string"
-      ? (firstRow["hospital_name"] as string)
-      : undefined;
+  const hospital = hospitalFilter ? activeHospital(hospitalFilter.value, firstRow) : undefined;
 
   // Batch 5A-1: pool is built one dimension at a time and interleaved, so the first three (the slow-model fallback) already differ in kind.
   const conceptItems: string[] = [];
   const ownershipItems: string[] = [];
   const peerItems: string[] = [];
 
-  if (hospitalName) {
+  if (hospital) {
     for (const metric of allComparableMetricsExcept(plan.metric)) {
-      pool.push(`What is ${hospitalName}'s ${metric.displayName.toLowerCase()}?`);
+      if (!hasLookupTemplate(metric.id)) continue;
+      pool.push(askAbout(hospital, metric.displayName.toLowerCase()));
     }
-    pool.push(`Tell me about ${hospitalName}`);
+    pool.push(`Tell me about ${hospital.label}`);
   } else {
     // Phase 3.5: a listing/count/profile answer pivots on the overall rating (never "best Hospital List").
     const primaryMetricId = measureMetricId(plan.metric);

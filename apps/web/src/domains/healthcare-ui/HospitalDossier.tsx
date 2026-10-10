@@ -141,9 +141,18 @@ function Overview({ row }: { row: Record<string, unknown> }) {
   );
 }
 
-export function HospitalDossier({ rows }: VisualizerProps) {
+// The tab that holds what was asked; anything else (or no focus) opens on the overview.
+const TAB_BY_METRIC: Record<string, TabId> = {
+  "mortality-rate": "outcomes",
+  "readmission-rate": "outcomes",
+  "patient-safety-indicator": "safety",
+  "safety-performance": "safety",
+  "patient-experience": "experience",
+};
+
+export function HospitalDossier({ rows, focus }: VisualizerProps) {
   const row = rows[0]!;
-  const [tab, setTab] = useState<TabId>("overview");
+  const [tab, setTab] = useState<TabId>((focus?.metric ? TAB_BY_METRIC[focus.metric] : undefined) ?? "overview");
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const baseId = useId();
 

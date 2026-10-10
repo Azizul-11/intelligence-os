@@ -75,4 +75,7 @@ export const healthcareMisspellingRewrites: readonly LexicalRewriteRule[] = [
   { pattern: "gaum", replacement: "guam" },
   // Batch E: "hospitals in Florda for hart failur" was refused.
   { pattern: "florda", replacement: "florida" },
+  // "is memorial hospital brith friendly" left the attribute unresolved, so the answer was the plain profile.
+  { pattern: "brith friendly", replacement: "birth friendly" },
+  { pattern: "brithing friendly", replacement: "birthing friendly" },
 ];

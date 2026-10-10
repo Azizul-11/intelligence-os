@@ -49,6 +49,7 @@ export const EMERGENCY_SERVICES = new Map<string, string>([
 /** `birthing_friendly` ('Y'); "birthing-friendly" normalizes to the same key. */
 export const BIRTHING_FRIENDLY = new Map<string, string>([
   ["birthing friendly", "Y"],
+  ["birth friendly", "Y"],
   // 2,000 sweep (Batch B2): CMS's Birthing-Friendly designation is the maternity-care designation the data holds.
   // "maternity" is bare although one hospital name contains it (Sutter Maternity & Surgery Center): a full name wins.
   ["maternity", "Y"],
