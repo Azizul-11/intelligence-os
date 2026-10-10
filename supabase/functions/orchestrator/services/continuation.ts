@@ -2,6 +2,7 @@
 import { supabase } from "../../shared/supabase.ts";
 import { describeFocus, describeResultNote, getRuntimeEngine, lookupHospitalOverallRating, OVERALL_RATING_FOCUS } from "./domain-registry.ts";
 import { sanitizeDatabaseError } from "./sanitize-error.ts";
+import { toOfferedOptions } from "./clarification-options.ts";
 // Used only for the narrow bypass paths below that call lookupHospitalOverallRating() directly or terminate before engine.execute().
 import { SAFE_FALLBACK_SUGGESTIONS } from "@intelligence/healthcare-domain";
 
@@ -21,6 +22,7 @@ import {
   reconstructClarificationRequest,
   reconstructGuidanceRequest,
   reconstructHospitalChoice,
+  createPendingInteraction,
 } from "@intelligence/runtime-engine";
 
 /** Whether Turn 1 named something to answer (a metric, a condition, or an attribute like "birth friendly") - decides if a generic overall_rating fallback is safe.
@@ -78,6 +80,8 @@ export async function handleContinuation(
       identityAlreadyResolved?: boolean;
       forcedIntent?: "lookup" | "ranking" | "comparison";
       companionEntities?: Array<{ value: unknown; canonicalKey: string }>;
+      /** Set when "comparison" came from the wording alone: the question as it was answered before that reading, tried if the comparison fails. */
+      legacyQuestion?: string;
     } | null = null;
 
     if (interaction.kind === "clarification") {
@@ -192,9 +196,12 @@ export async function handleContinuation(
         const reconResult = reconstructClarificationRequest(interaction, selectedOption);
 
         // Comparison continuation fix: preserve comparison intent in Turn 2 so metric injection doesn't overwrite it with bare lookup.
-        const isComparisonTurn2 =
-          Boolean(secondOption) || wasComparisonQuery(interaction.originalQuestion, interaction.originalSemanticResult);
+        // The wording alone is enough: when both names were ambiguous nothing resolved on Turn 1, and the comparison was lost.
+        const isComparisonTurn2 = Boolean(secondOption) || hasComparisonKeyword(interaction.originalQuestion);
         const forcedIntentForTurn2 = isComparisonTurn2 ? "comparison" : undefined;
+        // Comparison read from the wording only (nothing resolved to compare): kept honest by a fallback to the old reading.
+        const wordingOnlyComparison =
+          !secondOption && isComparisonTurn2 && !wasComparisonQuery(interaction.originalQuestion, interaction.originalSemanticResult);
 
         // Bug fix: a Turn 1 comparison with 2+ entities must preserve ALL entities in Turn 2, not just the
         // disambiguated one - extracted and passed through so ExecutionPlanMapper builds a multi-entity IN filter.
@@ -239,6 +246,9 @@ export async function handleContinuation(
           identityAlreadyResolved: true,
           forcedIntent: forcedIntentForTurn2,
           companionEntities: companionEntities.length > 0 ? companionEntities : undefined,
+          ...(wordingOnlyComparison
+            ? { legacyQuestion: continuationQuestion(interaction.originalQuestion, selectedOption, { isComparison: false, twoSlot: false }) }
+            : {}),
         };
       }
     } else if (interaction.kind === "guidance") {
@@ -303,7 +313,7 @@ export async function handleContinuation(
     // CRITICAL: Full revalidation - no shortcuts, no stale ExecutionPlan
     const requestId = crypto.randomUUID();
     const engine = getRuntimeEngine();
-    const result = await engine.execute({
+    let result = await engine.execute({
       question: reconstructed.question,
       parameters: {}, // Simplified - full semantic context not passed yet
       requestId,
@@ -315,6 +325,21 @@ export async function handleContinuation(
       // RuntimeRequest.includeSuggestions's own doc comment.
       includeSuggestions: true,
     });
+
+    // A "comparison" that came from the wording only and did not answer (and is not a second clarification) is
+    // re-run exactly as before that reading existed, so a single-hospital "compare ..." keeps its previous answer.
+    if (!result.success && result.answerability?.status !== "ambiguous" && reconstructed.legacyQuestion) {
+      reconstructed.question = reconstructed.legacyQuestion;
+      reconstructed.forcedIntent = undefined;
+      result = await engine.execute({
+        question: reconstructed.question,
+        parameters: {},
+        requestId,
+        identityAlreadyResolved: reconstructed.identityAlreadyResolved,
+        forcedIdentityCandidate: reconstructed.forcedIdentityCandidate,
+        includeSuggestions: true,
+      });
+    }
 
     // Tier0 Task 2 (F8) Phase 2: same evidentiary trace persistence as
     // chat.ts's Turn 1 path - Turn 2's re-execution goes through the
@@ -334,6 +359,47 @@ export async function handleContinuation(
       console.error("[Phase trace persistence failed]", error);
     }
 
+    // A comparison of two ambiguous names needs a second answer: the engine asks it (identity pinned for the first), so it
+    // becomes a new pending interaction that carries the pinned hospital, instead of being swallowed by the rating fallback.
+    if (
+      !result.success &&
+      result.answerability?.status === "ambiguous" &&
+      result.answerability.reason === "identity-ambiguous" &&
+      result.answerability.candidates &&
+      result.answerability.candidates.length > 0
+    ) {
+      const pinned = reconstructed.forcedCandidate?.facility_id;
+      const carried = Array.isArray(interaction.originalSemanticResult) ? [...interaction.originalSemanticResult] : [];
+
+      if (hasComparisonKeyword(interaction.originalQuestion) && typeof pinned === "string") {
+        carried.push({ phrase: "", canonicalKey: "hospital", semanticType: "entity", resolvedValue: pinned, confidence: 1, start: 0, end: 0 });
+      }
+
+      const next = await createPendingInteraction(supabase, {
+        kind: "clarification",
+        userId: request.userId,
+        originalQuestion: interaction.originalQuestion,
+        originalSemanticResult: carried,
+        pendingTarget: {
+          entityMention: interaction.originalQuestion,
+          candidates: result.answerability.candidates,
+        },
+        offeredOptions: toOfferedOptions(result.answerability.candidates),
+      });
+
+      return {
+        success: false,
+        answer: result.error || "",
+        error: result.error,
+        pendingInteractionId: next.id,
+        interactionKind: "clarification",
+        requestId,
+        answerability: result.answerability,
+        trace: result.trace,
+        suggestions: result.suggestions,
+      };
+    }
+
     if (!result.success) {
       // Frontend bug fix: a resolved identity + ranking-worded question can still hit Phase 8.8's rank/single-entity
       // refusal - identityAlreadyResolved only prevents a second clarification, not which template "rank" selects.
@@ -345,6 +411,7 @@ export async function handleContinuation(
       if (
         typeof facilityId === "string" &&
         reconstructed.identityAlreadyResolved &&
+        !hasComparisonKeyword(interaction.originalQuestion) && // a comparison is never answered with one hospital's rating
         !hadNamedIntent(interaction.originalSemanticResult)
       ) {
         const fallback = await lookupHospitalOverallRating(facilityId);
@@ -376,10 +443,11 @@ export async function handleContinuation(
     // Batch E: an empty Turn 2 answer gets the same one-line explanation as an empty Turn 1 answer, not a blank table.
     const executedParameters = (result as { executedParameters?: Record<string, unknown> }).executedParameters;
     const note = result.rows.length === 0 ? await describeResultNote([], executedParameters) : undefined;
+    const focus = result.executionPlan ? describeFocus(result.executionPlan, result.rows as Record<string, unknown>[]) : undefined;
 
     // Post-clarification summary fix: a Turn 2 answer never called the summarizer - mirrors chat.ts's Turn 1 path
     // exactly, so a clarified answer reads the same way. A rejected summary is recorded the same way too.
-    const verified = await buildVerifiedSummary(reconstructed.question, result.rows as Record<string, unknown>[], executedParameters, note ? [note] : []).catch(
+    const verified = await buildVerifiedSummary(reconstructed.question, result.rows as Record<string, unknown>[], executedParameters, note ? [note] : [], focus).catch(
       () => ({}) as Awaited<ReturnType<typeof buildVerifiedSummary>>,
     );
     const summary = composeSummary(note, verified.summary);
@@ -387,8 +455,6 @@ export async function handleContinuation(
     if (verified.rejected) {
       await recordRejectedSummary(requestId, result.trace, verified.rejected);
     }
-
-    const focus = result.executionPlan ? describeFocus(result.executionPlan, result.rows as Record<string, unknown>[]) : undefined;
 
     return {
       success: true,

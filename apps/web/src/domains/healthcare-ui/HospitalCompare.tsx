@@ -1,11 +1,11 @@
-import { useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { ArrowDown, ArrowUp, Check, ChevronDown } from "lucide-react";
 
 import { displayValue } from "@/modules/workspace/lib/result-format";
 import { cn } from "@/shared/lib/utils";
 
 import type { VisualizerProps } from "../types";
-import { COMPARE_GROUPS, readValue, type CompareRow, type Direction, type Reading } from "./measures";
+import { COMPARE_GROUPS, columnForMeasureCode, groupForMetric, readValue, type CompareRow, type Direction, type Reading } from "./measures";
 
 const HIDE_SCROLLBAR = "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
 const LETTERS = ["A", "B", "C"];
@@ -47,8 +47,23 @@ function evaluate(item: CompareRow, hospitals: Hospital[]): Evaluated {
   };
 }
 
-export function HospitalCompare({ rows }: VisualizerProps) {
+export function HospitalCompare({ rows, focus }: VisualizerProps) {
   const [differencesOnly, setDifferencesOnly] = useState(false);
+  // A family (and, optionally, one condition) the question named: only that group opens, and its row is marked.
+  const focusGroupId = focus?.kind === "family" && focus.metric ? groupForMetric(focus.metric) : undefined;
+  const focusKey = focusGroupId && focus?.measureCode ? columnForMeasureCode(focus.measureCode) : undefined;
+  const [showAll, setShowAll] = useState(false);
+  const [openById, setOpenById] = useState<Record<string, boolean>>({});
+  const focusRowRef = useRef<HTMLDivElement>(null);
+
+  // Without a focus the first two groups open, as before; with one, only the focused group does.
+  const isOpen = (id: string, index: number): boolean =>
+    showAll || (openById[id] ?? (focusGroupId !== undefined ? id === focusGroupId : index < 2));
+
+  useEffect(() => {
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    focusRowRef.current?.scrollIntoView({ block: "nearest", behavior: reduceMotion ? "auto" : "smooth" });
+  }, []);
   const hospitals: Hospital[] = useMemo(
     () =>
       rows.map((row, index) => ({
@@ -67,11 +82,11 @@ export function HospitalCompare({ rows }: VisualizerProps) {
 
   const groups = useMemo(
     () =>
-      COMPARE_GROUPS.map((group) => {
+      COMPARE_GROUPS.map((group, index) => {
         const evaluated = group.rows.map((item) => evaluate(item, hospitals));
-        return { group, evaluated, visible: differencesOnly ? evaluated.filter((entry) => entry.differs) : evaluated };
-      }).filter(({ visible }) => visible.length > 0),
-    [hospitals, differencesOnly],
+        return { group, index, evaluated, visible: differencesOnly ? evaluated.filter((entry) => entry.differs) : evaluated };
+      }).filter(({ group, visible }) => visible.length > 0 || group.id === focusGroupId),
+    [hospitals, differencesOnly, focusGroupId],
   );
 
   return (
@@ -81,6 +96,16 @@ export function HospitalCompare({ rows }: VisualizerProps) {
           <input type="checkbox" checked={differencesOnly} onChange={(event) => setDifferencesOnly(event.target.checked)} className="size-4 accent-primary" />
           Show differences only
         </label>
+        {focusGroupId !== undefined && (
+          <button
+            type="button"
+            aria-pressed={showAll}
+            onClick={() => setShowAll((value) => !value)}
+            className="inline-flex min-h-11 cursor-pointer items-center rounded-md border border-border px-3 text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-pressed:border-primary"
+          >
+            {showAll ? "Show focused group only" : "Show all groups"}
+          </button>
+        )}
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <Check className="size-3.5" aria-hidden="true" />
           Marks the lower or higher value per measure. Close values may not differ meaningfully.
@@ -108,13 +133,22 @@ export function HospitalCompare({ rows }: VisualizerProps) {
       <div className={cn("min-h-0 flex-1 overflow-y-auto overscroll-contain", HIDE_SCROLLBAR)}>
         {groups.length === 0 && <p className="py-6 text-sm text-muted-foreground">No differences in the reported values.</p>}
 
-        {groups.map(({ group, evaluated, visible }, groupIndex) => {
+        {groups.map(({ group, index: groupIndex, evaluated, visible }) => {
           const wins = hospitals.map((_, index) => evaluated.filter((entry) => entry.lead.includes(index)).length);
           const ties = evaluated.filter((entry) => entry.item.direction && entry.readings.every((reading) => reading.num !== null) && !entry.differs).length;
           const compared = evaluated.some((entry) => entry.item.direction);
           const Hint = group.rows[0]?.direction === "lower" ? ArrowDown : ArrowUp;
           return (
-            <details key={group.id} open={groupIndex < 2} className="group border-b border-border/60">
+            <details
+              key={group.id}
+              open={isOpen(group.id, groupIndex)}
+              // Only a change the user made is remembered; the browser also fires this when `open` was set by the page.
+              onToggle={(event) => {
+                const next = event.currentTarget.open;
+                if (next !== isOpen(group.id, groupIndex)) setOpenById((state) => ({ ...state, [group.id]: next }));
+              }}
+              className="group border-b border-border/60"
+            >
               <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
                 <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180 motion-reduce:transition-none" aria-hidden="true" />
                 <span className="flex-1 text-sm font-semibold">{group.title}</span>
@@ -142,10 +176,24 @@ export function HospitalCompare({ rows }: VisualizerProps) {
                     </span>
                   ))}
                 </div>
-                {visible.map(({ item, readings, lead }) => (
-                  <div key={item.key} role="row" className={cn("grid gap-x-3 gap-y-0.5 border-t border-border/40 py-2", layout.grid)}>
+                {visible.length === 0 && <p className="py-3 pl-6 text-sm text-muted-foreground">No differences in this group.</p>}
+                {visible.map(({ item, readings, lead }) => {
+                  const asked = item.key === focusKey;
+                  return (
+                  <div
+                    key={item.key}
+                    ref={asked ? focusRowRef : undefined}
+                    role="row"
+                    aria-current={asked ? "true" : undefined}
+                    className={cn(
+                      "grid gap-x-3 gap-y-0.5 border-t border-border/40 py-2",
+                      layout.grid,
+                      asked && "bg-primary/10 shadow-[inset_3px_0_0_0_var(--color-primary)]",
+                    )}
+                  >
                     <span role="rowheader" className={cn("text-sm", layout.label)}>
                       {item.label}
+                      {asked && <span className="ml-2 inline-flex items-center rounded border border-primary/60 px-1.5 text-xs font-medium text-primary">Asked about</span>}
                     </span>
                     {readings.map((reading, index) => (
                       <span key={hospitals[index]!.id} role="cell" className={cn("flex min-w-0 items-center gap-1 text-sm tabular-nums", reading.text ? "font-mono" : "text-muted-foreground", lead.includes(index) && "font-semibold")}>
@@ -155,7 +203,8 @@ export function HospitalCompare({ rows }: VisualizerProps) {
                       </span>
                     ))}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </details>
           );

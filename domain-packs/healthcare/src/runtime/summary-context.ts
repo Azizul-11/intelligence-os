@@ -6,6 +6,7 @@ import { healthcareMetrics } from "../metrics";
 import { STATE_NAMES_BY_CODE } from "./execution-strategy";
 import { OWNERSHIP } from "./ownership-directory";
 import { HOSPITAL_TYPES } from "./hospital-attribute-directory";
+import { MEASURE_COLUMN_BY_CODE } from "./measure-columns";
 
 type Row = Readonly<Record<string, unknown>>;
 
@@ -130,6 +131,52 @@ function valueColumn(first: Row): { column: string; label: string; measure: Summ
   return undefined;
 }
 
+/** The family count a comparison asked about a measure family (no single condition) is summarised on. */
+const FAMILY_COUNT_COLUMN: Record<string, { column: string; label: string; name: string }> = {
+  "mortality-rate": { column: "mort_measures_better", label: "Mortality measures better than national", name: "Number of mortality measures better than the national rate" },
+  "readmission-rate": { column: "readm_measures_better", label: "Readmission measures better than national", name: "Number of readmission measures better than the national rate" },
+  "patient-safety-indicator": { column: "safety_measures_better", label: "Safety measures better than national", name: "Number of safety measures better than the national rate" },
+  "safety-performance": { column: "safety_measures_better", label: "Safety measures better than national", name: "Number of safety measures better than the national rate" },
+};
+
+/** A comparison asked about one family or condition is summarised on that measure, not on whichever column comes first.
+ * Undefined (the caller's own choice stands) for a plain comparison or a condition the rows do not carry. */
+function focusedValueColumn(first: Row, focus: Readonly<Record<string, string | undefined>> | undefined): { column: string; label: string; measure: SummaryMeasure } | undefined {
+  if (focus?.kind !== "family" || !focus.metric) {
+    return undefined;
+  }
+
+  if (focus.measureCode) {
+    const column = MEASURE_COLUMN_BY_CODE[focus.measureCode];
+
+    if (!column || !(column in first)) {
+      return undefined;
+    }
+
+    const known = measureOfCode(focus.measureCode);
+    const condition = focus.measureCode === "COMP_HIP_KNEE" ? "Hip and knee replacement complication rate" : (known?.conceptName ?? column);
+
+    if (focus.metric === "readmission-rate") {
+      return { column, label: `${condition} readmission ratio`, measure: { name: `${condition} readmission (excess readmission ratio)`, unit: "ratio, 1.0 = expected", better: "lower" } };
+    }
+    if (focus.metric === "patient-experience") {
+      return { column, label: `${condition} score`, measure: { name: `${condition} (patient survey)`, unit: "points out of 100", better: "higher" } };
+    }
+    if (focus.metric === "patient-safety-indicator") {
+      return { column, label: condition, measure: { name: `${condition} (patient safety indicator)`, better: "lower" } };
+    }
+    const label = focus.measureCode === "COMP_HIP_KNEE" ? condition : `${condition} mortality rate`;
+    return { column, label, measure: { name: label, unit: "percent", better: "lower" } };
+  }
+
+  if (focus.metric === "patient-experience" && "avg_patient_satisfaction" in first) {
+    return { column: "avg_patient_satisfaction", label: "Patient experience score", measure: { name: "Average patient-survey score", unit: "points out of 100", better: "higher" } };
+  }
+
+  const family = FAMILY_COUNT_COLUMN[focus.metric];
+  return family && family.column in first ? { column: family.column, label: family.label, measure: { name: family.name, better: "higher" } } : undefined;
+}
+
 const OWNERSHIP_LABEL_BY_PATTERN = new Map(Array.from(OWNERSHIP.values()).map((value) => [value.likePattern, value.label]));
 const TYPE_LABEL_BY_PATTERN = new Map(Array.from(HOSPITAL_TYPES.values()).map((value) => [value.likePattern, value.label]));
 
@@ -205,10 +252,12 @@ export function buildSummaryContext(input: {
   rows: readonly Row[];
   parameters?: Readonly<Record<string, unknown>>;
   alreadyShown?: readonly string[];
+  /** The domain's own reading of what was asked (`describeResultFocus`); a family focus picks the summarised measure. */
+  focus?: Readonly<Record<string, string | undefined>>;
 }): SummaryContext {
   const { rows, parameters } = input;
   const first = rows[0] ?? {};
-  const value = valueColumn(first);
+  const value = focusedValueColumn(first, input.focus) ?? valueColumn(first);
   const hasIdentityList = Array.isArray(parameters?.facilityIds);
   // A list (the list templates) carries emergency_services and is ordered by name, not by its rating column; every
   // other shape with a value column is ordered best first by its template, with or without a ranking word.

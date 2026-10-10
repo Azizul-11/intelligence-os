@@ -1,5 +1,7 @@
 import { asNumber, displayValue, type Row } from "@/modules/workspace/lib/result-format";
 
+import { MEASURE_COLUMN_BY_CODE } from "../../../../../domain-packs/healthcare/src/runtime/measure-columns";
+
 // Display catalog for the 56-column hospital profile: plain-language names, units and which direction is favourable.
 // Direction mirrors the domain's metric definitions (lower is better for death, readmission and safety rates).
 
@@ -134,6 +136,24 @@ export const COMPARE_GROUPS: { id: string; title: string; hint?: string; rows: C
 
 const NUMBER = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 const MISSING = new Set(["", "n/a", "not available", "not applicable", "null"]);
+
+const GROUP_BY_METRIC: Record<string, string> = {
+  "mortality-rate": "deaths",
+  "readmission-rate": "readmissions",
+  "patient-safety-indicator": "safety",
+  "safety-performance": "safety",
+  "patient-experience": "experience",
+};
+
+// The comparison group a measure family (the domain's metric id) belongs to; undefined for a family with no group.
+export function groupForMetric(metric: string): string | undefined {
+  return GROUP_BY_METRIC[metric];
+}
+
+// The dossier column that holds a measure code's value (e.g. MORT_30_AMI -> mort_30_ami_score); undefined for an unmapped code.
+export function columnForMeasureCode(code: string): string | undefined {
+  return MEASURE_COLUMN_BY_CODE[code];
+}
 
 // A profile result: one or more rows that carry the full measure columns of this catalog.
 export function isHospitalProfile(rows: Row[]): boolean {

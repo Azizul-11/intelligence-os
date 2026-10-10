@@ -29,12 +29,13 @@ export async function buildVerifiedSummary(
   rows: Record<string, unknown>[],
   parameters: Record<string, unknown> | undefined,
   alreadyShown: readonly string[],
+  focus?: Record<string, string | undefined>,
 ): Promise<VerifiedSummary> {
   if (rows.length === 0) {
     return {};
   }
 
-  const prepared = prepareSummaryContext(rows, parameters, alreadyShown);
+  const prepared = prepareSummaryContext(rows, parameters, alreadyShown, focus);
   const summary = await llmGateway.summarizeResult(question, prepared.context.rows, SUMMARY_DEADLINE_MS, getDomainCapabilities().prompts, {
     kind: prepared.context.kind,
     ...(prepared.context.measure ? { measure: prepared.context.measure } : {}),

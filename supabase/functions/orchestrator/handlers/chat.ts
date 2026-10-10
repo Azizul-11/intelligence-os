@@ -8,6 +8,7 @@ import { isConversational, isPureGreeting, preflightClarification } from "../ser
 import { createPendingInteraction } from "@intelligence/runtime-engine";
 import { getDomainMetrics, getDomainCapabilities, getRuntimeEngine, describeResultNote, describeFocus } from "../services/domain-registry.ts";
 import { sanitizeDatabaseError } from "../services/sanitize-error.ts";
+import { toOfferedOptions } from "../services/clarification-options.ts";
 import { buildIgnoredNote, buildInterpretedRefusal, buildScopeMessage, buildUnaccountedMessage, composeSummary, droppedTerms, gateAlternates } from "../services/graceful-message.ts";
 import { buildVerifiedSummary, recordRejectedSummary, type VerifiedSummary } from "../services/verified-summary.ts";
 import { llmGateway, withLlmCallLog } from "@intelligence/llm-model-gateway";
@@ -186,8 +187,9 @@ async function runChat(
       const rows = answer.rows as Record<string, unknown>[];
       const parameters = (answer as { executedParameters?: Record<string, unknown> }).executedParameters;
       const tie = describeResultNote(rows, parameters);
+      const earlyFocus = answer.executionPlan ? describeFocus(answer.executionPlan, rows) : undefined;
       early = {
-        summary: tie.then((note) => buildVerifiedSummary(request.question, rows, parameters, note ? [note] : [])).catch(() => ({})),
+        summary: tie.then((note) => buildVerifiedSummary(request.question, rows, parameters, note ? [note] : [], earlyFocus)).catch(() => ({})),
         tie,
       };
     }
@@ -220,22 +222,7 @@ async function runChat(
       result.answerability.candidates.length > 0
     ) {
       try {
-        // Phase 8.10 Layer 2: enrich candidates ({value: facility_id, label: "CITY, COUNTY County, STATE"}, see entity-provider.ts); a hospital-family candidate (Batch 4)
-        // leads with a name that may contain ", ", so the last three parts are the place and the rest the name.
-        const offeredOptions = result.answerability.candidates.map((candidate: any) => {
-          const parts = (candidate.label || "").split(", ");
-          const [city, county, state] = parts.slice(-3);
-          const hospitalName = parts.length > 3 ? parts.slice(0, -3).join(", ") : "";
-
-          return {
-            facility_id: candidate.value,
-            hospital_name: hospitalName, // Only a hospital-family candidate carries it
-            city: (city || "").trim(),
-            county: (county || "").trim(),
-            state: (state || "").trim(),
-            displayLabel: candidate.label || `${city} - ${state}`,
-          };
-        });
+        const offeredOptions = toOfferedOptions(result.answerability.candidates);
 
         // Tier0 Task 6: store the real semantic context this Turn already
         // resolved (metric/concept/etc, never the ambiguous entity itself
@@ -347,10 +334,11 @@ async function runChat(
   // on its own must never be shown with the model's (unused) interpretation.
   const rewriteGate = lastGate(result.trace, "llm-normalization");
   const lay = rewriteGate?.status === "rewritten" ? rewriteGate.detail : undefined;
+  const focus = result.executionPlan ? describeFocus(result.executionPlan, result.rows as Record<string, unknown>[]) : undefined;
   const [verified, tie, alternates] = await Promise.all([
     early
       ? early.summary
-      : buildVerifiedSummary(request.question, result.rows as Record<string, unknown>[], (result as { executedParameters?: Record<string, unknown> }).executedParameters, []).catch(
+      : buildVerifiedSummary(request.question, result.rows as Record<string, unknown>[], (result as { executedParameters?: Record<string, unknown> }).executedParameters, [], focus).catch(
           (): VerifiedSummary => ({}),
         ),
     // 2,000 sweep (Batch A3): an empty answer gets the domain's one-line explanation instead of a blank table.
@@ -380,8 +368,6 @@ async function runChat(
     await tracePersisted;
     await recordRejectedSummary(requestId, result.trace, verified.rejected);
   }
-
-  const focus = result.executionPlan ? describeFocus(result.executionPlan, result.rows as Record<string, unknown>[]) : undefined;
 
   return {
     success: true,

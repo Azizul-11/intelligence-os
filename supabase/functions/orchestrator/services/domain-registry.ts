@@ -123,8 +123,9 @@ export function prepareSummaryContext(
   rows: readonly Record<string, unknown>[],
   parameters: Record<string, unknown> | undefined,
   alreadyShown: readonly string[],
+  focus?: Record<string, string | undefined>,
 ): { context: SummaryContext; factNumbers: string[]; vocabulary: string[] } {
-  const context = buildSummaryContext({ rows, parameters, alreadyShown });
+  const context = buildSummaryContext({ rows, parameters, alreadyShown, focus });
   return { context, factNumbers: summaryFactNumbers(context), vocabulary: summaryVocabulary(context) };
 }
 

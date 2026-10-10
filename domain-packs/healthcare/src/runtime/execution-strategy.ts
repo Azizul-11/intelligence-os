@@ -34,6 +34,15 @@ const TEMPLATE_PARAMETERS = new Map<string, Set<string>>(
 /** A single hospital's own dossier answers "is it birthing-friendly / does it have an ER?" from its columns. */
 const DOSSIER_TEMPLATES = new Set(["hospital-detail", "hospital-detail-by-facility-ids"]);
 
+/** Metrics a comparison of named hospitals answers from the multi-hospital dossier rows, which already carry every condition's value per hospital. */
+export const DOSSIER_COMPARABLE_METRICS: ReadonlySet<string> = new Set([
+  "mortality-rate",
+  "readmission-rate",
+  "patient-safety-indicator",
+  "patient-experience",
+  "safety-performance",
+]);
+
 export class HealthcareExecutionStrategy
   implements DomainExecutionStrategy
 {
@@ -291,10 +300,13 @@ export class HealthcareExecutionStrategy
     );
 
     if (explicitHospitalSet) {
+      // A family or condition ("heart attack mortality") is answered from the same dossier rows: the per-family tally
+      // templates have no measureCode parameter, so the condition was silently dropped. The view focuses it.
       const isDossierComparison =
         executionPlan.metric === "hospital-detail" ||
         executionPlan.metric === "hospital-overall-rating" ||
-        !executionPlan.metric;
+        !executionPlan.metric ||
+        DOSSIER_COMPARABLE_METRICS.has(executionPlan.metric);
 
       if (isDossierComparison) {
         return this.templateSelector.select("hospital-detail", "byIds"); // full 22-field dossier, not just overall_rating
