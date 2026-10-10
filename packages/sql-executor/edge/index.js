@@ -44,7 +44,7 @@ var SqlExecutor = class {
   //   }
   //   return result;
   // }
-  /** Renders a scalar using the existing escaping/quoting convention. */
+  /** Renders a scalar; anything that is not a string, finite number, boolean or bigint is refused, never interpolated. */
   renderScalar(value) {
     if (value === void 0 || value === null) {
       return "NULL";
@@ -52,7 +52,16 @@ var SqlExecutor = class {
     if (typeof value === "string") {
       return `'${value.replace(/'/g, "''")}'`;
     }
-    return String(value);
+    if (typeof value === "number") {
+      if (!Number.isFinite(value)) {
+        throw new Error(`Invalid numeric parameter value: ${value}`);
+      }
+      return String(value);
+    }
+    if (typeof value === "boolean" || typeof value === "bigint") {
+      return String(value);
+    }
+    throw new Error(`Unsupported parameter value type: ${Array.isArray(value) ? "nested array" : typeof value}`);
   }
   /**
    * RCG-019: renders a sort-direction parameter as a bare, unquoted SQL
@@ -76,16 +85,23 @@ var SqlExecutor = class {
     return normalized;
   }
   replaceParameters(template, parameters) {
-    let sql = template.template;
-    for (const parameter of template.parameters ?? []) {
-      const value = parameters[parameter.name];
-      const replacement = parameter.type === "direction" ? this.renderDirection(value) : Array.isArray(value) ? value.length > 0 ? value.map((element) => this.renderScalar(element)).join(", ") : "NULL" : this.renderScalar(value);
-      sql = sql.replaceAll(
-        `:${parameter.name}`,
-        replacement
-      );
+    const declared = new Map((template.parameters ?? []).map((parameter) => [parameter.name, parameter]));
+    if (declared.size === 0) {
+      return template.template;
     }
-    return sql;
+    const names = [...declared.keys()].sort((a, b) => b.length - a.length).map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const placeholder = new RegExp(`(?<!:):(${names.join("|")})(?![A-Za-z0-9_])`, "g");
+    return template.template.replace(placeholder, (_match, name) => {
+      const parameter = declared.get(name);
+      const value = parameters[name];
+      if (parameter.type === "direction") {
+        return this.renderDirection(value);
+      }
+      if (Array.isArray(value)) {
+        return value.length > 0 ? value.map((element) => this.renderScalar(element)).join(", ") : "NULL";
+      }
+      return this.renderScalar(value);
+    });
   }
   async execute(template, parameters) {
     console.log("========== SQL EXECUTOR ==========");

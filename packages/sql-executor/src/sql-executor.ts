@@ -20,7 +20,7 @@ export class SqlExecutor {
 //   return result;
 // }
 
-/** Renders a scalar using the existing escaping/quoting convention. */
+/** Renders a scalar; anything that is not a string, finite number, boolean or bigint is refused, never interpolated. */
 private renderScalar(value: unknown): string {
   if (value === undefined || value === null) {
     return "NULL";
@@ -30,7 +30,18 @@ private renderScalar(value: unknown): string {
     return `'${value.replace(/'/g, "''")}'`;
   }
 
-  return String(value);
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      throw new Error(`Invalid numeric parameter value: ${value}`);
+    }
+    return String(value);
+  }
+
+  if (typeof value === "boolean" || typeof value === "bigint") {
+    return String(value);
+  }
+
+  throw new Error(`Unsupported parameter value type: ${Array.isArray(value) ? "nested array" : typeof value}`);
 }
 
 /**
@@ -63,33 +74,35 @@ private replaceParameters(
   template: SqlTemplateDefinition,
   parameters: Record<string, unknown>,
 ): string {
-  let sql = template.template;
+  const declared = new Map((template.parameters ?? []).map((parameter) => [parameter.name, parameter]));
 
-  for (const parameter of template.parameters ?? []) {
-    const value = parameters[parameter.name];
-
-    // Phase 7: array-valued parameters render as a comma-separated list
-    // of individually escaped values (for templates that write
-    // `IN (:paramName)`), reusing the same scalar escaping as every
-    // other parameter. An empty array renders as a single NULL so
-    // `IN (:paramName)` stays valid SQL and deterministically matches
-    // nothing, rather than producing an empty, invalid `IN ()`.
-    const replacement =
-      parameter.type === "direction"
-        ? this.renderDirection(value)
-        : Array.isArray(value)
-          ? value.length > 0
-            ? value.map((element) => this.renderScalar(element)).join(", ")
-            : "NULL"
-          : this.renderScalar(value);
-
-    sql = sql.replaceAll(
-      `:${parameter.name}`,
-      replacement,
-    );
+  if (declared.size === 0) {
+    return template.template;
   }
 
-  return sql;
+  // One pass over the template, longest declared name first: a rendered value is never re-scanned (":p2" inside a
+  // value stays text) and ":states" is never read as ":state" followed by "s". "::" casts are not placeholders.
+  const names = [...declared.keys()]
+    .sort((a, b) => b.length - a.length)
+    .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const placeholder = new RegExp(`(?<!:):(${names.join("|")})(?![A-Za-z0-9_])`, "g");
+
+  // Phase 7: an array renders as a comma-separated list of escaped scalars for `IN (:name)`; an empty array renders
+  // as NULL so the list stays valid SQL and matches nothing. A replacer function keeps "$&" in a value literal.
+  return template.template.replace(placeholder, (_match, name: string) => {
+    const parameter = declared.get(name)!;
+    const value = parameters[name];
+
+    if (parameter.type === "direction") {
+      return this.renderDirection(value);
+    }
+
+    if (Array.isArray(value)) {
+      return value.length > 0 ? value.map((element) => this.renderScalar(element)).join(", ") : "NULL";
+    }
+
+    return this.renderScalar(value);
+  });
 }
   async execute(
     template: SqlTemplateDefinition,

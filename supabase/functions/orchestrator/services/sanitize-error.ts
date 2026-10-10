@@ -5,6 +5,14 @@ const RAW_DATABASE_ERROR =
 export const DATABASE_ERROR_MESSAGE =
   "I couldn't retrieve that from the data source. You can ask about a hospital's overall rating, mortality, readmissions or patient experience.";
 
+export const GENERIC_ERROR_MESSAGE = "Something went wrong on our side. Please try again.";
+
+/** The real error stays in the function log; the client only ever sees this text. */
+export function publicErrorMessage(error: unknown): string {
+  console.error("[Unhandled orchestrator error withheld from the client]", error);
+  return GENERIC_ERROR_MESSAGE;
+}
+
 export function sanitizeDatabaseError(error: string | undefined): string | undefined {
   if (!error || !RAW_DATABASE_ERROR.test(error)) {
     return error;
