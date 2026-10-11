@@ -24,13 +24,16 @@ A language model may read your question and phrase the summary. It never compute
 
 IntelligenceOS is a universal, domain-agnostic analytics engine. The semantic resolution, query planning, execution and answerability layers know nothing about any one industry. A **Domain Pack** teaches the engine a domain's entities, metrics, vocabulary and SQL.
 
-**Healthcare is the first Domain Pack and runs live today** on CMS Care Compare data: 5,432 U.S. hospitals across 56 states and territories. It is the proof that the pattern works against real data. Education and Finance are an architectural direction, not shipped features.
+**Healthcare is the first Domain Pack and runs live today** on four CMS Care Compare datasets: more than 445,000 records covering 5,432 U.S. hospitals across 56 states and territories. It is the proof that the pattern works against real data. Education and Finance are an architectural direction, not shipped features.
 
 | At a glance | |
 |---|---|
-| Hospitals in the CMS source data | 5,432 across 56 states and territories |
+| CMS datasets live in the warehouse | 4 |
+| Patient survey (HCAHPS) records | 325,856 |
 | Complication and death records | 95,840 |
 | Readmission program records (FY 2026) | 18,330 |
+| Hospitals | 5,432 across 56 states and territories |
+| Counties in the geography directory | 2,473 |
 | Written engineering guardrails | 22 |
 | Offline test suites that run in CI with no keys | 19 |
 
@@ -174,7 +177,18 @@ The project is split along one line that is never crossed: **the Universal Core 
 
 ## The Healthcare domain
 
-The pack is registered against **CMS Care Compare** public data: hospital general information, complications and deaths, the Hospital Readmissions Reduction Program, and HCAHPS patient experience. The source files for the first three are committed under `data/raw/healthcare/cms`.
+The pack is registered against four **CMS Care Compare** public datasets, all loaded into the live warehouse. Row counts in the warehouse match the source files:
+
+| Dataset | Source file | Records | Warehouse table |
+|---|---|---:|---|
+| Patient survey (HCAHPS) | `HCAHPS-Hospital.csv` | 325,856 | `warehouse_hospital_hcahps` |
+| Complications and deaths | `Complications_and_Deaths-Hospital.csv` | 95,840 | `warehouse_hospital_clinical_outcomes` |
+| Hospital Readmissions Reduction Program, FY 2026 | `FY_2026_Hospital_Readmissions_Reduction_Program_Hospital.csv` | 18,330 | `warehouse_hospital_readmissions` |
+| Hospital general information | `Hospital_General_Information.csv` | 5,432 | `warehouse_hospitals` |
+
+HCAHPS is the largest, and it is **not committed**: the file is about 101 MB, over GitHub's 100 MB limit, so it is git-ignored. The other three are committed under `data/raw/healthcare/cms`. To rebuild the warehouse yourself, download "Patient survey (HCAHPS) - Hospital" from the CMS Provider Data Catalog and save it as `data/raw/healthcare/cms/HCAHPS-Hospital.csv`.
+
+`warehouse_hospitals` also holds 10 placeholder rows named "Unknown Hospital" for facility IDs that are not in the general-information file, so its row count is 5,442.
 
 Questions it answers today, all of them runnable on the live demo:
 
@@ -213,12 +227,17 @@ The web app needs only two **public** values: your function URL and a Supabase `
 
 ### Stand up the backend
 
-You need your own Supabase project. Put `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in a root `.env` for ingestion. LLM provider keys are optional: the deterministic engine does not need them, and only the conversational and summary layers do.
+You need your own Supabase project. Put `SUPABASE_URL` and `SUPABASE_SECRET_KEY` (your project's `sb_secret_` key) in a root `.env` for ingestion, and keep that file out of git and out of the client. LLM provider keys are optional: the deterministic engine does not need them, and only the conversational and summary layers do.
 
 ```bash
 supabase link --project-ref <your-project-ref>
-supabase db push                                  # warehouse schema, registry, RLS policies
-pnpm run ingest:healthcare                        # loads the CMS files into the warehouse
+supabase db push                                                         # warehouse schema, registry, RLS policies
+
+pnpm run ingest:healthcare                                               # hospital general information, run first: the others add placeholder rows for hospitals they cannot find
+pnpm exec tsx scripts/ingest/ingest-healthcare-clinical-outcomes.ts      # complications and deaths
+pnpm exec tsx scripts/ingest/ingest-healthcare-readmissions.ts           # readmissions
+pnpm exec tsx scripts/ingest/ingest-healthcare-hcahps.ts                 # HCAHPS, needs the file described above
+
 supabase functions deploy orchestrator
 ```
 
@@ -281,7 +300,7 @@ domain-packs/healthcare           Healthcare Domain Pack
 supabase/functions/orchestrator   Edge Function: router, chat handler, services
 supabase/migrations               Warehouse, semantic registry, RLS and trace tables
 scripts/                          Ingestion, verification suites and CI gates
-data/raw/healthcare/cms           CMS Care Compare source CSVs (hospital info, complications, readmissions)
+data/raw/healthcare/cms           CMS Care Compare source CSVs: 3 of the 4 (HCAHPS is 101 MB and git-ignored)
 ```
 
 Stack: TypeScript, React 19, Vite, Tailwind 4, TanStack Query, Zustand, Framer Motion, Supabase (Postgres and Edge Functions on Deno), pnpm workspaces, Turborepo and Biome.
