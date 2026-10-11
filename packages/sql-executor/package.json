@@ -28,7 +28,7 @@
   "dependencies": {
     "@intelligence/domain-sdk": "workspace:*",
     "@intelligence/healthcare-domain": "workspace:*",
-    "@supabase/supabase-js": "2.49.8",
-    "tsx": "^4.23.0"
+    "@supabase/supabase-js": "2.117.3",
+    "tsx": "^4.23.15"
   }
 }
