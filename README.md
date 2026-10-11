@@ -179,12 +179,12 @@ The project is split along one line that is never crossed: **the Universal Core 
 
 The pack is registered against four **CMS Care Compare** public datasets, all loaded into the live warehouse. Row counts in the warehouse match the source files:
 
-| Dataset | Source file | Records | Warehouse table |
-|---|---|---:|---|
-| Patient survey (HCAHPS) | `HCAHPS-Hospital.csv` | 325,856 | `warehouse_hospital_hcahps` |
-| Complications and deaths | `Complications_and_Deaths-Hospital.csv` | 95,840 | `warehouse_hospital_clinical_outcomes` |
-| Hospital Readmissions Reduction Program, FY 2026 | `FY_2026_Hospital_Readmissions_Reduction_Program_Hospital.csv` | 18,330 | `warehouse_hospital_readmissions` |
-| Hospital general information | `Hospital_General_Information.csv` | 5,432 | `warehouse_hospitals` |
+| Dataset | What it lets you ask | Records | Source file | Warehouse table |
+|---|---|---:|---|---|
+| Patient survey (HCAHPS) | How patients rate their care across 68 survey measures: nurse and doctor communication, medicines, discharge information, cleanliness, quietness, overall rating and willingness to recommend, as percentages, scores and star ratings. *"Which hospitals have the best patient experience in California?"* | 325,856 | `HCAHPS-Hospital.csv` | `warehouse_hospital_hcahps` |
+| Complications and deaths | Outcomes and safety across 20 measures: 30-day death rates for heart attack, heart failure, pneumonia, stroke, COPD and CABG, hospital-wide mortality, hip and knee complications, 11 patient-safety indicators and the PSI 90 composite, each compared with the national rate. *"Show me hospitals with lowest Pneumonia mortality rate"* | 95,840 | `Complications_and_Deaths-Hospital.csv` | `warehouse_hospital_clinical_outcomes` |
+| Hospital Readmissions Reduction Program, FY 2026 | Which hospitals bring patients back more often than expected: excess readmission ratio, predicted against expected rate, discharges and readmissions for six conditions and procedures. *"Which hospitals have the highest readmission rate for heart failure?"* | 18,330 | `FY_2026_Hospital_Readmissions_Reduction_Program_Hospital.csv` | `warehouse_hospital_readmissions` |
+| Hospital general information | Who and where a hospital is: name, address, county, type, ownership, emergency services, birthing-friendly designation, overall star rating, and how many of its measures beat the national rate. *"Does Mayo Clinic have emergency services?"* | 5,432 | `Hospital_General_Information.csv` | `warehouse_hospitals` |
 
 HCAHPS is the largest, and it is **not committed**: the file is about 101 MB, over GitHub's 100 MB limit, so it is git-ignored. The other three are committed under `data/raw/healthcare/cms`. To rebuild the warehouse yourself, download "Patient survey (HCAHPS) - Hospital" from the CMS Provider Data Catalog and save it as `data/raw/healthcare/cms/HCAHPS-Hospital.csv`.
 
