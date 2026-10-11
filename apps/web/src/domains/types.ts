@@ -10,11 +10,18 @@ export type ChatConfig = {
 // What the backend says the answer is about. Opaque to the workspace; only a domain's own components read it.
 export type ResultFocus = Record<string, string | undefined>;
 
+// Records picked in a view and compared by identity: `question` is what the engine is sent, `label` is what the chat shows.
+export type CompareSelection = { entityId: string; values: string[]; question: string; label: string };
+
 export type VisualizerProps = {
   rows: Record<string, unknown>[];
   focus?: ResultFocus;
   // Sends a follow-up question as a new chat turn (the canvas closes so the answer is visible).
   onAsk?: (question: string) => void;
+  // Sends a comparison of picked records as a new chat turn (the canvas closes, like onAsk).
+  onCompare?: (selection: CompareSelection) => void;
+  // A request is already running, so actions that send one are disabled.
+  busy?: boolean;
 };
 
 export type FocusCardProps = {

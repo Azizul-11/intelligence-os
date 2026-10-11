@@ -8,6 +8,8 @@ export interface ChatRequest {
   // Phase 8.10 Layer 2: Continuation support
   pendingInteractionId?: string;
   continuationResponse?: string;
+  // 2-3 records of one entity picked in a view, compared by identity instead of by name.
+  compare?: { entityId: string; values: string[] };
 }
 
 export interface PhaseGateTraceEntry {
@@ -74,6 +76,7 @@ export async function askOrchestrator(
   domain: string,
   pendingInteractionId?: string,
   continuationResponse?: string,
+  compare?: ChatRequest["compare"],
 ): Promise<ChatResponse> {
   if (!ORCHESTRATOR_URL) {
     throw new OrchestratorConfigError(
@@ -96,6 +99,7 @@ export async function askOrchestrator(
     domain,
     pendingInteractionId,
     continuationResponse,
+    ...(compare ? { compare } : {}),
   };
 
   const response = await fetch(ORCHESTRATOR_URL, {

@@ -8,6 +8,7 @@ import { useFacilityNames } from "../lib/facility-names";
 import { useCanvas } from "../stores/canvas.store";
 import { useChatHistory, type ChatEntry } from "../stores/chat-history.store";
 import { activeDomain } from "@/domains";
+import type { CompareSelection } from "@/domains/types";
 import { Canvas } from "./Canvas";
 import { Composer } from "./Composer";
 import { QuestionBubble } from "./QuestionBubble";
@@ -29,6 +30,9 @@ type SubmitVariables = {
   q: string;
   pendingId?: string;
   contResp?: string;
+  // A picked comparison: the records go to the engine by identity, `label` is what the chat shows for it.
+  compare?: { entityId: string; values: string[] };
+  label?: string;
   startedAt: number;
 };
 
@@ -68,13 +72,13 @@ export function QueryConsole() {
 
   // Saved from the mutation's own options, not per-call callbacks, so a reply still lands in its chat if the user navigates away first.
   const mutation = useMutation({
-    mutationFn: ({ q, pendingId, contResp }: SubmitVariables) => askOrchestrator(q, activeDomain.id, pendingId, contResp),
+    mutationFn: ({ q, pendingId, contResp, compare }: SubmitVariables) => askOrchestrator(q, activeDomain.id, pendingId, contResp, compare),
     onSuccess: (result, vars) => {
       appendEntry(
         vars.conversationId,
         {
           id: vars.entryId,
-          question: vars.q,
+          question: vars.label ?? vars.q,
           result,
           clientMs: Math.round(performance.now() - vars.startedAt),
           pendingInteractionId: result.pendingInteractionId,
@@ -95,7 +99,7 @@ export function QueryConsole() {
         vars.conversationId,
         {
           id: vars.entryId,
-          question: vars.q,
+          question: vars.label ?? vars.q,
           result: {
             success: false,
             answer: "",
@@ -133,19 +137,20 @@ export function QueryConsole() {
     container.scrollTo({ top: container.scrollTop + offset - 16, behavior: scrollBehavior() });
   }, [history.length]);
 
-  function submit(q: string) {
+  // Returns whether the request was accepted (a running one is never doubled).
+  function send(q: string, pinned?: CompareSelection): boolean {
     const trimmed = q.trim();
-    if (!trimmed || mutation.isPending) return;
+    if (!trimmed || mutation.isPending) return false;
 
     const targetId = conversation?.id ?? crypto.randomUUID();
     if (!conversation) {
-      startConversation(targetId, trimmed);
+      startConversation(targetId, pinned?.label ?? trimmed);
       navigate(`/chat/${targetId}`);
     }
 
-    // Phase 8.10 Layer 2: Capture current pending state before mutation
-    const currentPendingId = activePendingInteraction?.id;
-    const isContinuation = activePendingInteraction !== null;
+    // Phase 8.10 Layer 2: Capture current pending state before mutation; a picked comparison is a fresh question, never its reply.
+    const currentPendingId = pinned ? undefined : activePendingInteraction?.id;
+    const isContinuation = !pinned && activePendingInteraction !== null;
 
     setAnnouncement("Running your query…");
     mutation.mutate({
@@ -154,8 +159,14 @@ export function QueryConsole() {
       q: trimmed,
       pendingId: currentPendingId,
       contResp: isContinuation ? trimmed : undefined,
+      ...(pinned ? { compare: { entityId: pinned.entityId, values: pinned.values }, label: pinned.label } : {}),
       startedAt: performance.now(),
     });
+    return true;
+  }
+
+  function submit(q: string) {
+    send(q);
   }
 
   return (
@@ -190,7 +201,7 @@ export function QueryConsole() {
 
           {isPendingHere && mutation.variables && (
             <div className="flex flex-col gap-4">
-              <QuestionBubble>{mutation.variables.q}</QuestionBubble>
+              <QuestionBubble>{mutation.variables.label ?? mutation.variables.q}</QuestionBubble>
               <div className="flex items-center gap-3 text-sm">
                 <ThinkingOrb state="solving" size={20} aria-label="Running your query…" />
                 <span className="text-sm text-muted-foreground">Running your query…</span>
@@ -220,6 +231,10 @@ export function QueryConsole() {
             closeCanvas();
             submit(question);
           }}
+          onCompare={(selection) => {
+            if (send(selection.question, selection)) closeCanvas();
+          }}
+          busy={mutation.isPending}
         />
       )}
     </div>

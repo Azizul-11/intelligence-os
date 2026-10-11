@@ -10,6 +10,7 @@ import {
 import { Download, GripVertical, X } from "lucide-react";
 
 import { activeDomain } from "@/domains";
+import type { VisualizerProps } from "@/domains/types";
 
 import type { ChatResponse } from "../api/orchestrator";
 import { useCanvas } from "../stores/canvas.store";
@@ -37,7 +38,9 @@ function downloadCsv(question: string, rows: Row[]) {
   URL.revokeObjectURL(url);
 }
 
-export function Canvas({ entry, onClose, onAsk }: { entry: ChatEntry; onClose: () => void; onAsk?: (question: string) => void }) {
+type CanvasProps = { entry: ChatEntry; onClose: () => void } & Pick<VisualizerProps, "onAsk" | "onCompare" | "busy">;
+
+export function Canvas({ entry, onClose, onAsk, onCompare, busy }: CanvasProps) {
   const asideRef = useRef<HTMLElement>(null);
   const width = useCanvas((state) => state.width);
   const setWidth = useCanvas((state) => state.setWidth);
@@ -173,7 +176,14 @@ export function Canvas({ entry, onClose, onAsk }: { entry: ChatEntry; onClose: (
         {rows.length === 0 ? (
           <p className="text-sm text-muted-foreground">No results to show.</p>
         ) : visualizer ? (
-          <visualizer.Component key={entry.id} rows={rows} focus={(entry.result as ChatResponse).presentation?.focus} {...(onAsk ? { onAsk } : {})} />
+          <visualizer.Component
+            key={entry.id}
+            rows={rows}
+            focus={(entry.result as ChatResponse).presentation?.focus}
+            {...(onAsk ? { onAsk } : {})}
+            {...(onCompare ? { onCompare } : {})}
+            {...(busy ? { busy } : {})}
+          />
         ) : (
           <ResultTable key={entry.id} rows={rows} />
         )}
