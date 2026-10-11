@@ -13,6 +13,7 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
+    "test:ci": "bash scripts/ci/offline-suite.sh",
     "test:runtime": "tsx scripts/test-domain-runtime.ts",
     "clean": "turbo run clean",
     "format": "biome format . --write",

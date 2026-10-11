@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": [],
+    "baseUrl": "../..",
+    "paths": {
+      "@intelligence/healthcare-domain": ["domain-packs/healthcare/src/index.ts"],
+      "@intelligence/*": ["packages/*/src/index.ts"]
+    }
+  },
+  "files": ["./deno-globals.d.ts", "./orchestrator/index.ts"]
+}
