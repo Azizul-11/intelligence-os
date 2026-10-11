@@ -15,8 +15,8 @@
     "clean": "rm -rf dist edge"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
-    "esbuild": "^0.28.1",
+    "@types/node": "^22.20.5",
+    "esbuild": "^0.28.2",
     "typescript": "^5.9.2"
   }
 }
