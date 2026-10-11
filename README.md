@@ -7,7 +7,7 @@
 Ask plain-English questions of your data. A deterministic warehouse engine computes every figure.<br/>
 A language model may read your question and phrase the summary. It never computes a number.
 
-[**Live demo**](https://intelligence-os.pages.dev) &nbsp;·&nbsp; [How it works](#how-it-works) &nbsp;·&nbsp; [Architecture](#architecture) &nbsp;·&nbsp; [Quick start](#quick-start)
+[**Live demo**](https://intelligenceos.xyz) &nbsp;·&nbsp; [How it works](#how-it-works) &nbsp;·&nbsp; [Architecture](#architecture) &nbsp;·&nbsp; [Quick start](#quick-start)
 
 [![CI](https://github.com/Azizul-11/intelligence-os/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Azizul-11/intelligence-os/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
