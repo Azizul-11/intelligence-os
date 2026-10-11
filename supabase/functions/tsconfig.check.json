@@ -8,7 +8,8 @@
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": [],
+    "types": ["node"],
+    "typeRoots": ["../../packages/llm-model-gateway/node_modules/@types"],
     "baseUrl": "../..",
     "paths": {
       "@intelligence/healthcare-domain": ["domain-packs/healthcare/src/index.ts"],

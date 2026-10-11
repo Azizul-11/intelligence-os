@@ -10,6 +10,8 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # Pinned exactly and mirrored in the function's import map (deno.json); upgrade by hand, both together.
+      - dependency-name: "@supabase/supabase-js"
     groups:
       production-minor-patch:
         dependency-type: production
