@@ -25,6 +25,9 @@ import {
   createPendingInteraction,
 } from "@intelligence/runtime-engine";
 
+// A clarification option is opaque to Universal Core; the healthcare ones carry the chosen place as city/state.
+type ChosenPlace = Parameters<typeof continuationQuestion>[1];
+
 /** Whether Turn 1 named something to answer (a metric, a condition, or an attribute like "birth friendly") - decides if a generic overall_rating fallback is safe.
  * A place alone ("in Illinois") is not intent; any other resolved entity is. */
 function hadNamedIntent(originalSemanticResult: unknown): boolean {
@@ -216,7 +219,7 @@ export async function handleContinuation(
 
           // Companions are entities NOT in the ambiguity being resolved (that one is injected via forcedIdentityCandidate).
           const ambiguousCandidateValues = new Set(
-            (interaction.pendingTarget?.candidates ?? []).map((c: any) => c.value)
+            ((interaction.pendingTarget as { candidates?: unknown[] } | undefined)?.candidates ?? []).map((c: any) => c.value)
           );
           
           companionEntities = originalEntities
@@ -234,7 +237,7 @@ export async function handleContinuation(
         reconstructed = {
           // "Northwest Medical Center" → "Northwest Medical Center in Tucson, AZ";
           // a comparison of hospitals appends nothing (see continuation-question.ts).
-          question: continuationQuestion(interaction.originalQuestion, selectedOption, {
+          question: continuationQuestion(interaction.originalQuestion, selectedOption as ChosenPlace, {
             isComparison: isComparisonTurn2,
             twoSlot: Boolean(secondOption),
           }),
@@ -247,7 +250,7 @@ export async function handleContinuation(
           forcedIntent: forcedIntentForTurn2,
           companionEntities: companionEntities.length > 0 ? companionEntities : undefined,
           ...(wordingOnlyComparison
-            ? { legacyQuestion: continuationQuestion(interaction.originalQuestion, selectedOption, { isComparison: false, twoSlot: false }) }
+            ? { legacyQuestion: continuationQuestion(interaction.originalQuestion, selectedOption as ChosenPlace, { isComparison: false, twoSlot: false }) }
             : {}),
         };
       }
