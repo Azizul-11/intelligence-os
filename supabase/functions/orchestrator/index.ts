@@ -7,6 +7,9 @@ import type { ChatRequest } from "./types/request.ts";
 const MAX_BODY_BYTES = 16 * 1024;
 const MAX_QUESTION_CHARS = 1000;
 const MAX_ID_CHARS = 128;
+const MIN_COMPARE = 2;
+const MAX_COMPARE = 3;
+const MAX_COMPARE_VALUE_CHARS = 64;
 // One domain pack is wired in services/domain-registry.ts; a request names it or omits it.
 const REGISTERED_DOMAINS: readonly string[] = ["healthcare"];
 const DEFAULT_DOMAIN = "healthcare";
@@ -61,6 +64,31 @@ async function readJsonBody(req: Request): Promise<{ ok: true; value: unknown } 
 const optionalText = (value: unknown, max: number): string | undefined | null =>
   value === undefined || value === null ? undefined : typeof value === "string" && value.length > 0 && value.length <= max ? value : null;
 
+/** `undefined` when absent, `null` when malformed: one entity id and 2-3 distinct, bounded values. */
+function parseCompare(value: unknown): ChatRequest["compare"] | null | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  if (typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const { entityId, values } = value as Record<string, unknown>;
+
+  if (typeof entityId !== "string" || entityId.length === 0 || entityId.length > MAX_ID_CHARS) {
+    return null;
+  }
+
+  if (!Array.isArray(values) || values.length < MIN_COMPARE || values.length > MAX_COMPARE) {
+    return null;
+  }
+
+  const bounded = values.every((item) => typeof item === "string" && item.length > 0 && item.length <= MAX_COMPARE_VALUE_CHARS);
+
+  return bounded && new Set(values).size === values.length ? { entityId, values: values as string[] } : null;
+}
+
 /** Only the known fields leave this function, each with its type and length checked. */
 function validateChatRequest(body: unknown): { ok: true; request: ChatRequest } | Failure {
   const bad = (error: string): Failure => ({ ok: false, status: 400, error });
@@ -95,6 +123,12 @@ function validateChatRequest(body: unknown): { ok: true; request: ChatRequest } 
     return bad("pendingInteractionId must be a UUID.");
   }
 
+  const compare = parseCompare(input.compare);
+
+  if (compare === null) {
+    return bad(`compare must name one entity and ${MIN_COMPARE} to ${MAX_COMPARE} distinct values.`);
+  }
+
   return {
     ok: true,
     request: {
@@ -104,6 +138,7 @@ function validateChatRequest(body: unknown): { ok: true; request: ChatRequest } 
       ...(userId !== undefined ? { userId } : {}),
       ...(typeof pendingInteractionId === "string" ? { pendingInteractionId } : {}),
       ...(continuationResponse !== undefined ? { continuationResponse } : {}),
+      ...(compare !== undefined ? { compare } : {}),
     },
   };
 }

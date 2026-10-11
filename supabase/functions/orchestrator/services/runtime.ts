@@ -20,10 +20,20 @@ export async function executeRuntime(
 
   console.log(">>> got runtime engine");
 
+  const pinned = request.compare;
+
   return engine.execute({
     question: request.question,
     parameters: {},
     requestId,
+    // A picked comparison pins its records by identity through the same fields a clarification's Turn 2 uses; every gate still runs.
+    ...(pinned
+      ? {
+          companionEntities: pinned.values.map((value) => ({ value, canonicalKey: pinned.entityId })),
+          forcedIntent: "comparison" as const,
+          identityAlreadyResolved: true,
+        }
+      : {}),
     // Tier1 Task 6: the top-level Turn 1 entry point, where fresh questions get dry-run-validated suggestions (RuntimeRequest.includeSuggestions).
     includeSuggestions: true,
     ...(onResult ? { onResult } : {}),

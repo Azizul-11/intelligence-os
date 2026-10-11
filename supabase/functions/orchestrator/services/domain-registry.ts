@@ -90,6 +90,15 @@ export function getDomainCapabilities() {
   return DOMAIN_CAPABILITIES;
 }
 
+/** True when `entityId` is a registered entity whose every value identifies one record, the only kind a selection may pin. */
+export function isPinnableEntity(entityId: string): boolean {
+  if (!domainRuntime) {
+    getRuntimeEngine();
+  }
+
+  return domainRuntime?.registry.getEntity(entityId)?.identifiesUniqueRecord === true;
+}
+
 /** Domain metrics for display-name lookup (Phase 8.10 Layer 2 guidance Turn 1 maps capability IDs to names). */
 export function getDomainMetrics(): readonly any[] {
   // Ensure runtime is initialized

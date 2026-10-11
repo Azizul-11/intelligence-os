@@ -16,4 +16,7 @@ export interface ChatRequest {
 
   /** Phase 8.10 Layer 2: user's reply to the pending prompt ("Tucson", "use overall rating"); required with pendingInteractionId. */
   continuationResponse?: string;
+
+  /** A comparison of records the user picked, pinned by identity so no name is parsed: 2-3 values of one unique-record entity. */
+  compare?: { entityId: string; values: string[] };
 }

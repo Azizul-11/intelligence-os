@@ -6,7 +6,7 @@ import { executeRuntime } from "../services/runtime.ts";
 import { handleContinuation } from "../services/continuation.ts";
 import { isConversational, isPureGreeting, preflightClarification } from "../services/conversational.ts";
 import { createPendingInteraction } from "@intelligence/runtime-engine";
-import { getDomainMetrics, getDomainCapabilities, getRuntimeEngine, describeResultNote, describeFocus } from "../services/domain-registry.ts";
+import { getDomainMetrics, getDomainCapabilities, getRuntimeEngine, describeResultNote, describeFocus, isPinnableEntity } from "../services/domain-registry.ts";
 import { sanitizeDatabaseError } from "../services/sanitize-error.ts";
 import { toOfferedOptions } from "../services/clarification-options.ts";
 import { buildIgnoredNote, buildInterpretedRefusal, buildScopeMessage, buildUnaccountedMessage, composeSummary, droppedTerms, gateAlternates } from "../services/graceful-message.ts";
@@ -145,6 +145,11 @@ async function runChat(
     return await handleContinuation(request);
   }
 
+  // A picked comparison may only pin entities whose every value identifies one record.
+  if (request.compare && !isPinnableEntity(request.compare.entityId)) {
+    return { success: false, answer: "", error: "That selection can't be compared.", answerability: { status: "not_directly_answerable" } };
+  }
+
   // LLM Layer 0: intercepted BEFORE Gate 1 and the pipeline; never SQL, only an onboarding/deflection reply (see isConversational()).
   if (isConversational(request.question)) {
     const capabilities = getDomainCapabilities();
@@ -197,6 +202,17 @@ async function runChat(
   // The trace row is written off the response path; recordRejectedSummary below waits for it because it updates that same row.
   const tracePersisted = persistTrace(requestId, request.question, result);
   runInBackground(tracePersisted);
+
+  // A pinned id that matched no record must not quietly turn the comparison into a smaller one.
+  if (request.compare && result.success && result.rows.length !== request.compare.values.length) {
+    return {
+      success: false,
+      answer: "",
+      error: "I couldn't find every selected item, so there is nothing to compare.",
+      requestId,
+      answerability: { status: "not_directly_answerable", reason: "data-unavailable" },
+    };
+  }
 
   // ConversationalFix (2026-09-27): the `conversationalCheck` hook caught small talk / a capability question; 0 SQL,
   // same shape as Layer 0's regex branch, and `result.rows` is empty so the success-path machinery below does not apply.
