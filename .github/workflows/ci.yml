@@ -1,0 +1,115 @@
+name: CI
+
+# Keyless and deterministic: no repository secrets, no database, no LLM credits.
+# Fork pull requests run the same jobs safely because nothing here reads a secret.
+on:
+  pull_request:
+    branches: [staging, main]
+  push:
+    branches: [staging, main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  TURBO_TELEMETRY_DISABLED: "1"
+  # Placeholders so the web build inlines both public values and the bundle scan has something to prove.
+  CI_ORCHESTRATOR_URL: https://ci.invalid/functions/v1/orchestrator
+  CI_PUBLISHABLE_KEY: sb_publishable_CI_PLACEHOLDER
+
+jobs:
+  hygiene:
+    name: hygiene
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: No env files are tracked (examples excepted)
+        run: |
+          tracked="$(git ls-files | grep -E '(^|/)\.env($|\.)' | grep -vE '\.example$' || true)"
+          if [ -n "$tracked" ]; then
+            echo "::error::Tracked env files found:"
+            echo "$tracked"
+            exit 1
+          fi
+          echo "no tracked env files"
+
+      - name: No key-shaped strings in the repository tree
+        env:
+          KEY_PATTERN: 'eyJ[A-Za-z0-9_-]{20,}\.eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}|sb_secret_[A-Za-z0-9_-]{16,}|gsk_[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{35}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
+        run: |
+          if git grep -I -l -E "$KEY_PATTERN" -- . ':!pnpm-lock.yaml'; then
+            echo "::error::Key-shaped strings are committed in the files listed above (values are not printed)."
+            exit 1
+          fi
+          echo "no key-shaped strings in the tracked tree"
+
+  build-test:
+    name: build-test (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 20]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build every workspace
+        run: pnpm run build
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Typecheck the edge function
+        run: pnpm exec tsc -p supabase/functions/tsconfig.check.json
+
+      - name: Edge bundles match their source
+        run: |
+          # The pathspec needs the trailing /*: 'packages/*/edge' alone matches nothing below the directory and would always pass.
+          tracked="$(git ls-files -- 'packages/*/edge/*' | wc -l)"
+          if [ "$tracked" -lt 1 ]; then
+            echo "::error::No tracked edge bundles found, so the drift guard would prove nothing."
+            exit 1
+          fi
+          pnpm -r --if-present run build:edge
+          if [ -n "$(git status --porcelain -- 'packages/*/edge/*')" ]; then
+            echo "::error::Edge bundles are out of date with their source. Run: pnpm -r --if-present run build:edge  then commit packages/*/edge"
+            git status --short -- 'packages/*/edge/*'
+            exit 1
+          fi
+          echo "edge bundles are in sync (${tracked} tracked bundles checked)"
+
+      - name: Import map covers every runtime import
+        run: node scripts/ci/check-import-map.mjs
+
+      - name: Offline verification suites
+        if: matrix.node == 22
+        run: pnpm run test:ci
+
+      - name: Build the web app with placeholder public env
+        run: pnpm --filter web build
+        env:
+          VITE_ORCHESTRATOR_URL: ${{ env.CI_ORCHESTRATOR_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ env.CI_PUBLISHABLE_KEY }}
+
+      - name: Scan the web bundle (no private keys, public values inlined)
+        run: >
+          node scripts/ci/scan-bundle.mjs apps/web/dist
+          --expect "$CI_ORCHESTRATOR_URL"
+          --expect "$CI_PUBLISHABLE_KEY"
