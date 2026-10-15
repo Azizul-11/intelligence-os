@@ -59,6 +59,8 @@ export function QueryConsole() {
   const conversation = useChatHistory((state) => (conversationId ? state.conversations[conversationId] : undefined));
   const startConversation = useChatHistory((state) => state.startConversation);
   const appendEntry = useChatHistory((state) => state.appendEntry);
+  const arriveAtCanvas = useCanvas((state) => state.arrive);
+  const resetAutoOpen = useCanvas((state) => state.resetAutoOpen);
 
   const [announcement, setAnnouncement] = useState("");
   // A fresh random 8 for each new chat, so starting over never shows the same prompts.
@@ -69,6 +71,8 @@ export function QueryConsole() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastEntryRef = useRef<HTMLDivElement>(null);
+  // A ref, because the mutation keeps the callbacks of the render that sent it.
+  const viewedChat = useRef(conversationId);
 
   // Saved from the mutation's own options, not per-call callbacks, so a reply still lands in its chat if the user navigates away first.
   const mutation = useMutation({
@@ -90,6 +94,8 @@ export function QueryConsole() {
           : null,
       );
       setAnnouncement(announcementFor(result));
+      // Only an answer for the chat on screen opens the canvas.
+      if (result.success && vars.conversationId === viewedChat.current) arriveAtCanvas(vars.entryId);
     },
     onError: (error, vars) => {
       console.error("[orchestrator request failed]", error);
@@ -120,8 +126,21 @@ export function QueryConsole() {
     !history.some((entry) => entry.id === mutation.variables?.entryId);
 
   const canvasEntryId = useCanvas((state) => state.entryId);
+  const autoOpened = useCanvas((state) => state.autoOpened);
   const closeCanvas = useCanvas((state) => state.close);
+  const hideCanvas = useCanvas((state) => state.hide);
   const canvasEntry = history.find((entry) => entry.id === canvasEntryId && entry.result.success) ?? null;
+
+  // A new chat starts fresh.
+  useEffect(() => {
+    viewedChat.current = conversationId;
+    resetAutoOpen();
+  }, [conversationId, resetAutoOpen]);
+
+  // Focus stays in the composer, so tell a screen reader the canvas opened.
+  useEffect(() => {
+    if (canvasEntry && autoOpened) setAnnouncement((text) => `${text} Opened in the result canvas.`);
+  }, [canvasEntry?.id, autoOpened]);
 
   // A question just sent: keep it and the loading row in view at the bottom.
   useEffect(() => {
@@ -228,11 +247,11 @@ export function QueryConsole() {
           entry={canvasEntry}
           onClose={closeCanvas}
           onAsk={(question) => {
-            closeCanvas();
+            hideCanvas();
             submit(question);
           }}
           onCompare={(selection) => {
-            if (send(selection.question, selection)) closeCanvas();
+            if (send(selection.question, selection)) hideCanvas();
           }}
           busy={mutation.isPending}
         />
