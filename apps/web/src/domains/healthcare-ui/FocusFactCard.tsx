@@ -71,8 +71,8 @@ export function FocusFactCard({ rows, focus, profile }: FocusCardProps) {
       {fact.note && <p className="mt-1 text-xs text-muted-foreground">{fact.note}</p>}
 
       {profile && (
-        <Button type="button" variant="outline" size="sm" onClick={profile.onToggle} className="mt-3 min-h-11 gap-2 px-3">
-          {profile.open ? <PanelRightClose className="size-4" aria-hidden="true" /> : <PanelRight className="size-4" aria-hidden="true" />}
+        <Button type="button" variant="outline" onClick={profile.onToggle} className="mt-4 min-h-12 w-full gap-2.5 px-6 text-base font-semibold">
+          {profile.open ? <PanelRightClose className="size-5" aria-hidden="true" /> : <PanelRight className="size-5" aria-hidden="true" />}
           {profile.open ? "Close canvas" : profile.label}
         </Button>
       )}

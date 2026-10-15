@@ -22,7 +22,7 @@ export const healthcareVisualizers: readonly ResultVisualizer[] = [
   },
   {
     id: "hospital-list",
-    openLabel: "Browse hospitals",
+    openLabel: "Open canvas",
     countLabel: (rows) => `${rows.length} hospitals`,
     // Any set of named hospitals (a directory or a ranking); full 56-column profiles keep their own views above.
     matches: (rows) =>
