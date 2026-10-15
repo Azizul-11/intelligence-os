@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { CircleAlert, Info, Lightbulb, MapPin, PanelRight, PanelRightClose, Workflow } from "lucide-react";
 
 import { Button } from "@/shared/components/ui/button";
@@ -23,8 +23,10 @@ export function ResultCard({
   const { question, result } = entry;
   const openCanvas = useCanvas((state) => state.open);
   const closeCanvas = useCanvas((state) => state.close);
+  const autoOpenCanvas = useCanvas((state) => state.autoOpen);
   // True while this answer is the one shown in the canvas, so its button can offer to close it.
   const canvasOpen = useCanvas((state) => state.entryId === entry.id);
+  const justArrived = useCanvas((state) => state.arrivedId === entry.id);
   const [processOpen, setProcessOpen] = useState(false);
   const processId = useId();
   const success = result.success;
@@ -58,6 +60,12 @@ export function ResultCard({
   const focus = "presentation" in result ? result.presentation?.focus : undefined;
   const focusCard = focus ? activeDomain.focusCards?.find((card) => card.matches(namedRows, focus)) : undefined;
   const cardOwnsCanvasAction = focusCard !== undefined && visualizer !== undefined;
+
+  // Every answer with rows opens in the canvas on its own.
+  const hasRows = Array.isArray(rows) && rows.length > 0;
+  useEffect(() => {
+    if (justArrived && hasRows) autoOpenCanvas(entry.id);
+  }, [justArrived, hasRows, autoOpenCanvas, entry.id]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -145,16 +153,15 @@ export function ResultCard({
         ) : (
           <span />
         )}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           {success && !parseError && Array.isArray(rows) && rows.length > 0 && !cardOwnsCanvasAction && (
             <Button
               type="button"
               variant="outline"
-              size="sm"
               onClick={() => (canvasOpen ? closeCanvas() : openCanvas(entry.id))}
-              className="min-h-11 gap-2 px-3"
+              className="min-h-12 w-full gap-2.5 px-6 text-base font-semibold sm:w-auto sm:min-w-56"
             >
-              {canvasOpen ? <PanelRightClose className="size-4" aria-hidden="true" /> : <PanelRight className="size-4" aria-hidden="true" />}
+              {canvasOpen ? <PanelRightClose className="size-5" aria-hidden="true" /> : <PanelRight className="size-5" aria-hidden="true" />}
               {canvasOpen ? "Close canvas" : (visualizer?.openLabel ?? (rows.length > CARD_LIST_LIMIT ? `See all ${rows.length} in canvas` : "Open in canvas"))}
             </Button>
           )}

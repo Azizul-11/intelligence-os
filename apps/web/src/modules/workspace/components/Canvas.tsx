@@ -72,8 +72,10 @@ export function Canvas({ entry, onClose, onAsk, onCompare, busy }: CanvasProps) 
 
   // Move focus into the canvas on open, and back to where it was on close, so Escape never strands the user.
   useEffect(() => {
-    const returnTo = document.activeElement as HTMLElement | null;
-    asideRef.current?.focus({ preventScroll: true });
+    const autoOpened = useCanvas.getState().autoOpened;
+    // An answer-opened canvas leaves focus in the composer, unless it is a modal.
+    const returnTo = autoOpened ? null : (document.activeElement as HTMLElement | null);
+    if (overlay || !autoOpened) asideRef.current?.focus({ preventScroll: true });
     return () => returnTo?.focus?.();
   }, []);
 
