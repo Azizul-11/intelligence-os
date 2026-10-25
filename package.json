@@ -24,11 +24,11 @@
     "test:supabase": "tsx scripts/test-supabase.ts"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.15",
+    "@biomejs/biome": "^2.6.2",
     "csv-parse": "^7.0.3",
     "esbuild": "^0.28.2",
     "tsx": "^4.23.15",
-    "turbo": "^2.11.8",
+    "turbo": "^2.11.10",
     "typescript": "^5.8.3"
   },
   "dependencies": {
